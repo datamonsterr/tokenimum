@@ -2,6 +2,13 @@ name: Release
 on:
   push:
     tags: ['v*']
+  # Reproducibility check when the build inputs change; publishing stays tag-only.
+  pull_request:
+    paths:
+      - .github/workflows/release.yml
+      - Cargo.lock
+      - Cargo.toml
+      - rust-toolchain.toml
   workflow_dispatch:
     inputs:
       dry_run:
