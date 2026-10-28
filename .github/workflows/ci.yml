@@ -79,14 +79,20 @@ jobs:
           shared-key: geiger
           cache-bin: false
           save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
-      - uses: actions/cache@v6
+      - uses: actions/cache/restore@v6
         id: cargo-geiger-cache
         with:
           path: ~/.cargo/bin/cargo-geiger
           key: cargo-geiger-0.14.0-${{ runner.os }}-rust-1.99.1
       - run: cargo install cargo-geiger --version 0.14.0 --locked
         if: steps.cargo-geiger-cache.outputs.cache-hit != 'true'
+      - uses: actions/cache/save@v6
+        if: steps.cargo-geiger-cache.outputs.cache-hit != 'true'
+        with:
+          path: ~/.cargo/bin/cargo-geiger
+          key: ${{ steps.cargo-geiger-cache.outputs.cache-primary-key }}
       - run: |
+          set -e
           for package in tkmd tkm-cli tkm-hook; do
             cargo geiger --manifest-path "$GITHUB_WORKSPACE/crates/$package/Cargo.toml" --all-features --output-format Json > "${package}-geiger.json"
           done
