@@ -3022,7 +3022,9 @@ dependencies = [
  "proptest",
  "regex",
  "serde",
+ "serde_json",
  "thiserror 2.0.21",
+ "tkm-proto",
 ]
 
 [[package]]
@@ -3071,6 +3073,7 @@ dependencies = [
 name = "tkm-proto"
 version = "0.0.0"
 dependencies = [
+ "proptest",
  "serde",
  "serde_json",
  "thiserror 2.0.21",

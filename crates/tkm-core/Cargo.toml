@@ -11,11 +11,13 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
+tkm-proto = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
 regex = { workspace = true }
 
 [dev-dependencies]
+serde_json.workspace = true
 criterion.workspace = true
 proptest.workspace = true
 
