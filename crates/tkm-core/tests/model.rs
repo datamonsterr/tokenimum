@@ -212,7 +212,7 @@ fn model_defaults_and_constructors_keep_unknown_metadata_explicit() {
     assert_eq!(session.host, Host::Pi);
     assert_eq!(session.started, Timestamp::default());
     assert_eq!(session.ended, None);
-    assert!(session.turns.is_empty());
+    assert_eq!(session.turns, Vec::new());
     assert!(!session.partial);
     assert_eq!(session.total_records, 0);
     assert_eq!(Turn::default().stopped_by, StopReason::Unknown);
