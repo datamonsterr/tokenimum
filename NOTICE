@@ -1,0 +1,18 @@
+tokenimum
+Copyright 2026 datamonsterr
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+Design origin
+-------------
+The mechanisms specified in SPEC.md (repository facts / micro-skills, tool pruning, and the
+failure-loop guard, with their default parameters) are derived from microsoft/TokenEconomizer,
+https://github.com/microsoft/TokenEconomizer, Copyright (c) Microsoft Corporation, licensed under
+the Apache License, Version 2.0. Any code later ported from TokenEconomizer keeps its original
+copyright notices and is marked as such.
+
+Third-party agent skills
+------------------------
+The directory .agents/skills/ contains skills copied from third-party repositories under their
+own licenses (MIT and Apache-2.0). Each skill directory carries its license file or license note,
+and .agents/skills/README.md lists the source URL and commit of each one.
