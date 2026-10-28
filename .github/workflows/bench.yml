@@ -43,6 +43,7 @@ jobs:
         with:
           name: Criterion
           tool: cargo
+          github-token: ${{ github.token }}
           output-file-path: criterion.txt
           external-data-json-path: benchmark-data/criterion.json
           alert-threshold: '120%'
@@ -52,6 +53,7 @@ jobs:
         with:
           name: Hook
           tool: customSmallerIsBetter
+          github-token: ${{ github.token }}
           output-file-path: hook-benchmark.json
           external-data-json-path: benchmark-data/hook.json
           alert-threshold: '120%'

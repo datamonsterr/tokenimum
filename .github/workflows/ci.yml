@@ -59,6 +59,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+      - run: rustup show
       - run: bash scripts/check-forbid-unsafe.sh
   deny:
     runs-on: ubuntu-latest
@@ -97,3 +98,11 @@ jobs:
             cargo geiger --manifest-path "$GITHUB_WORKSPACE/crates/$package/Cargo.toml" --all-features --output-format Json > "${package}-geiger.json"
           done
           python3 scripts/geiger_diff.py tkmd-geiger.json tkm-cli-geiger.json tkm-hook-geiger.json
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: geiger-reports
+          path: |
+            tkmd-geiger.json
+            tkm-cli-geiger.json
+            tkm-hook-geiger.json

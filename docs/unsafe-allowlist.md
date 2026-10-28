@@ -7,7 +7,12 @@ CI scans each binary with cargo-geiger 0.14.0 and requires allowlist entries for
 used unsafe and crates that could not be fully scanned. Unknown file owners fail closed.
 Allowlist entries absent from all reports produce a warning. Review maintenance (within 12 months),
 unsafe use, and justification before adding a row; remove rows found not to use unsafe after the first successful CI scan. Geiger
-and this preliminary list have not yet been validated by CI.
+and this preliminary list have not yet been validated by CI. The count baseline must be generated
+from the three CI `geiger-reports` JSON files using `python3 scripts/geiger_diff.py
+--write-baseline docs/geiger-baseline.json tkmd-geiger.json tkm-cli-geiger.json
+tkm-hook-geiger.json`, reviewed, and committed. Until then CI warns loudly and skips only the
+count comparison. Overlapping reports and multiple versions are represented by the largest
+observed count per crate name, without adding the same crate repeatedly.
 
 | crate | justification | reviewed |
 | --- | --- | --- |
