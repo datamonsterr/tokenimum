@@ -1,5 +1,7 @@
 #![forbid(unsafe_code)]
 
+use std::collections::BTreeMap;
+
 use serde::{Serialize, de::DeserializeOwned};
 use serde_json::{Value, json};
 use tkm_core::model::{
@@ -46,6 +48,14 @@ fn session_model_serde_round_trip_preserves_normalized_records() {
             prompt: "repair fixture".into(),
             calls: vec![call()],
             stopped_by: StopReason::OwnStop,
+            model: Some("model-a".into()),
+            usage_by_model: BTreeMap::from([(
+                "model-a".into(),
+                Usage {
+                    input: 10,
+                    ..Usage::default()
+                },
+            )]),
             usage: Usage {
                 input: 10,
                 output: 20,
@@ -71,6 +81,22 @@ fn session_model_serde_round_trip_preserves_normalized_records() {
             cache_read: 30,
             cache_write: 40,
         },
+        usage_by_model: BTreeMap::from([
+            (
+                "model-a".into(),
+                Usage {
+                    input: 10,
+                    ..Usage::default()
+                },
+            ),
+            (
+                "model-b".into(),
+                Usage {
+                    output: 20,
+                    ..Usage::default()
+                },
+            ),
+        ]),
         partial: true,
         skipped_records: 3,
         total_records: 10,
@@ -223,4 +249,16 @@ fn model_defaults_and_constructors_keep_unknown_metadata_explicit() {
     assert_eq!(event.session_id, "synthetic-session");
     assert_eq!(event.prompt, None);
     assert_eq!(event.call, None);
+}
+
+#[test]
+fn older_session_json_defaults_model_usage_fields() {
+    let mut value = serde_json::to_value(Session::new(Host::Claude)).unwrap();
+    let object = value.as_object_mut().unwrap();
+    object.remove("usage_by_model");
+    object.insert("turns".into(), json!([{"prompt": "old"}]));
+    let session: Session = serde_json::from_value(value).unwrap();
+    assert_eq!(session.usage_by_model, BTreeMap::new());
+    assert_eq!(session.turns[0].model, None);
+    assert_eq!(session.turns[0].usage_by_model, BTreeMap::new());
 }

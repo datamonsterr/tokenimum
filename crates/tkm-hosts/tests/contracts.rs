@@ -73,7 +73,7 @@ fn noop_adapter_ignores_every_event_and_renders_exact_fallback_for_every_action(
                     notice: "notice".into(),
                 },
             ] {
-                assert_eq!(adapter.render_reply(event, &action), host.noop_reply());
+                assert_eq!(adapter.render_reply(&request, &action), host.noop_reply());
             }
         }
     }

@@ -82,7 +82,7 @@ fn oversize_write_emits_no_partial_frame() {
         write_frame(&mut bytes, &json!("x"), 2),
         Err(FrameError::Oversize { .. })
     ));
-    assert!(bytes.is_empty());
+    assert_eq!(bytes, Vec::new());
 }
 
 #[test]
