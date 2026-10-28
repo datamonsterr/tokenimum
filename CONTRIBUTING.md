@@ -19,3 +19,10 @@ must have no open correctness issues, and the branch must be rebased on the late
 passing on that head. Read results with `gh pr checks <pr>` and `gh run view <id> --log-failed`.
 Clean built worktrees with `cargo clean`, remove completed worktrees, and delete merged remote
 branches as described in the delivery rules.
+
+## Workflows
+
+The daily audit also runs when `Cargo.lock` changes. Benchmarks run on main, pull requests, and
+manual dispatch; the 20% PR regression gate needs a successful main run to establish a cached
+baseline. The release build runs only on tags and manual dispatch and publishing remains disabled
+until E10. See [release workflow details](docs/release.md).

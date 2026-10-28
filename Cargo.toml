@@ -49,3 +49,10 @@ tkm-ui = { path = "crates/tkm-ui" }
 tkm-hook = { path = "crates/tkm-hook" }
 tkmd = { path = "crates/tkmd" }
 tkm-cli = { path = "crates/tkm-cli" }
+
+[profile.release]
+codegen-units = 1
+lto = "thin"
+strip = true
+panic = "unwind"
+debug = false
