@@ -29,7 +29,7 @@ jobs:
       - name: Run hook benchmark
         run: |
           cargo build --release --locked -p tkm-hook
-          hyperfine --warmup 20 --runs 200 --export-json hyperfine.json 'target/release/tkm-hook < /dev/null'
+          hyperfine --warmup 20 --runs 200 --input null --export-json hyperfine.json 'target/release/tkm-hook'
           python3 scripts/hyperfine_to_benchmark.py hyperfine.json hook-benchmark.json
       - uses: actions/cache/restore@v6
         with:

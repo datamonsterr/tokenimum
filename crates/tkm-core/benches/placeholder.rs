@@ -6,7 +6,7 @@ use std::hint::black_box;
 
 fn placeholder(c: &mut Criterion) {
     c.bench_function("placeholder", |b| {
-        b.iter(|| black_box(1_u64) + black_box(2))
+        b.iter(|| black_box(1_u64) + black_box(2));
     });
 }
 
