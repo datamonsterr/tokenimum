@@ -74,6 +74,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+      - run: python3 scripts/tests/test_geiger_diff.py
       - run: rustup show
       - uses: Swatinem/rust-cache@v2
         with:

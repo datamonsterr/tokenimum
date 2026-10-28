@@ -8,8 +8,11 @@ import sys
 
 
 def registry_package(filename):
-    """Identify a Cargo registry package even if it has no report entry."""
+    """Identify a registry package or Cargo build-output owner."""
     match = re.search(r'(?:^|/)registry/src/[^/]+/([A-Za-z0-9_-]+)-\d+\.\d+\.\d+(?:[-+][^/]*)?/', filename)
+    if match:
+        return match.group(1)
+    match = re.search(r'(?:^|/)target/[^/]+/build/([A-Za-z0-9_][A-Za-z0-9_-]*)-[0-9a-f]{16}/out/', filename)
     return match.group(1) if match else None
 
 
@@ -26,7 +29,7 @@ parser.add_argument('--write-baseline', type=pathlib.Path, metavar='PATH')
 parser.add_argument('reports', nargs='+', type=pathlib.Path)
 args = parser.parse_args()
 allowlist = pathlib.Path('docs/unsafe-allowlist.md').read_text(encoding='utf-8')
-allowed = set(re.findall(r'^\|\s*([a-zA-Z0-9_-]+)\s*\|', allowlist, re.MULTILINE)) - {'crate'}
+allowed = set(re.findall(r'^\|\s*([a-zA-Z0-9_][a-zA-Z0-9_-]*)\s*\|', allowlist, re.MULTILINE)) - {'crate'}
 used_unsafe, unscanned, seen = set(), set(), set()
 counts = {}
 for filename in args.reports:
