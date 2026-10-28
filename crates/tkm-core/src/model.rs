@@ -4,6 +4,7 @@
 //! identity is computed by E1. Missing metadata remains explicit rather than
 //! requiring a host log read on the daemon's live event path.
 
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
@@ -192,6 +193,12 @@ pub struct Turn {
     pub calls: Vec<Call>,
     /// Observed termination reason; unknown for an incomplete turn.
     pub stopped_by: StopReason,
+    /// Model ID when the turn uses one model and its identity is known.
+    #[serde(default)]
+    pub model: Option<String>,
+    /// Token counts by model ID for the turn.
+    #[serde(default)]
+    pub usage_by_model: BTreeMap<String, Usage>,
     /// Aggregate token counts for the turn.
     pub usage: Usage,
 }
@@ -226,6 +233,9 @@ pub struct Session {
     /// Aggregate session token counts.
     #[serde(default)]
     pub usage: Usage,
+    /// Token counts by model ID across the session.
+    #[serde(default)]
+    pub usage_by_model: BTreeMap<String, Usage>,
     /// Reader found the session too incomplete for fact/pruning evidence.
     #[serde(default)]
     pub partial: bool,
@@ -255,6 +265,7 @@ impl Session {
             turns: Vec::new(),
             tool_catalog: Vec::new(),
             usage: Usage::default(),
+            usage_by_model: BTreeMap::new(),
             partial: false,
             skipped_records: 0,
             total_records: 0,

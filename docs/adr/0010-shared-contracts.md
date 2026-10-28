@@ -7,7 +7,8 @@ Date: 2026-10-29. Status: accepted.
 E1–E6 need one contract for persistence, pure mechanisms, decisions, the synchronous hook,
 the asynchronous daemon, host log readers, installers, and shims. SPEC 5, 6.1–6.4, 7.3,
 13, 14, and 16 define the boundaries; ADR 0001 supplies defaults for unverified hosts.
-E0.2 and E0.3 freeze these contracts before downstream implementation.
+E0.2 and E0.3 freeze these contracts before downstream implementation. The request-based
+rendering signature and per-model usage fields were added during E0 review, before the freeze.
 
 ## Wire types and host identities (`tkm-proto`)
 
@@ -101,8 +102,8 @@ means missing/unknown rather than a guessed value.
 | --- | --- |
 | `RepoKey(pub String)` | Transparent opaque string; E1 computes normalized identity shared by worktrees. Empty default means unresolved. |
 | `Timestamp(pub i64)` | Transparent signed Unix milliseconds; epoch default, negative values permitted, no chrono dependency. |
-| `Session` | `host: Host`, `agent_home: PathBuf`, `session_id: String`, `repo_key: RepoKey`, `cwd: PathBuf`, `started: Timestamp`, `ended: Option<Timestamp>`, `turns: Vec<Turn>`, `tool_catalog: Vec<ToolDef>`, `usage: Usage`, `partial: bool`, `skipped_records: u64`, `total_records: u64`. |
-| `Turn` | `prompt: String`, `calls: Vec<Call>`, `stopped_by: StopReason`, `usage: Usage`. |
+| `Session` | `host: Host`, `agent_home: PathBuf`, `session_id: String`, `repo_key: RepoKey`, `cwd: PathBuf`, `started: Timestamp`, `ended: Option<Timestamp>`, `turns: Vec<Turn>`, `tool_catalog: Vec<ToolDef>`, `usage: Usage`, `usage_by_model: BTreeMap<String, Usage>`, `partial: bool`, `skipped_records: u64`, `total_records: u64`. |
+| `Turn` | `prompt: String`, `calls: Vec<Call>`, `stopped_by: StopReason`, `model: Option<String>`, `usage: Usage`, `usage_by_model: BTreeMap<String, Usage>`. |
 | `Call` | `tool: String`, `args_digest: String`, `output_digest: String`, `exit_code: Option<i32>`, `is_error: bool`, `duration_ms: Option<u64>`, `edits: Vec<FileEdit>`. |
 | `FileEdit` | `path: PathBuf` relative to the repo, `kind: EditKind`, `via: EditVia`. Readers validate containment; the type does no path I/O or validation. |
 | `EditKind` | Non-exhaustive `create`, `modify`, `delete`. |
@@ -114,7 +115,9 @@ means missing/unknown rather than a guessed value.
 
 `Usage::add(self, other)` and the `+` operator saturate each field independently at
 `u64::MAX`. Input means uncached input, excluding cache read/write tokens; readers must
-normalize host totals so E2.7 does not double count. Digests are compact descriptions,
+normalize host totals so E2.7 does not double count. Usage remains the total; per-model
+usage enables pricing mixed-model sessions, and unknown model identity remains absent.
+The new fields default to `None` or empty maps when reading older JSON. Digests are compact descriptions,
 not implicitly safe to export: E3 redacts them before external decisions.
 
 `Turn`, `Call`, `ToolDef`, and `Usage` implement `Default` and deserialize missing fields
@@ -144,7 +147,7 @@ All methods take `&self` and are synchronous:
 | --- | --- |
 | `host()` | `Host` selected by the adapter. |
 | `map_event(&Request)` | `Result<Option<HookEvent>, AdapterError>`; `None` intentionally ignores an event; real adapters validate version/host/required metadata, without I/O. |
-| `render_reply(EventKind, &ReplyAction)` | `String`, enforcing host caps/rules and no-op fallback, without I/O. |
+| `render_reply(&Request, &ReplyAction)` | `String`, using the native event name to enforce host caps/rules and no-op fallback, without I/O. |
 | `read_session(&SessionSource)` | `Result<Session, AdapterError>`; log reader with skipped counts/partial marking; foreign databases read-only. |
 | `install(&InstallContext)` | `Result<InstallReport, AdapterError>`; writes only tokenimum-owned entries, or computes a dry run. |
 | `uninstall(&InstallContext)` | `Result<InstallReport, AdapterError>`; removes only tokenimum-owned entries, or computes a dry run. |

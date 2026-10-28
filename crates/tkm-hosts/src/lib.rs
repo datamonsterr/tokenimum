@@ -12,7 +12,7 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tkm_core::model::{HookEvent, RepoKey, Session};
-use tkm_proto::{EventKind, Host, ReplyAction, Request};
+use tkm_proto::{Host, ReplyAction, Request};
 
 /// Resolved log source and identity supplied to a host session reader.
 ///
@@ -138,9 +138,10 @@ pub trait HostAdapter: Send + Sync {
     /// Implementations enforce host caps and event rules, including no Codex
     /// injection on `turn_end`/`session_end`. Unsupported actions fall back to
     /// the host's no-op reply; notices are advisory and never block a turn.
+    /// The request retains the native event name needed for host-shaped replies.
     /// The hook prints this result verbatim and never interprets the action.
     #[must_use]
-    fn render_reply(&self, event: EventKind, action: &ReplyAction) -> String;
+    fn render_reply(&self, request: &Request, action: &ReplyAction) -> String;
 
     /// Reads a host log into a normalized session, counting skipped records.
     ///
@@ -199,7 +200,7 @@ impl HostAdapter for NoopAdapter {
         Ok(None)
     }
 
-    fn render_reply(&self, _event: EventKind, _action: &ReplyAction) -> String {
+    fn render_reply(&self, _request: &Request, _action: &ReplyAction) -> String {
         self.host.noop_reply().into()
     }
 
