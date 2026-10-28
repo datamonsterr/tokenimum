@@ -1,0 +1,79 @@
+name: Release
+on:
+  push:
+    tags: ['v*']
+  # Reproducibility check when the build inputs change; publishing stays tag-only.
+  pull_request:
+    paths:
+      - .github/workflows/release.yml
+      - Cargo.lock
+      - Cargo.toml
+      - rust-toolchain.toml
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Keep publishing disabled
+        type: boolean
+        default: true
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+permissions:
+  contents: read
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: '0'
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - run: rustup show
+      - name: Install musl and native build tools
+        run: sudo apt-get update && sudo apt-get install -y musl-tools cmake clang golang-go perl
+      - name: Build twice and compare
+        shell: bash
+        run: |
+          set -euo pipefail
+          export SOURCE_DATE_EPOCH
+          SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)
+          export RUSTFLAGS="--remap-path-prefix=$HOME/.cargo=/cargo --remap-path-prefix=$GITHUB_WORKSPACE=/workspace"
+          for build in first second; do
+            CARGO_TARGET_DIR="$RUNNER_TEMP/$build" cargo build --release --locked --target x86_64-unknown-linux-musl -p tkm-cli -p tkm-hook -p tkmd
+          done
+          mkdir -p dist
+          for binary in tkm tkm-hook tkmd; do
+            first="$RUNNER_TEMP/first/x86_64-unknown-linux-musl/release/$binary"
+            second="$RUNNER_TEMP/second/x86_64-unknown-linux-musl/release/$binary"
+            file "$first" | grep -Eq 'statically linked|static-pie linked'
+            first_hash=$(sha256sum "$first" | cut -d " " -f 1)
+            second_hash=$(sha256sum "$second" | cut -d " " -f 1)
+            test "$first_hash" = "$second_hash"
+            cp "$first" "dist/$binary"
+          done
+          (cd dist && sha256sum tkm tkm-hook tkmd > SHA256SUMS)
+      - uses: actions/upload-artifact@v7
+        with:
+          name: tokenimum-x86_64-unknown-linux-musl
+          path: dist/
+          if-no-files-found: error
+  publish:
+    if: >-
+      startsWith(github.ref, 'refs/tags/v') &&
+      (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.dry_run == false)) &&
+      vars.RELEASE_PUBLISH_ENABLED == 'true'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: tokenimum-x86_64-unknown-linux-musl
+          path: dist
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: gh release create "$TAG" dist/tkm dist/tkm-hook dist/tkmd dist/SHA256SUMS --verify-tag --generate-notes

@@ -1,0 +1,109 @@
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+permissions:
+  contents: read
+env:
+  CARGO_TERM_COLOR: always
+jobs:
+  fmt:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - run: rustup show
+      - run: cargo fmt --all --check
+  # The pinned toolchain is also the MSRV; clippy and test exercise that version.
+  clippy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - run: rustup show
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: workspace-debug
+          save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+      - run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - run: rustup show
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: workspace-debug
+          save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: nextest
+      - run: cargo nextest run --workspace --all-features --locked --no-tests=pass
+      - run: cargo test --doc --workspace --all-features --locked
+  doc:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - run: rustup show
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: workspace-debug
+          save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+      - run: cargo doc --workspace --no-deps --all-features --locked
+        env:
+          RUSTDOCFLAGS: -D warnings
+  forbid-unsafe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - run: rustup show
+      - run: bash scripts/check-forbid-unsafe.sh
+  deny:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check
+          command-arguments: all
+          rust-version: 1.99.1
+  geiger:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - run: python3 scripts/tests/test_geiger_diff.py
+      - run: rustup show
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: geiger
+          cache-bin: false
+          save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+      - uses: actions/cache/restore@v6
+        id: cargo-geiger-cache
+        with:
+          path: ~/.cargo/bin/cargo-geiger
+          key: cargo-geiger-0.14.0-${{ runner.os }}-rust-1.99.1
+      - run: cargo install cargo-geiger --version 0.14.0 --locked
+        if: steps.cargo-geiger-cache.outputs.cache-hit != 'true'
+      - uses: actions/cache/save@v6
+        if: steps.cargo-geiger-cache.outputs.cache-hit != 'true'
+        with:
+          path: ~/.cargo/bin/cargo-geiger
+          key: ${{ steps.cargo-geiger-cache.outputs.cache-primary-key }}
+      - run: |
+          set -e
+          for package in tkmd tkm-cli tkm-hook; do
+            cargo geiger --manifest-path "$GITHUB_WORKSPACE/crates/$package/Cargo.toml" --all-features --output-format Json > "${package}-geiger.json"
+          done
+          python3 scripts/geiger_diff.py tkmd-geiger.json tkm-cli-geiger.json tkm-hook-geiger.json
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: geiger-reports
+          path: |
+            tkmd-geiger.json
+            tkm-cli-geiger.json
+            tkm-hook-geiger.json

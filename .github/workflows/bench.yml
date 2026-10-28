@@ -1,0 +1,66 @@
+name: Bench
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+permissions:
+  contents: read
+env:
+  CARGO_TERM_COLOR: always
+jobs:
+  bench:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - run: rustup show
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: workspace-bench
+          save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: hyperfine@2.0.0
+      - name: Run Criterion placeholder
+        run: cargo bench --locked -p tkm-core --bench placeholder -- --output-format bencher | tee criterion.txt
+      - name: Run hook benchmark
+        run: |
+          cargo build --release --locked -p tkm-hook
+          hyperfine --warmup 20 --runs 200 --input null --export-json hyperfine.json 'target/release/tkm-hook'
+          python3 scripts/hyperfine_to_benchmark.py hyperfine.json hook-benchmark.json
+      - uses: actions/cache/restore@v6
+        with:
+          path: benchmark-data
+          key: benchmark-v1-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: benchmark-v1-
+      - run: mkdir -p benchmark-data
+      # Shared runner noise can trigger the 20% gate; later epics should tune it.
+      - name: Compare Criterion
+        uses: benchmark-action/github-action-benchmark@v1.22.2
+        with:
+          name: Criterion
+          tool: cargo
+          github-token: ${{ github.token }}
+          output-file-path: criterion.txt
+          external-data-json-path: benchmark-data/criterion.json
+          alert-threshold: '120%'
+          fail-on-alert: ${{ github.event_name == 'pull_request' }}
+      - name: Compare hook startup
+        uses: benchmark-action/github-action-benchmark@v1.22.2
+        with:
+          name: Hook
+          tool: customSmallerIsBetter
+          github-token: ${{ github.token }}
+          output-file-path: hook-benchmark.json
+          external-data-json-path: benchmark-data/hook.json
+          alert-threshold: '120%'
+          fail-on-alert: ${{ github.event_name == 'pull_request' }}
+      - name: Save main baseline
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/cache/save@v6
+        with:
+          path: benchmark-data
+          key: benchmark-v1-${{ github.run_id }}-${{ github.run_attempt }}

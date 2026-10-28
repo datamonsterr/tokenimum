@@ -1,0 +1,26 @@
+[package]
+name = "tkm-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+clap = { workspace = true }
+tkm-proto = { workspace = true }
+tkm-core = { workspace = true }
+tkm-hosts = { workspace = true }
+tkm-decide = { workspace = true }
+tkm-store = { workspace = true }
+tkm-integrations = { workspace = true }
+tkm-config = { workspace = true }
+tkm-ui = { workspace = true }
+
+[[bin]]
+name = "tkm"
+path = "src/main.rs"

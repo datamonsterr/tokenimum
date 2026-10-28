@@ -17,7 +17,8 @@ failure loop.
 
 ## Status
 
-**Specification only.** No code yet. Read [SPEC.md](SPEC.md).
+**E0 foundation in progress:** workspace, contracts, and CI. Read the [specification](SPEC.md),
+[implementation plan](docs/plan/EPICS.md), and [contribution guide](CONTRIBUTING.md).
 
 ## Repository layout
 
