@@ -77,12 +77,12 @@ fn encode_rejects_body_larger_than_limit() {
 
 #[test]
 fn oversize_write_emits_no_partial_frame() {
-    let mut bytes = Vec::new();
+    let mut bytes: Vec<u8> = Vec::new();
     assert!(matches!(
         write_frame(&mut bytes, &json!("x"), 2),
         Err(FrameError::Oversize { .. })
     ));
-    assert_eq!(bytes, Vec::new());
+    assert_eq!(bytes, Vec::<u8>::new());
 }
 
 #[test]

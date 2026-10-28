@@ -1,0 +1,894 @@
+{
+  "aho-corasick": {
+    "version": "1.1.5",
+    "used_unsafe": 1097
+  },
+  "allocator-api2": {
+    "version": "0.2.21",
+    "used_unsafe": 862
+  },
+  "anstream": {
+    "version": "1.0.0",
+    "used_unsafe": 8
+  },
+  "anstyle": {
+    "version": "1.0.14",
+    "used_unsafe": 6
+  },
+  "anstyle-parse": {
+    "version": "1.0.0",
+    "used_unsafe": 17
+  },
+  "anstyle-query": {
+    "version": "1.1.5",
+    "used_unsafe": 22
+  },
+  "atomic-waker": {
+    "version": "1.1.2",
+    "used_unsafe": 34
+  },
+  "aws-lc-rs": {
+    "version": "1.19.0",
+    "used_unsafe": 1063
+  },
+  "aws-lc-sys": {
+    "version": "0.47.0",
+    "used_unsafe": 715
+  },
+  "base64": {
+    "version": "0.23.1",
+    "used_unsafe": 295
+  },
+  "bit-set": {
+    "version": "0.11.1",
+    "used_unsafe": 0
+  },
+  "bit-vec": {
+    "version": "0.10.1",
+    "used_unsafe": 0
+  },
+  "bitflags": {
+    "version": "2.13.2",
+    "used_unsafe": 0
+  },
+  "bstr": {
+    "version": "1.13.1",
+    "used_unsafe": 364
+  },
+  "bytes": {
+    "version": "1.12.1",
+    "used_unsafe": 849
+  },
+  "castaway": {
+    "version": "0.2.4",
+    "used_unsafe": 74
+  },
+  "cfg-if": {
+    "version": "1.0.5",
+    "used_unsafe": 0
+  },
+  "chacha20": {
+    "version": "0.10.2",
+    "used_unsafe": 0
+  },
+  "clap": {
+    "version": "4.6.7",
+    "used_unsafe": 0
+  },
+  "clap_builder": {
+    "version": "4.6.7",
+    "used_unsafe": 0
+  },
+  "clap_derive": {
+    "version": "4.6.7",
+    "used_unsafe": 0
+  },
+  "clap_lex": {
+    "version": "1.1.1",
+    "used_unsafe": 16
+  },
+  "colorchoice": {
+    "version": "1.0.5",
+    "used_unsafe": 0
+  },
+  "combine": {
+    "version": "4.6.9",
+    "used_unsafe": 0
+  },
+  "compact_str": {
+    "version": "0.9.1",
+    "used_unsafe": 425
+  },
+  "convert_case": {
+    "version": "0.10.0",
+    "used_unsafe": 0
+  },
+  "core_detect": {
+    "version": "1.0.0",
+    "used_unsafe": 0
+  },
+  "cpufeatures": {
+    "version": "0.3.1",
+    "used_unsafe": 0
+  },
+  "critical-section": {
+    "version": "1.2.0",
+    "used_unsafe": 23
+  },
+  "crossterm": {
+    "version": "0.29.0",
+    "used_unsafe": 28
+  },
+  "darling": {
+    "version": "0.24.1",
+    "used_unsafe": 0
+  },
+  "darling_core": {
+    "version": "0.24.1",
+    "used_unsafe": 0
+  },
+  "darling_macro": {
+    "version": "0.24.1",
+    "used_unsafe": 0
+  },
+  "deranged": {
+    "version": "0.5.9",
+    "used_unsafe": 2
+  },
+  "derive_more": {
+    "version": "2.1.1",
+    "used_unsafe": 0
+  },
+  "derive_more-impl": {
+    "version": "2.1.1",
+    "used_unsafe": 0
+  },
+  "directories": {
+    "version": "6.0.0",
+    "used_unsafe": 0
+  },
+  "dirs-sys": {
+    "version": "0.5.0",
+    "used_unsafe": 49
+  },
+  "displaydoc": {
+    "version": "0.2.7",
+    "used_unsafe": 0
+  },
+  "document-features": {
+    "version": "0.2.12",
+    "used_unsafe": 0
+  },
+  "either": {
+    "version": "1.19.0",
+    "used_unsafe": 2
+  },
+  "equivalent": {
+    "version": "1.0.3",
+    "used_unsafe": 0
+  },
+  "errno": {
+    "version": "0.3.14",
+    "used_unsafe": 35
+  },
+  "fallible-iterator": {
+    "version": "0.3.0",
+    "used_unsafe": 0
+  },
+  "fallible-streaming-iterator": {
+    "version": "0.1.9",
+    "used_unsafe": 0
+  },
+  "fastrand": {
+    "version": "2.5.0",
+    "used_unsafe": 0
+  },
+  "fnv": {
+    "version": "1.0.7",
+    "used_unsafe": 0
+  },
+  "foldhash": {
+    "version": "0.2.0",
+    "used_unsafe": 205
+  },
+  "form_urlencoded": {
+    "version": "1.2.2",
+    "used_unsafe": 2
+  },
+  "futures-channel": {
+    "version": "0.3.34",
+    "used_unsafe": 92
+  },
+  "futures-core": {
+    "version": "0.3.34",
+    "used_unsafe": 38
+  },
+  "futures-task": {
+    "version": "0.3.34",
+    "used_unsafe": 112
+  },
+  "futures-util": {
+    "version": "0.3.34",
+    "used_unsafe": 401
+  },
+  "getrandom": {
+    "version": "0.4.3",
+    "used_unsafe": 0
+  },
+  "globset": {
+    "version": "0.4.21",
+    "used_unsafe": 0
+  },
+  "hashbrown": {
+    "version": "0.17.1",
+    "used_unsafe": 1507
+  },
+  "hashlink": {
+    "version": "0.12.2",
+    "used_unsafe": 847
+  },
+  "heck": {
+    "version": "0.5.0",
+    "used_unsafe": 0
+  },
+  "http": {
+    "version": "1.5.0",
+    "used_unsafe": 181
+  },
+  "http-body": {
+    "version": "1.1.0",
+    "used_unsafe": 4
+  },
+  "http-body-util": {
+    "version": "0.1.5",
+    "used_unsafe": 6
+  },
+  "httparse": {
+    "version": "1.10.1",
+    "used_unsafe": 275
+  },
+  "hyper": {
+    "version": "1.12.0",
+    "used_unsafe": 95
+  },
+  "hyper-rustls": {
+    "version": "0.27.10",
+    "used_unsafe": 0
+  },
+  "hyper-util": {
+    "version": "0.1.21",
+    "used_unsafe": 49
+  },
+  "icu_collections": {
+    "version": "2.4.0",
+    "used_unsafe": 38
+  },
+  "icu_locale_core": {
+    "version": "2.4.0",
+    "used_unsafe": 11
+  },
+  "icu_normalizer": {
+    "version": "2.4.0",
+    "used_unsafe": 23
+  },
+  "icu_normalizer_data": {
+    "version": "2.4.0",
+    "used_unsafe": 0
+  },
+  "icu_properties": {
+    "version": "2.4.0",
+    "used_unsafe": 0
+  },
+  "icu_properties_data": {
+    "version": "2.4.0",
+    "used_unsafe": 0
+  },
+  "icu_provider": {
+    "version": "2.4.0",
+    "used_unsafe": 45
+  },
+  "ident_case": {
+    "version": "1.0.1",
+    "used_unsafe": 0
+  },
+  "idna": {
+    "version": "1.1.0",
+    "used_unsafe": 31
+  },
+  "idna_adapter": {
+    "version": "1.2.2",
+    "used_unsafe": 0
+  },
+  "indexmap": {
+    "version": "2.14.2",
+    "used_unsafe": 80
+  },
+  "indoc": {
+    "version": "2.0.8",
+    "used_unsafe": 0
+  },
+  "inotify": {
+    "version": "0.11.5",
+    "used_unsafe": 97
+  },
+  "inotify-sys": {
+    "version": "0.1.8",
+    "used_unsafe": 0
+  },
+  "instability": {
+    "version": "0.3.14",
+    "used_unsafe": 0
+  },
+  "ipnet": {
+    "version": "2.12.2",
+    "used_unsafe": 0
+  },
+  "is_terminal_polyfill": {
+    "version": "1.70.2",
+    "used_unsafe": 0
+  },
+  "itertools": {
+    "version": "0.14.0",
+    "used_unsafe": 23
+  },
+  "itoa": {
+    "version": "1.0.18",
+    "used_unsafe": 146
+  },
+  "jni": {
+    "version": "0.22.4",
+    "used_unsafe": 0
+  },
+  "jni-macros": {
+    "version": "0.22.4",
+    "used_unsafe": 0
+  },
+  "jni-sys": {
+    "version": "0.4.1",
+    "used_unsafe": 0
+  },
+  "jni-sys-macros": {
+    "version": "0.4.1",
+    "used_unsafe": 0
+  },
+  "kasuari": {
+    "version": "0.4.13",
+    "used_unsafe": 0
+  },
+  "lazy_static": {
+    "version": "1.5.1",
+    "used_unsafe": 8
+  },
+  "libc": {
+    "version": "0.2.191",
+    "used_unsafe": 99
+  },
+  "libsqlite3-sys": {
+    "version": "0.39.1",
+    "used_unsafe": 6
+  },
+  "line-clipping": {
+    "version": "0.3.8",
+    "used_unsafe": 0
+  },
+  "linux-raw-sys": {
+    "version": "0.12.1",
+    "used_unsafe": 322
+  },
+  "litemap": {
+    "version": "0.8.3",
+    "used_unsafe": 0
+  },
+  "litrs": {
+    "version": "1.0.1",
+    "used_unsafe": 0
+  },
+  "lock_api": {
+    "version": "0.4.14",
+    "used_unsafe": 739
+  },
+  "log": {
+    "version": "0.4.34",
+    "used_unsafe": 21
+  },
+  "lru": {
+    "version": "0.18.5",
+    "used_unsafe": 617
+  },
+  "memchr": {
+    "version": "2.8.3",
+    "used_unsafe": 2138
+  },
+  "mio": {
+    "version": "1.2.4",
+    "used_unsafe": 181
+  },
+  "notify": {
+    "version": "8.2.1",
+    "used_unsafe": 0
+  },
+  "notify-types": {
+    "version": "2.2.0",
+    "used_unsafe": 0
+  },
+  "nu-ansi-term": {
+    "version": "0.50.3",
+    "used_unsafe": 0
+  },
+  "num-conv": {
+    "version": "0.2.2",
+    "used_unsafe": 0
+  },
+  "num-traits": {
+    "version": "0.2.19",
+    "used_unsafe": 0
+  },
+  "num_threads": {
+    "version": "0.1.8",
+    "used_unsafe": 0
+  },
+  "once_cell": {
+    "version": "1.21.4",
+    "used_unsafe": 89
+  },
+  "openssl-probe": {
+    "version": "0.2.2",
+    "used_unsafe": 32
+  },
+  "option-ext": {
+    "version": "0.2.0",
+    "used_unsafe": 0
+  },
+  "parking_lot": {
+    "version": "0.12.5",
+    "used_unsafe": 322
+  },
+  "parking_lot_core": {
+    "version": "0.9.12",
+    "used_unsafe": 936
+  },
+  "percent-encoding": {
+    "version": "2.3.2",
+    "used_unsafe": 8
+  },
+  "pin-project-lite": {
+    "version": "0.2.17",
+    "used_unsafe": 13
+  },
+  "potential_utf": {
+    "version": "0.1.6",
+    "used_unsafe": 20
+  },
+  "powerfmt": {
+    "version": "0.2.1",
+    "used_unsafe": 22
+  },
+  "proc-macro2": {
+    "version": "1.0.107",
+    "used_unsafe": 17
+  },
+  "proptest": {
+    "version": "1.12.0",
+    "used_unsafe": 0
+  },
+  "quick-error": {
+    "version": "1.2.3",
+    "used_unsafe": 0
+  },
+  "quote": {
+    "version": "1.0.47",
+    "used_unsafe": 0
+  },
+  "rand": {
+    "version": "0.10.3",
+    "used_unsafe": 0
+  },
+  "rand_core": {
+    "version": "0.10.1",
+    "used_unsafe": 0
+  },
+  "rand_xorshift": {
+    "version": "0.5.0",
+    "used_unsafe": 0
+  },
+  "ratatui": {
+    "version": "0.30.2",
+    "used_unsafe": 0
+  },
+  "ratatui-core": {
+    "version": "0.1.2",
+    "used_unsafe": 0
+  },
+  "ratatui-crossterm": {
+    "version": "0.1.2",
+    "used_unsafe": 0
+  },
+  "ratatui-macros": {
+    "version": "0.7.2",
+    "used_unsafe": 0
+  },
+  "ratatui-widgets": {
+    "version": "0.3.2",
+    "used_unsafe": 0
+  },
+  "regex": {
+    "version": "1.13.1",
+    "used_unsafe": 0
+  },
+  "regex-automata": {
+    "version": "0.4.18",
+    "used_unsafe": 88
+  },
+  "regex-syntax": {
+    "version": "0.8.11",
+    "used_unsafe": 0
+  },
+  "reqwest": {
+    "version": "0.13.5",
+    "used_unsafe": 2
+  },
+  "rusqlite": {
+    "version": "0.41.1",
+    "used_unsafe": 657
+  },
+  "rustix": {
+    "version": "1.1.6",
+    "used_unsafe": 452
+  },
+  "rustls": {
+    "version": "0.23.46",
+    "used_unsafe": 0
+  },
+  "rustls-native-certs": {
+    "version": "0.8.5",
+    "used_unsafe": 0
+  },
+  "rustls-pki-types": {
+    "version": "1.15.1",
+    "used_unsafe": 1
+  },
+  "rustls-platform-verifier": {
+    "version": "0.7.1",
+    "used_unsafe": 0
+  },
+  "rustls-webpki": {
+    "version": "0.103.16",
+    "used_unsafe": 0
+  },
+  "rustversion": {
+    "version": "1.0.23",
+    "used_unsafe": 0
+  },
+  "rusty-fork": {
+    "version": "0.3.1",
+    "used_unsafe": 0
+  },
+  "ryu": {
+    "version": "1.0.23",
+    "used_unsafe": 569
+  },
+  "same-file": {
+    "version": "1.0.6",
+    "used_unsafe": 3
+  },
+  "scopeguard": {
+    "version": "1.2.0",
+    "used_unsafe": 17
+  },
+  "serde": {
+    "version": "1.0.229",
+    "used_unsafe": 0
+  },
+  "serde_core": {
+    "version": "1.0.229",
+    "used_unsafe": 5
+  },
+  "serde_derive": {
+    "version": "1.0.229",
+    "used_unsafe": 0
+  },
+  "serde_json": {
+    "version": "1.0.154",
+    "used_unsafe": 75
+  },
+  "sharded-slab": {
+    "version": "0.1.7",
+    "used_unsafe": 165
+  },
+  "signal-hook": {
+    "version": "0.3.18",
+    "used_unsafe": 126
+  },
+  "signal-hook-mio": {
+    "version": "0.2.5",
+    "used_unsafe": 0
+  },
+  "signal-hook-registry": {
+    "version": "1.4.8",
+    "used_unsafe": 12
+  },
+  "simd_cesu8": {
+    "version": "1.2.0",
+    "used_unsafe": 0
+  },
+  "simdutf8": {
+    "version": "0.1.5",
+    "used_unsafe": 0
+  },
+  "slab": {
+    "version": "0.4.12",
+    "used_unsafe": 32
+  },
+  "smallvec": {
+    "version": "1.16.4",
+    "used_unsafe": 634
+  },
+  "socket2": {
+    "version": "0.6.5",
+    "used_unsafe": 674
+  },
+  "stable_deref_trait": {
+    "version": "1.2.1",
+    "used_unsafe": 25
+  },
+  "static_assertions": {
+    "version": "1.1.0",
+    "used_unsafe": 0
+  },
+  "strsim": {
+    "version": "0.11.1",
+    "used_unsafe": 0
+  },
+  "strum": {
+    "version": "0.28.0",
+    "used_unsafe": 0
+  },
+  "strum_macros": {
+    "version": "0.28.0",
+    "used_unsafe": 0
+  },
+  "subtle": {
+    "version": "2.6.1",
+    "used_unsafe": 8
+  },
+  "syn": {
+    "version": "3.0.9",
+    "used_unsafe": 93
+  },
+  "sync_wrapper": {
+    "version": "1.0.2",
+    "used_unsafe": 13
+  },
+  "synstructure": {
+    "version": "0.14.0",
+    "used_unsafe": 0
+  },
+  "tempfile": {
+    "version": "3.27.0",
+    "used_unsafe": 0
+  },
+  "thiserror": {
+    "version": "2.0.21",
+    "used_unsafe": 0
+  },
+  "thiserror-impl": {
+    "version": "2.0.21",
+    "used_unsafe": 0
+  },
+  "thread_local": {
+    "version": "1.1.10",
+    "used_unsafe": 61
+  },
+  "time": {
+    "version": "0.3.55",
+    "used_unsafe": 836
+  },
+  "time-core": {
+    "version": "0.1.9",
+    "used_unsafe": 0
+  },
+  "tinystr": {
+    "version": "0.8.5",
+    "used_unsafe": 62
+  },
+  "tkm-cli": {
+    "version": "0.0.0",
+    "used_unsafe": 0
+  },
+  "tkm-config": {
+    "version": "0.0.0",
+    "used_unsafe": 0
+  },
+  "tkm-core": {
+    "version": "0.0.0",
+    "used_unsafe": 0
+  },
+  "tkm-decide": {
+    "version": "0.0.0",
+    "used_unsafe": 0
+  },
+  "tkm-hook": {
+    "version": "0.0.0",
+    "used_unsafe": 0
+  },
+  "tkm-hosts": {
+    "version": "0.0.0",
+    "used_unsafe": 0
+  },
+  "tkm-integrations": {
+    "version": "0.0.0",
+    "used_unsafe": 0
+  },
+  "tkm-proto": {
+    "version": "0.0.0",
+    "used_unsafe": 0
+  },
+  "tkm-store": {
+    "version": "0.0.0",
+    "used_unsafe": 0
+  },
+  "tkm-ui": {
+    "version": "0.0.0",
+    "used_unsafe": 0
+  },
+  "tkmd": {
+    "version": "0.0.0",
+    "used_unsafe": 0
+  },
+  "tokio": {
+    "version": "1.54.1",
+    "used_unsafe": 2424
+  },
+  "tokio-rustls": {
+    "version": "0.26.6",
+    "used_unsafe": 0
+  },
+  "toml_datetime": {
+    "version": "1.1.2+spec-1.1.0",
+    "used_unsafe": 0
+  },
+  "toml_edit": {
+    "version": "0.25.17+spec-1.1.0",
+    "used_unsafe": 0
+  },
+  "toml_parser": {
+    "version": "1.1.5+spec-1.1.0",
+    "used_unsafe": 74
+  },
+  "toml_writer": {
+    "version": "1.1.3+spec-1.1.0",
+    "used_unsafe": 0
+  },
+  "tower": {
+    "version": "0.5.3",
+    "used_unsafe": 0
+  },
+  "tower-http": {
+    "version": "0.6.11",
+    "used_unsafe": 0
+  },
+  "tower-layer": {
+    "version": "0.3.3",
+    "used_unsafe": 0
+  },
+  "tower-service": {
+    "version": "0.3.3",
+    "used_unsafe": 0
+  },
+  "tracing": {
+    "version": "0.1.44",
+    "used_unsafe": 18
+  },
+  "tracing-attributes": {
+    "version": "0.1.31",
+    "used_unsafe": 0
+  },
+  "tracing-core": {
+    "version": "0.1.36",
+    "used_unsafe": 80
+  },
+  "tracing-log": {
+    "version": "0.2.0",
+    "used_unsafe": 36
+  },
+  "tracing-subscriber": {
+    "version": "0.3.23",
+    "used_unsafe": 149
+  },
+  "try-lock": {
+    "version": "0.2.5",
+    "used_unsafe": 23
+  },
+  "unarray": {
+    "version": "0.1.4",
+    "used_unsafe": 0
+  },
+  "unicode-ident": {
+    "version": "1.0.27",
+    "used_unsafe": 4
+  },
+  "unicode-segmentation": {
+    "version": "1.13.3",
+    "used_unsafe": 0
+  },
+  "unicode-truncate": {
+    "version": "2.0.1",
+    "used_unsafe": 0
+  },
+  "unicode-width": {
+    "version": "0.2.3",
+    "used_unsafe": 0
+  },
+  "untrusted": {
+    "version": "0.9.0",
+    "used_unsafe": 0
+  },
+  "url": {
+    "version": "2.5.8",
+    "used_unsafe": 4
+  },
+  "utf8_iter": {
+    "version": "1.0.4",
+    "used_unsafe": 10
+  },
+  "utf8parse": {
+    "version": "0.2.2",
+    "used_unsafe": 1
+  },
+  "wait-timeout": {
+    "version": "0.2.1",
+    "used_unsafe": 0
+  },
+  "walkdir": {
+    "version": "2.5.0",
+    "used_unsafe": 0
+  },
+  "want": {
+    "version": "0.3.2",
+    "used_unsafe": 0
+  },
+  "winnow": {
+    "version": "1.0.4",
+    "used_unsafe": 82
+  },
+  "writeable": {
+    "version": "0.6.4",
+    "used_unsafe": 0
+  },
+  "yoke": {
+    "version": "0.8.4",
+    "used_unsafe": 150
+  },
+  "yoke-derive": {
+    "version": "0.8.4",
+    "used_unsafe": 0
+  },
+  "zerofrom": {
+    "version": "0.1.8",
+    "used_unsafe": 0
+  },
+  "zerofrom-derive": {
+    "version": "0.1.8",
+    "used_unsafe": 0
+  },
+  "zeroize": {
+    "version": "1.9.1",
+    "used_unsafe": 28
+  },
+  "zerotrie": {
+    "version": "0.2.5",
+    "used_unsafe": 25
+  },
+  "zerovec": {
+    "version": "0.11.9",
+    "used_unsafe": 541
+  },
+  "zerovec-derive": {
+    "version": "0.11.7",
+    "used_unsafe": 0
+  },
+  "zmij": {
+    "version": "1.0.23",
+    "used_unsafe": 629
+  }
+}
