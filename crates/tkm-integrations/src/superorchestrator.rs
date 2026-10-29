@@ -265,10 +265,10 @@ fn response(reader: &mut impl BufRead, id: u64) -> io::Result<()> {
                         .and_then(serde_json::Value::as_str)
                         .is_none())
                 || (id == 2
-                    && !value
+                    && value
                         .pointer("/result/content")
                         .and_then(serde_json::Value::as_array)
-                        .is_some_and(|items| !items.is_empty())
+                        .is_none_or(|items| items.is_empty())
                     && !value
                         .pointer("/result/structuredContent")
                         .is_some_and(serde_json::Value::is_object))
