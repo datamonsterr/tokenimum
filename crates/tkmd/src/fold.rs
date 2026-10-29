@@ -630,7 +630,7 @@ fn derived_log_path(
 ) -> Option<PathBuf> {
     // IDs enter from host payloads; never let them escape a session store.
     if session_id.is_empty()
-        || session_id.contains(['/', '\\'])
+        || (session_id.contains('/') || session_id.contains('\\'))
         || session_id == "."
         || session_id == ".."
     {
