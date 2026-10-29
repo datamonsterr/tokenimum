@@ -171,7 +171,7 @@ fn ledger_rejects_u64_overflow() {
             2 => ledger.usage.cache_read = u64::MAX,
             3 => ledger.usage.cache_write = u64::MAX,
             _ => ledger.overhead_tokens = u64::MAX,
-        };
+        }
         assert!(store.upsert_ledger(&ledger).is_err());
     }
     assert_eq!(store.get_ledger(id).unwrap(), None);
