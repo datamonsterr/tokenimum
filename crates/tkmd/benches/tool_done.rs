@@ -255,7 +255,7 @@ fn tool_done(c: &mut Criterion) {
     let delivered = daemon.handle_tool_done(&failing);
     assert!(
         matches!(delivered.action, tkm_proto::ReplyAction::Inject { .. }),
-        "redirect must be delivered once the host can show it: {delivered:?}; (acted, shadow, redirects) = {evidence:?}"
+        "redirect must be delivered once the host can show it: {delivered:?}"
     );
     bench_gate_open(c, &runtime, &daemon, &failing);
     bench_pending_redirect(c, &runtime, &daemon, &failing, &blind);
