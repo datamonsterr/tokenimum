@@ -1385,6 +1385,149 @@ mod replay_tests {
     }
 
     #[test]
+    fn fold_discovers_every_other_host_without_hook_path() {
+        let scratch = tempfile::tempdir().unwrap();
+        let root = scratch.path();
+        let fixtures = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures"));
+        let codex = "01a18562-fb1c-7522-9939-dda89fa83662";
+        let agy = "1def34bb-9ae9-4260-99c1-e7f59d3ef14d";
+        let cursor = "c1a2b3c4-d5e6-7f8a-9b0c-1d2e3f4a5b6c";
+        let codewhale = "550e8400-e29b-41d4-a716-446655440000";
+        let pi = "00000000-0000-4000-8000-000000000001";
+        let codex_file =
+            format!("codex/sessions/2026/10/29/rollout-2026-10-29T09-00-20-{codex}.jsonl");
+        let agy_file = format!("agy/brain/{agy}/.system_generated/logs/transcript_full.jsonl");
+        let cursor_file = format!("cursor/transcripts/{cursor}.jsonl");
+        let codewhale_file = format!("codewhale/sessions/{codewhale}.json");
+        let cases = [
+            (
+                Host::Codex,
+                root.join(".codex"),
+                codex,
+                fixtures.join(&codex_file),
+                root.join(".codex/sessions/2026/10/29")
+                    .join(Path::new(&codex_file).file_name().unwrap()),
+            ),
+            (
+                Host::Agy,
+                root.join(".gemini"),
+                agy,
+                fixtures.join(&agy_file),
+                root.join(".gemini/antigravity-cli/brain")
+                    .join(agy)
+                    .join(".system_generated/logs/transcript_full.jsonl"),
+            ),
+            (
+                Host::Cursor,
+                root.join(".cursor"),
+                cursor,
+                fixtures.join(&cursor_file),
+                root.join(".cursor/projects/project/agent-transcripts")
+                    .join(cursor)
+                    .join(format!("{cursor}.jsonl")),
+            ),
+            (
+                Host::Deepseek,
+                root.join(".codewhale"),
+                codewhale,
+                fixtures.join(&codewhale_file),
+                root.join(".codewhale/sessions")
+                    .join(format!("{codewhale}.json")),
+            ),
+            (
+                Host::Pi,
+                root.join(".pi/agent"),
+                pi,
+                PathBuf::from(concat!(
+                    env!("CARGO_MANIFEST_DIR"),
+                    "/../tkm-hosts/tests/fixtures/pi/session.jsonl"
+                )),
+                root.join(".pi/agent/sessions/--project--")
+                    .join(format!("2026_{pi}.jsonl")),
+            ),
+        ];
+        let registry = crate::registry::AdapterRegistry::standard();
+        for (host, home, session_id, fixture, destination) in cases {
+            std::fs::create_dir_all(destination.parent().unwrap()).unwrap();
+            std::fs::copy(fixture, destination).unwrap();
+            assert_fixture_fold(&registry, host, home, session_id);
+        }
+        let db_path = root.join(".local/share/opencode/opencode.db");
+        std::fs::create_dir_all(db_path.parent().unwrap()).unwrap();
+        let db = rusqlite::Connection::open(&db_path).unwrap();
+        db.execute_batch("PRAGMA foreign_keys = OFF;").unwrap();
+        db.execute_batch(include_str!(
+            "../../tkm-hosts/tests/fixtures/opencode/session.sql"
+        ))
+        .unwrap();
+        drop(db);
+        assert_fixture_fold(
+            &registry,
+            Host::Opencode,
+            root.join(".config/opencode"),
+            "ses_example1",
+        );
+    }
+
+    fn assert_fixture_fold(
+        registry: &crate::registry::AdapterRegistry,
+        host: Host,
+        home: PathBuf,
+        session_id: &str,
+    ) {
+        let store = Store::open_in_memory().unwrap();
+        let repo = RepoKey("fixture".into());
+        let cwd = PathBuf::from("/home/user/project");
+        store
+            .upsert_repo(&tkm_store::Repo {
+                repo_key: repo.clone(),
+                display_name: "fixture".into(),
+                first_seen: Timestamp(0),
+                last_seen: Timestamp(0),
+                delegated_runs: 0,
+            })
+            .unwrap();
+        let key = SessionKey {
+            host,
+            agent_home: home.to_string_lossy().into_owned(),
+            session_id: session_id.into(),
+        };
+        let id = store
+            .upsert_session(&tkm_store::NewSession {
+                key: key.clone(),
+                repo_key: repo.clone(),
+                cwd: cwd.clone(),
+                started: Timestamp(0),
+                ended: Some(Timestamp(1)),
+                fold_status: "pending".into(),
+                shadow: false,
+                integration_level: "hooks".into(),
+            })
+            .unwrap();
+        let job = FoldJob {
+            key,
+            host,
+            repo,
+            cwd,
+            agent_home: home,
+            log_path: None,
+            settings: Arc::new(Settings::default()),
+            injected: BTreeSet::new(),
+            overhead: (0, Some(0.0)),
+            ended_ms: 1,
+        };
+        let record = store.get_session(id).unwrap().unwrap();
+        let adapter = registry.get(host);
+        let report = fold_inner(&store, &record, adapter.as_ref(), &job, None).unwrap();
+        assert_eq!(report.status, "folded", "{host:?}");
+        assert_eq!(
+            store.get_session(id).unwrap().unwrap().fold_status,
+            "folded",
+            "{host:?}"
+        );
+    }
+
+    #[test]
     fn fold_batches_candidate_and_exercised_fact_questions() {
         let source = SessionSource {
             agent_home: "/fake/agent".into(),
