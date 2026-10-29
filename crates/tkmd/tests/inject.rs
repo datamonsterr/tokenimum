@@ -19,7 +19,12 @@ fn relevance(scores: &[(&str, f64)]) -> Outcome {
         .map(|(id, score)| {
             (
                 format!("rel_{id}"),
-                Answer::Score { score: *score, confidence: None, legend: None, probabilities: None },
+                Answer::Score {
+                    score: *score,
+                    confidence: None,
+                    legend: None,
+                    probabilities: None,
+                },
             )
         })
         .collect();
@@ -75,7 +80,10 @@ async fn timeout_falls_back_to_the_cached_default_block() {
     let daemon = daemon_with(&env, settings, decider.clone());
     let started = std::time::Instant::now();
     let reply = daemon.handle(prompt()).await;
-    assert!(started.elapsed() < std::time::Duration::from_millis(1_400), "prompt answered inside its read timeout");
+    assert!(
+        started.elapsed() < std::time::Duration::from_millis(1_400),
+        "prompt answered inside its read timeout"
+    );
     let text = additional_context(&reply).expect("default block on timeout");
     assert_eq!(text, format!("# Context\n{}\n", fact_line("example.com")));
     assert_eq!(decider.calls(), 1);
@@ -90,7 +98,11 @@ async fn identical_prompt_and_candidates_hit_the_cache() {
     daemon.handle(prompt()).await;
     daemon.handle(session_end()).await; // new session state, same repo and prompt
     daemon.handle(prompt()).await;
-    assert_eq!(decider.calls(), 1, "second identical request served from the 10-minute cache");
+    assert_eq!(
+        decider.calls(),
+        1,
+        "second identical request served from the 10-minute cache"
+    );
 }
 
 #[tokio::test]
@@ -98,11 +110,17 @@ async fn memory_pointer_lines_join_the_candidates_when_enabled() {
     let env = Env::new();
     let repo = env.dir.path().join("repo");
     std::fs::create_dir_all(repo.join("memory")).unwrap();
-    std::fs::write(repo.join("MEMORY.md"), "- [Build](build.md) — use `make ci` before pushing\n").unwrap();
+    std::fs::write(
+        repo.join("MEMORY.md"),
+        "- [Build](build.md) — use `make ci` before pushing\n",
+    )
+    .unwrap();
     let mut payload = fixture("UserPromptSubmit");
     payload["cwd"] = serde_json::json!(repo.to_string_lossy());
     let daemon = daemon_with(&env, Settings::default(), Arc::new(NullDecider));
-    let reply = daemon.handle(request(EventKind::Prompt, payload.clone())).await;
+    let reply = daemon
+        .handle(request(EventKind::Prompt, payload.clone()))
+        .await;
     assert!(additional_context(&reply).unwrap().contains("make ci"));
 
     let env2 = Env::new();
@@ -120,7 +138,9 @@ async fn block_moves_to_the_next_injectable_event_when_the_prompt_cannot_inject(
     let env = Env::new();
     seed_fact(&env, "example.com");
     let daemon = daemon_with(&env, Settings::default(), Arc::new(NullDecider));
-    daemon.adapters().register(Box::new(PromptBlind(tkm_hosts::claude::ClaudeAdapter::new())));
+    daemon.adapters().register(Box::new(PromptBlind(
+        tkm_hosts::claude::ClaudeAdapter::new(),
+    )));
     let prompt_reply = daemon.handle(prompt()).await;
     assert_eq!(prompt_reply.stdout, "", "prompt cannot inject");
     // The pending block rides on the next tool_done (PostToolUse can inject).

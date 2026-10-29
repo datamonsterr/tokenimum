@@ -27,16 +27,30 @@ async fn tool_done_makes_no_network_call_and_touches_no_storage() {
 
     let opens_before = backing.opens();
     let files_before = dir_listing(&env.paths.data_dir);
-    let mtime_before = std::fs::metadata(&env.paths.db).unwrap().modified().unwrap();
+    let mtime_before = std::fs::metadata(&env.paths.db)
+        .unwrap()
+        .modified()
+        .unwrap();
     for _ in 0..17 {
         let reply = daemon.handle_tool_done(&tool_done());
         assert_eq!(reply.stdout, "");
     }
-    assert_eq!(backing.opens(), opens_before, "no storage access on tool_done");
-    assert_eq!(decider.calls(), 0, "no network on tool_done");
-    assert_eq!(dir_listing(&env.paths.data_dir), files_before, "no new files");
     assert_eq!(
-        std::fs::metadata(&env.paths.db).unwrap().modified().unwrap(),
+        backing.opens(),
+        opens_before,
+        "no storage access on tool_done"
+    );
+    assert_eq!(decider.calls(), 0, "no network on tool_done");
+    assert_eq!(
+        dir_listing(&env.paths.data_dir),
+        files_before,
+        "no new files"
+    );
+    assert_eq!(
+        std::fs::metadata(&env.paths.db)
+            .unwrap()
+            .modified()
+            .unwrap(),
         mtime_before,
         "no database write"
     );
@@ -58,9 +72,14 @@ async fn the_flusher_is_what_writes_state_afterwards() {
     }
     let opens = backing.opens();
     daemon.flush_now().await;
-    assert!(backing.opens() > opens, "flush opens the store off the request path");
+    assert!(
+        backing.opens() > opens,
+        "flush opens the store off the request path"
+    );
     let store = tkm_store::open_read_only(&env.paths.db).unwrap();
-    let sessions: i64 = store.query_row("SELECT COUNT(*) FROM sessions", [], |r| r.get(0)).unwrap();
+    let sessions: i64 = store
+        .query_row("SELECT COUNT(*) FROM sessions", [], |r| r.get(0))
+        .unwrap();
     assert_eq!(sessions, 1);
     let _ = Arc::strong_count(&backing);
 }

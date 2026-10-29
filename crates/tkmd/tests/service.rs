@@ -35,7 +35,10 @@ fn launchd_agent_renders_label_program_and_log() {
     assert!(plist.contains("<key>StandardErrorPath</key>\n    <string>/home/u/.local/share/tokenimum/errors.log</string>"));
     assert!(plist.contains("<key>RunAtLoad</key>"));
     assert!(!plist.contains("{{"));
-    assert_eq!(plist.matches("<dict>").count(), plist.matches("</dict>").count());
+    assert_eq!(
+        plist.matches("<dict>").count(),
+        plist.matches("</dict>").count()
+    );
 }
 
 #[test]

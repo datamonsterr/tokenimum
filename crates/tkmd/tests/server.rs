@@ -55,7 +55,10 @@ async fn serves_a_framed_request_and_returns_a_reply_frame() {
 async fn socket_is_mode_600_in_a_private_directory() {
     let env = Env::new();
     let (_daemon, _server) = serve(&env).await;
-    let mode = std::fs::metadata(&env.paths.socket).unwrap().permissions().mode();
+    let mode = std::fs::metadata(&env.paths.socket)
+        .unwrap()
+        .permissions()
+        .mode();
     assert_eq!(mode & 0o777, 0o600);
     let dir = std::fs::metadata(env.paths.socket.parent().unwrap()).unwrap();
     assert_eq!(dir.permissions().mode() & 0o777, 0o700);
@@ -92,14 +95,21 @@ async fn oversize_request_header_closes_the_connection_without_reading_a_body() 
     let too_big = u32::try_from(MAX_REQUEST_FRAME + 1).unwrap();
     stream.write_all(&too_big.to_be_bytes()).await.unwrap();
     let mut rest = Vec::new();
-    let read = tokio::time::timeout(std::time::Duration::from_secs(5), stream.read_to_end(&mut rest))
-        .await
-        .expect("server must close the connection");
+    let read = tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        stream.read_to_end(&mut rest),
+    )
+    .await
+    .expect("server must close the connection");
     assert!(read.is_ok());
     assert!(rest.is_empty(), "no reply for an oversize header");
     // The daemon keeps serving afterwards.
     assert_eq!(roundtrip(&env, &session_start()).await.stdout, "");
-    assert_eq!(env.error_lines().len(), 1, "one errors.log line for the bad frame");
+    assert_eq!(
+        env.error_lines().len(),
+        1,
+        "one errors.log line for the bad frame"
+    );
 }
 
 #[tokio::test]
@@ -108,7 +118,10 @@ async fn malformed_json_body_closes_the_connection_and_logs_one_line() {
     let (_daemon, _server) = serve(&env).await;
     let mut stream = UnixStream::connect(&env.paths.socket).await.unwrap();
     let body = b"{not json";
-    stream.write_all(&u32::try_from(body.len()).unwrap().to_be_bytes()).await.unwrap();
+    stream
+        .write_all(&u32::try_from(body.len()).unwrap().to_be_bytes())
+        .await
+        .unwrap();
     stream.write_all(body).await.unwrap();
     let mut rest = Vec::new();
     stream.read_to_end(&mut rest).await.unwrap();
@@ -145,7 +158,9 @@ async fn a_live_daemons_socket_is_never_stolen() {
 fn reply_larger_than_the_frame_limit_becomes_the_noop_reply() {
     let huge = Reply {
         version: PROTOCOL_VERSION,
-        action: ReplyAction::Inject { text: "x".repeat(MAX_REPLY_FRAME) },
+        action: ReplyAction::Inject {
+            text: "x".repeat(MAX_REPLY_FRAME),
+        },
         stdout: "y".repeat(MAX_REPLY_FRAME),
     };
     let capped = tkmd::daemon::cap_reply(huge, Host::Cursor);
