@@ -1,0 +1,18 @@
+{
+  "hook": "tool.execute.after",
+  "input": {
+    "tool": "edit",
+    "sessionID": "ses_example1",
+    "callID": "call_example1",
+    "args": {
+      "filePath": "/etc/hosts",
+      "oldString": "a",
+      "newString": "b"
+    }
+  },
+  "output": {
+    "title": "synthetic",
+    "output": "Edit applied successfully.",
+    "metadata": {}
+  }
+}

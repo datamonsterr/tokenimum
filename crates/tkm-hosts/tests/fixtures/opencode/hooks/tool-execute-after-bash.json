@@ -1,0 +1,20 @@
+{
+  "hook": "tool.execute.after",
+  "input": {
+    "tool": "bash",
+    "sessionID": "ses_example1",
+    "callID": "call_example1",
+    "args": {
+      "command": "ls -la"
+    }
+  },
+  "output": {
+    "title": "synthetic",
+    "output": "a.txt\nb.txt\n",
+    "metadata": {
+      "output": "a.txt\nb.txt\n",
+      "exit": 0,
+      "truncated": false
+    }
+  }
+}
