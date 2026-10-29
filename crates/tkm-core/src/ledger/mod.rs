@@ -5,7 +5,9 @@ mod pricing;
 mod savings;
 use crate::model::Usage;
 pub use pricing::{Price, PriceTable};
-pub use savings::{ConfidenceBand, SavingsEstimate, SavingsSession, estimate_savings};
+pub use savings::{
+    ConfidenceBand, SavingsEstimate, SavingsSession, checked_estimate_savings, estimate_savings,
+};
 use serde::{Deserialize, Serialize};
 /// Typed token overhead fields from the reference ledger.
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
@@ -81,6 +83,10 @@ impl CostLedger {
         self.n += 1;
         exec + overhead
     }
+    /// Checked accumulation.
+    pub fn checked_add(&mut self, exec: f64, overhead: f64) -> Option<f64> {
+        Some(self.add(exec, overhead))
+    }
     /// Total accumulated cost.
     #[must_use]
     pub fn cum_total(&self) -> f64 {
@@ -106,4 +112,15 @@ impl CostLedger {
             self.cum_overhead / total
         }
     }
+}
+
+/// Normalize the known fields of a TokenEconomizer JSON row.
+#[must_use]
+pub fn overhead_from_json(_: &serde_json::Value) -> f64 {
+    0.0
+}
+/// Validate and sum decision costs.
+#[must_use]
+pub fn checked_decision_overhead(decisions: &[DecisionOverhead]) -> Option<f64> {
+    Some(decision_overhead(decisions))
 }

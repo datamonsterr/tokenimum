@@ -1,7 +1,7 @@
 #![forbid(unsafe_code)]
 #![allow(clippy::float_cmp, clippy::unwrap_used, clippy::expect_used)]
 use tkm_core::{
-    ledger::{CostLedger, Overhead, effective_exec, overhead},
+    ledger::{CostLedger, Overhead, effective_exec, overhead, overhead_from_json},
     model::Usage,
 };
 #[test]
@@ -16,7 +16,18 @@ fn te_ledger_overhead_sums_only_known_keys() {
 }
 #[test]
 fn te_ledger_overhead_ignores_non_numeric() {
-    assert_eq!(overhead(&Overhead::default()), 0.0);
+    assert_eq!(
+        overhead_from_json(
+            &serde_json::json!({"optimizer_tokens": null, "spiral_judge_tokens": "x", "unrelated": 999})
+        ),
+        0.0
+    );
+    assert_eq!(
+        overhead_from_json(
+            &serde_json::json!({"optimizer_tokens": 10, "spiral_judge_tokens": 5, "unrelated": 999})
+        ),
+        15.0
+    );
 }
 #[test]
 fn te_ledger_all_overhead_keys_counted() {
@@ -59,4 +70,18 @@ fn te_ledger_cost_ledger_amortizes() {
     assert_eq!(l.cum_total(), 320.0);
     assert_eq!(l.amortized_per_task(), 160.0);
     assert!(l.overhead_frac() > 0.0 && l.overhead_frac() < 1.0);
+}
+
+#[test]
+fn ledger_count_overflow_is_atomic() {
+    let mut ledger = CostLedger {
+        cum_exec: 1.0,
+        cum_overhead: 2.0,
+        n: u64::MAX,
+    };
+    assert_eq!(ledger.checked_add(3.0, 4.0), None);
+    assert_eq!(
+        (ledger.cum_exec, ledger.cum_overhead, ledger.n),
+        (1.0, 2.0, u64::MAX)
+    );
 }

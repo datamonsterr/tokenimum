@@ -112,4 +112,5 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - run: rustup show
+      - run: python3 scripts/tests/test_check_core_pure.py
       - run: bash scripts/check-core-pure.sh

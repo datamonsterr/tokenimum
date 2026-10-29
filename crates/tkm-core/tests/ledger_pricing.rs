@@ -1,7 +1,7 @@
 #![forbid(unsafe_code)]
 #![allow(clippy::float_cmp, clippy::unwrap_used, clippy::expect_used)]
 use tkm_core::{
-    ledger::{DecisionOverhead, PriceTable, decision_overhead},
+    ledger::{DecisionOverhead, PriceTable, checked_decision_overhead, decision_overhead},
     model::{Host, Session, Usage},
 };
 #[test]
@@ -111,4 +111,55 @@ fn decision_overhead_table() {
             .collect();
         assert_eq!(decision_overhead(&decisions), expected);
     }
+}
+
+#[test]
+fn invalid_price_and_cost_boundaries() {
+    for rate in ["nan", "inf", "-1.0"] {
+        for key in ["input", "output", "cache_read", "cache_write"] {
+            let mut entries = vec![
+                "input=1.0".to_string(),
+                "output=1.0".to_string(),
+                "cache_read=1.0".to_string(),
+                "cache_write=1.0".to_string(),
+            ];
+            let index = ["input", "output", "cache_read", "cache_write"]
+                .iter()
+                .position(|k| *k == key)
+                .unwrap();
+            entries[index] = format!("{key}={rate}");
+            assert!(PriceTable::parse(&format!("[models.x]\n{}", entries.join("\n"))).is_err());
+        }
+    }
+    for cost in [-1.0, f64::NAN, f64::INFINITY] {
+        let d = DecisionOverhead {
+            input_tokens: 0,
+            cost,
+            model: String::new(),
+            latency_ms: 0,
+            question_names: Vec::new(),
+        };
+        assert_eq!(checked_decision_overhead(&[d]), None);
+    }
+    let d = DecisionOverhead {
+        input_tokens: 0,
+        cost: f64::MAX,
+        model: String::new(),
+        latency_ms: 0,
+        question_names: Vec::new(),
+    };
+    assert_eq!(checked_decision_overhead(&[d.clone(), d]), None);
+    let table =
+        PriceTable::parse("[models.x]\ninput=1e308\noutput=1e308\ncache_read=1.0\ncache_write=1.0")
+            .unwrap();
+    assert_eq!(
+        table.price_usage(
+            "x",
+            Usage {
+                input: u64::MAX,
+                ..Usage::default()
+            }
+        ),
+        None
+    );
 }

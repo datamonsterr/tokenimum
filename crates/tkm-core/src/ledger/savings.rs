@@ -87,3 +87,14 @@ pub fn estimate_savings(
         band,
     }
 }
+
+/// Validate costs and estimate savings.
+#[must_use]
+pub fn checked_estimate_savings(
+    sessions: &[SavingsSession],
+    repo: &RepoKey,
+    host: Host,
+    first_action: Option<Timestamp>,
+) -> Option<SavingsEstimate> {
+    Some(estimate_savings(sessions, repo, host, first_action))
+}

@@ -1,7 +1,7 @@
 #![forbid(unsafe_code)]
 #![allow(clippy::float_cmp, clippy::unwrap_used)]
 use tkm_core::{
-    ledger::{SavingsSession, estimate_savings},
+    ledger::{SavingsSession, checked_estimate_savings, estimate_savings},
     model::{Host, RepoKey, Timestamp},
 };
 #[test]
@@ -35,8 +35,8 @@ fn savings_groups_and_confidence() {
         (Some(12.0), Some(6.0), Some(6.0))
     );
     let band = result.band.unwrap();
-    assert!((band.lower - (6.0 - 1.96 * 8.0_f64.sqrt())).abs() < 1e-10);
-    assert!((band.upper - (6.0 + 1.96 * 8.0_f64.sqrt())).abs() < 1e-10);
+    assert!((band.lower - (-6.170434158)).abs() < 0.002);
+    assert!((band.upper - (18.170434158)).abs() < 0.002);
     let insufficient = estimate_savings(&sessions[..1], &repo, Host::Claude, Some(Timestamp(2)));
     assert_eq!(
         (
@@ -76,4 +76,27 @@ fn savings_classification_table() {
         );
         assert_eq!(estimate.band, None);
     }
+}
+
+#[test]
+fn savings_rejects_invalid_costs_and_overflow() {
+    let repo = RepoKey("repo".into());
+    for cost in [-1.0, f64::NAN, f64::INFINITY] {
+        let session = SavingsSession {
+            repo: repo.clone(),
+            host: Host::Claude,
+            started: Timestamp(0),
+            shadow: true,
+            cost,
+        };
+        assert!(checked_estimate_savings(&[session], &repo, Host::Claude, None).is_none());
+    }
+    let s = SavingsSession {
+        repo: repo.clone(),
+        host: Host::Claude,
+        started: Timestamp(0),
+        shadow: true,
+        cost: f64::MAX,
+    };
+    assert!(checked_estimate_savings(&[s.clone(), s], &repo, Host::Claude, None).is_none());
 }

@@ -13,12 +13,12 @@ workspace = true
 [dependencies]
 tkm-proto = { workspace = true }
 serde = { workspace = true }
+serde_json = { workspace = true }
 thiserror = { workspace = true }
 regex = { workspace = true }
 toml = { workspace = true }
 
 [dev-dependencies]
-serde_json.workspace = true
 criterion.workspace = true
 proptest.workspace = true
 
