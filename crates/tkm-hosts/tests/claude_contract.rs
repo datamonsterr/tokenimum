@@ -128,13 +128,13 @@ fn every_event_action_pair_has_exact_advisory_reply_bytes() {
         );
         let notice = "{\"systemMessage\":\"notice\"}";
         for (action, expected) in [
-            (ReplyAction::Nothing, "".to_owned()),
+            (ReplyAction::Nothing, String::new()),
             (
                 ReplyAction::Inject {
                     text: "context".into(),
                 },
                 if matches!(event, "Stop" | "SessionEnd" | "FutureEvent") {
-                    "".into()
+                    String::new()
                 } else {
                     injection
                 },
@@ -144,7 +144,7 @@ fn every_event_action_pair_has_exact_advisory_reply_bytes() {
                     text: "notice".into(),
                 },
                 if matches!(event, "SessionEnd" | "FutureEvent") {
-                    "".into()
+                    String::new()
                 } else {
                     notice.into()
                 },
@@ -156,7 +156,7 @@ fn every_event_action_pair_has_exact_advisory_reply_bytes() {
                 },
                 match event {
                     "Stop" => notice.into(),
-                    "SessionEnd" | "FutureEvent" => "".into(),
+                    "SessionEnd" | "FutureEvent" => String::new(),
                     _ => combined,
                 },
             ),

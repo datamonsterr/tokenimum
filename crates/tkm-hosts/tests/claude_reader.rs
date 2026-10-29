@@ -209,7 +209,13 @@ fn fixture_call_digests_equal_live_hooks_for_all_tools_and_failure() {
             .call
             .unwrap();
         let read = &session.turns[turn].calls[call];
-        assert_eq!(read.args_digest, live.args_digest, "{fixture} args");
+        if fixture == "PostToolUse-bash" {
+            // The foreign PreToolUse hook rewrote the Bash command before execution.
+            assert_eq!(read.args_digest, "cat a.txt", "{fixture} transcript args");
+            assert_eq!(live.args_digest, "rtk read a.txt", "{fixture} hook args");
+        } else {
+            assert_eq!(read.args_digest, live.args_digest, "{fixture} args");
+        }
         assert_eq!(read.output_digest, live.output_digest, "{fixture} output");
     }
 }
