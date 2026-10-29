@@ -130,7 +130,9 @@ const FIRE_GATE_SCORE: f64 = 1.0;
 /// items exceeding fact caps are skipped, and the first exceeding the overall
 /// budget ends selection. The complete rendered block, including its header and
 /// line separators, is conservatively budgeted using the greater of each supplied
-/// estimate and its rendered text estimate.
+/// estimate and its rendered text estimate. Text estimates are rounded up per
+/// item and separator overhead is rounded up separately, so a block may be
+/// rejected even when estimating its fully concatenated text would fit.
 #[must_use]
 pub fn select(
     items: &[InjectCandidate],
@@ -217,17 +219,17 @@ pub fn render(items: &[InjectCandidate]) -> String {
 /// Cache lookup key.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct CacheKey {
-    /// Prompt hash.
+    /// Hash of the repository identity and prompt.
     pub prompt: u64,
     /// Hash of the ordered candidates and selection configuration.
     pub candidates: u64,
 }
-/// Construct a deterministic FNV-1a key over the prompt and ordered candidates.
+/// Construct a deterministic FNV-1a key over repository, prompt and ordered candidates.
 /// All selection-relevant fields, limits, flags and fixed thresholds participate
 /// in the candidate/configuration hash.
 #[must_use]
 pub fn cache_key(
-    _repo: &RepoKey,
+    repo: &RepoKey,
     prompt: &str,
     items: &[InjectCandidate],
     config: Config,
@@ -254,8 +256,12 @@ pub fn cache_key(
         bytes.extend_from_slice(&(item.tokens as u64).to_le_bytes());
         bytes.push(u8::from(item.fire_gate_prevents));
     }
+    let mut context = Vec::new();
+    context.extend_from_slice(&(repo.0.len() as u64).to_le_bytes());
+    context.extend_from_slice(repo.0.as_bytes());
+    context.extend_from_slice(prompt.as_bytes());
     CacheKey {
-        prompt: hash(prompt.as_bytes()),
+        prompt: hash(&context),
         candidates: hash(&bytes),
     }
 }
