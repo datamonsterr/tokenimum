@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 #![cfg(feature = "web")]
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::pedantic)]
 use std::{

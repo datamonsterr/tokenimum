@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{Terminal, backend::TestBackend};
 use tkm_proto::{

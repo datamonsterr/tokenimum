@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 use criterion::{Criterion, criterion_group, criterion_main};
 use ratatui::{Terminal, backend::TestBackend};
 use tkm_proto::{

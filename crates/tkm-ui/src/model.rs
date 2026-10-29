@@ -162,7 +162,11 @@ pub fn load_snapshot(conn: &Connection) -> Result<MonitorState, crate::Error> {
         Ok((
             row.get::<_, String>(0)?,
             row.get::<_, String>(1)?,
-            row.get::<_, u64>(2)?,
+            {
+                let value: i64 = row.get(2)?;
+                u64::try_from(value)
+                    .map_err(|_| rusqlite::Error::IntegralValueOutOfRange(2, value))?
+            },
             row.get::<_, f64>(3)?,
             row.get::<_, bool>(4)?,
             row.get::<_, String>(5)?,
