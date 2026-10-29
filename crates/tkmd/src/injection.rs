@@ -361,6 +361,18 @@ mod tests {
     use super::*;
 
     #[test]
+    fn scoring_budget_subtracts_candidate_loading() {
+        assert_eq!(
+            remaining(Duration::from_millis(1200), Duration::from_millis(700)),
+            Duration::from_millis(500)
+        );
+        assert_eq!(
+            remaining(Duration::from_millis(1200), Duration::from_millis(1500)),
+            Duration::ZERO
+        );
+    }
+
+    #[test]
     fn memory_lines_keep_only_pointer_bullets() {
         let dir = std::env::temp_dir().join(format!("tkmd-mem-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
