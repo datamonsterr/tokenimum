@@ -117,6 +117,39 @@ fn uninstall_preserves_edited_shim_and_its_record() {
 }
 
 #[test]
+fn uninstall_keeps_record_when_home_is_missing_or_nothing_can_be_reversed() {
+    for recreate_empty_home in [false, true] {
+        let fixture = Fixture::new();
+        let home = fixture.home.join(".codex");
+        let before = snapshot(&home);
+        let out = fixture.run(&["init", "--yes", "--only", "codex"]);
+        assert!(out.status.success(), "{out:?}");
+        let rows = fixture.installs();
+        assert_eq!(rows.len(), 1);
+        let moved = fixture.home.join(".codex-moved");
+        fs::rename(&home, &moved).unwrap();
+        if recreate_empty_home {
+            fs::create_dir(&home).unwrap();
+        }
+        let installed = snapshot(&moved);
+        for args in [&["uninstall", "--dry-run"][..], &["uninstall"][..]] {
+            let out = fixture.run(args);
+            assert_eq!(out.status.code(), Some(1), "{out:?}");
+            assert_eq!(fixture.installs(), rows);
+            assert_eq!(snapshot(&moved), installed);
+        }
+        if recreate_empty_home {
+            fs::remove_dir(&home).unwrap();
+        }
+        fs::rename(&moved, &home).unwrap();
+        let out = fixture.run(&["uninstall"]);
+        assert!(out.status.success(), "{out:?}");
+        assert!(fixture.installs().is_empty());
+        assert_eq!(snapshot(&home), before);
+    }
+}
+
+#[test]
 fn uninstall_retains_manifest_when_service_file_was_edited() {
     let fixture = Fixture::new();
     fixture.init();

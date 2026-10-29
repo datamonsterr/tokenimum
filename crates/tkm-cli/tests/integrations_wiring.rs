@@ -69,6 +69,62 @@ fn init_superorchestrator_installs_account_and_uninstall_restores_home() {
 }
 
 #[test]
+fn init_relative_account_paths_uninstall_from_another_cwd() {
+    for (relative_config, relative_home) in [(true, false), (false, true), (true, true)] {
+        let f = Fixture::new();
+        let (config, home) = orchestrator(&f);
+        let home = if relative_home {
+            let relative = config.join("account-home");
+            fs::rename(&home, &relative).unwrap();
+            fs::write(
+                config.join("accounts/fixture.toml"),
+                "name = 'fixture'\nharness = 'claude'\nhome = 'account-home'\nenabled = true\n",
+            )
+            .unwrap();
+            relative
+        } else {
+            home
+        };
+        let before = snapshot(&home);
+        let directory = if relative_config {
+            PathBuf::from("orchestrator")
+        } else {
+            config.clone()
+        };
+        let out = f
+            .command(&["init", "--yes", "--only", "claude", "--superorchestrator"])
+            .current_dir(f.temp.path())
+            .env("SUPERORCHESTRATOR_CONFIG_DIR", directory)
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "{out:?}");
+        assert!(
+            fs::read_to_string(home.join("settings.json"))
+                .unwrap()
+                .contains("tkm-hook")
+        );
+        let rows = f.installs();
+        let row = rows
+            .iter()
+            .find(|row| row.agent_home == home)
+            .expect("absolute account home");
+        assert!(
+            row.files_written.iter().all(|path| path.is_absolute()),
+            "{row:?}"
+        );
+        assert!(
+            row.backup_paths.iter().all(|path| path.is_absolute()),
+            "{row:?}"
+        );
+        // The controlled fixture runs uninstall from its HOME, a different cwd.
+        let out = f.run(&["uninstall"]);
+        assert!(out.status.success(), "{out:?}");
+        assert!(f.installs().is_empty());
+        assert_eq!(snapshot(&home), before);
+    }
+}
+
+#[test]
 fn init_superorchestrator_dry_run_writes_nothing_and_filters_accounts() {
     let f = Fixture::new();
     let (config, home) = orchestrator(&f);
@@ -152,6 +208,68 @@ fn init_yes_never_consents_to_otherskill_key_reuse() {
     assert!(!stdout(&out).contains("fixture-otherskill-secret"));
     assert!(!String::from_utf8_lossy(&out.stderr).contains("fixture-otherskill-secret"));
     assert_eq!(fs::read(key).unwrap(), original);
+}
+
+#[test]
+fn init_yes_ignores_repository_otherskill_key_consent() {
+    for name in [".tokenimum.toml", ".tokenimum.local.toml"] {
+        let f = Fixture::new();
+        let repo = f.repository();
+        let original = "[integrations]\notherskill_key_reuse = true\n";
+        fs::write(repo.join(name), original).unwrap();
+        let out = f
+            .command(&["init", "--yes", "--only", "claude"])
+            .current_dir(&repo)
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "{out:?}");
+        let config = f.run(&["config", "get", "integrations.otherskill_key_reuse"]);
+        assert!(config.status.success(), "{config:?}");
+        assert_eq!(stdout(&config).trim(), "false");
+        let global = fs::read_to_string(&f.paths.global_config).unwrap();
+        assert!(!global.contains("otherskill_key_reuse"), "{global}");
+        assert_eq!(fs::read_to_string(repo.join(name)).unwrap(), original);
+    }
+}
+
+#[test]
+fn init_yes_reads_prior_otherskill_consent_only_from_global_file() {
+    for prior_consent in [false, true] {
+        let f = Fixture::new();
+        let key = f.home.join(".config/otherskill/credentials.json");
+        fs::create_dir_all(key.parent().unwrap()).unwrap();
+        fs::write(&key, r#"{"openrouter":"fixture-otherskill-secret"}"#).unwrap();
+        fs::set_permissions(&key, fs::Permissions::from_mode(0o600)).unwrap();
+        if prior_consent {
+            fs::create_dir_all(f.paths.global_config.parent().unwrap()).unwrap();
+            fs::write(
+                &f.paths.global_config,
+                "[integrations]\notherskill_key_reuse = true # prior approval\n",
+            )
+            .unwrap();
+        }
+        let out = f
+            .command(&["init", "--yes", "--only", "claude"])
+            .env(
+                "TKM_INTEGRATIONS_OTHERSKILL_KEY_REUSE",
+                (!prior_consent).to_string(),
+            )
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "{out:?}");
+        let config = f.run(&["config", "get", "integrations.otherskill_key_reuse"]);
+        assert!(config.status.success(), "{config:?}");
+        assert_eq!(stdout(&config).trim(), prior_consent.to_string());
+        let decisions = f.run(&["config", "get", "decide.enabled"]);
+        assert!(decisions.status.success(), "{decisions:?}");
+        assert_eq!(stdout(&decisions).trim(), prior_consent.to_string());
+        let global = fs::read_to_string(&f.paths.global_config).unwrap();
+        assert_eq!(
+            global.contains("otherskill_key_reuse"),
+            prior_consent,
+            "{global}"
+        );
+    }
 }
 
 #[test]

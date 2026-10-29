@@ -1,5 +1,5 @@
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::pedantic)]
 #![forbid(unsafe_code)]
-#![allow(clippy::unwrap_used, clippy::expect_used)]
 use std::{
     fs,
     path::PathBuf,
@@ -92,6 +92,46 @@ fn restricted_repo_entries_are_ignored_in_both_layers() {
             assert!(!matches!(
                 c.source(key),
                 Some(Layer::Repo | Layer::RepoLocal)
+            ));
+        }
+    }
+}
+
+#[test]
+fn repository_otherskill_key_consent_is_ignored_and_cannot_be_written() {
+    let key = "integrations.otherskill_key_reuse";
+    for (name, layer) in [
+        (".tokenimum.toml", Layer::Repo),
+        (".tokenimum.local.toml", Layer::RepoLocal),
+    ] {
+        for (global, repo_value) in [(false, true), (true, false)] {
+            let t = Temp::new();
+            let i = inputs(&t);
+            if global {
+                fs::write(&i.global_path, format!("{key} = true\n")).unwrap();
+            }
+            let path = t.0.join(name);
+            fs::write(&path, format!("{key} = {repo_value}\n")).unwrap();
+            let config = load(&i).unwrap();
+            assert_eq!(config.get_bool(key), Some(global));
+            assert_eq!(
+                config.source(key),
+                Some(if global {
+                    Layer::Global
+                } else {
+                    Layer::Default
+                })
+            );
+            assert!(
+                config
+                    .ignored
+                    .iter()
+                    .any(|entry| entry.key == key && entry.layer == layer)
+            );
+            let mut file = ConfigFile::load(path, layer).unwrap();
+            assert!(matches!(
+                file.set(key, "true"),
+                Err(ConfigError::RestrictedInRepo { .. })
             ));
         }
     }
