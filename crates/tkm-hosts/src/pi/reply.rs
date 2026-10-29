@@ -9,10 +9,15 @@ pub(super) fn render(request: &Request, action: &ReplyAction) -> String {
     let Ok(hook) = super::native(request) else {
         return String::new();
     };
-    // Only `before_agent_start` can return a message; shutdown has no reader.
-    shim::reply_json(
+    // Tool-result injections are redirects delivered through Pi steering.
+    let reply = shim::reply_json(
         action,
-        hook == "before_agent_start",
+        matches!(hook, "before_agent_start" | "tool_result"),
         hook != "session_shutdown",
-    )
+    );
+    if hook == "tool_result" {
+        reply.replacen("\"context\":", "\"steer\":", 1)
+    } else {
+        reply
+    }
 }

@@ -20,6 +20,7 @@ export default function (pi: ExtensionAPI) {
       const reply = await call(name, kind, event, ctx, ms)
       try {
         if (reply.notice) ctx.ui.notify(reply.notice, "info")
+        if (typeof reply.steer === "string") pi.sendMessage({ customType: "tokenimum", content: reply.steer, display: false }, { deliverAs: "steer" })
       } catch {}
       if (name === "before_agent_start" && typeof reply.context === "string") {
         return { message: { customType: "tokenimum", content: reply.context, display: false } }
