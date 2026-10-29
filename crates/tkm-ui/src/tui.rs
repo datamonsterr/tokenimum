@@ -13,7 +13,7 @@ use ratatui::{
 use rusqlite::{Connection, OptionalExtension};
 use std::{
     sync::mpsc::TryRecvError,
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 use tkm_config::paths::Paths;
 
@@ -78,6 +78,8 @@ pub struct ViewState {
     pub overlay: Option<String>,
     /// Connection mode.
     pub mode: Mode,
+    /// Whether an overflow follow-up snapshot is pending.
+    pub resyncing: bool,
     /// Last message time in Unix seconds, set by the event loop.
     pub last_message: Option<u64>,
 }
@@ -89,6 +91,7 @@ impl Default for ViewState {
             help: false,
             overlay: None,
             mode: Mode::ReadOnly,
+            resyncing: false,
             last_message: None,
         }
     }
@@ -313,7 +316,8 @@ pub fn render(state: &MonitorState, view: &ViewState, frame: &mut Frame<'_>) {
     };
     frame.render_widget(
         Paragraph::new(format!(
-            "{status} | last: {} | ? help",
+            "{status}{} | last: {} | ? help",
+            if view.resyncing { " | resyncing" } else { "" },
             view.last_message
                 .map_or_else(|| "-".into(), |t| t.to_string())
         )),
@@ -392,6 +396,26 @@ fn resync_snapshot<E>(
     let watermark = feed.sequence.load(std::sync::atomic::Ordering::Acquire);
     Ok((load()?, watermark))
 }
+/// ADR 0015 flushes the outbox every five seconds; allow one extra second.
+const RESYNC_FOLLOWUP_DELAY: Duration = Duration::from_secs(6);
+
+fn tick_resync<E>(
+    feed: &feed::Feed,
+    state: &mut MonitorState,
+    watermark: &mut u64,
+    deadline: &mut Option<Instant>,
+    mut now: impl FnMut() -> Instant,
+    mut load: impl FnMut() -> Result<MonitorState, E>,
+) -> Result<(), E> {
+    if feed.resync.swap(false, std::sync::atomic::Ordering::AcqRel) {
+        (*state, *watermark) = resync_snapshot(feed, &mut load)?;
+        *deadline = Some(now() + RESYNC_FOLLOWUP_DELAY);
+    } else if deadline.is_some_and(|at| now() >= at) {
+        *state = load()?;
+        *deadline = None;
+    }
+    Ok(())
+}
 fn apply_queued<E>(
     state: &mut MonitorState,
     sequence: u64,
@@ -426,12 +450,19 @@ pub fn run(paths: &Paths) -> Result<(), Error> {
         ..ViewState::default()
     };
     let mut watermark = 0;
+    let mut deadline = None;
     let mut terminal = ratatui::init();
     let result = (|| -> Result<(), Error> {
         loop {
-            if feed.resync.swap(false, std::sync::atomic::Ordering::AcqRel) {
-                (state, watermark) = resync_snapshot(&feed, || model::load_snapshot(&conn))?;
-            }
+            tick_resync(
+                &feed,
+                &mut state,
+                &mut watermark,
+                &mut deadline,
+                Instant::now,
+                || model::load_snapshot(&conn),
+            )?;
+            view.resyncing = deadline.is_some();
             loop {
                 match feed.receiver.try_recv() {
                     Ok((seq, message)) => {
@@ -539,7 +570,7 @@ mod ordering_tests {
             &mut state,
             &mut watermark,
             &mut deadline,
-            start,
+            || start,
             &mut load,
         )?;
         let (seq, message) = feed.receiver.try_recv().map_err(|_| ())?;
@@ -556,7 +587,7 @@ mod ordering_tests {
             &mut state,
             &mut watermark,
             &mut deadline,
-            start + Duration::from_secs(5),
+            || start + Duration::from_secs(5),
             &mut load,
         )?;
         assert!(state.sessions.is_empty());
@@ -565,7 +596,7 @@ mod ordering_tests {
             &mut state,
             &mut watermark,
             &mut deadline,
-            start + Duration::from_secs(6),
+            || start + Duration::from_secs(6),
             &mut load,
         )?;
         assert_eq!(state.sessions[0].session_id, "new");
@@ -575,7 +606,7 @@ mod ordering_tests {
             &mut state,
             &mut watermark,
             &mut deadline,
-            start + Duration::from_secs(7),
+            || start + Duration::from_secs(7),
             &mut load,
         )?;
         assert_eq!(calls, 2);
@@ -595,7 +626,7 @@ mod ordering_tests {
             &mut state,
             &mut watermark,
             &mut deadline,
-            start + Duration::from_secs(10),
+            || start + Duration::from_secs(10),
             &mut || {
                 calls += 1;
                 Ok::<_, ()>(MonitorState::default())

@@ -39,6 +39,10 @@ and render budgets in ADR 0038.
 7. **Resynchronization.** Clients subscribe before loading their initial snapshot and apply buffered
    messages afterward. The TUI bounds its socket queue at 1,024 messages and reloads the snapshot
    after overflow, discarding queued messages through the sequence watermark captured before reload.
+   After each overflow reload, the TUI schedules one follow-up snapshot six seconds later (the
+   ADR 0015 five-second outbox flush interval plus one second), showing "resyncing" until then.
+   Live messages continue to apply in the meantime; the follow-up replaces the state without
+   replaying messages. A further overflow restarts the follow-up delay.
    The web dashboard marks its state degraded while reloading after broadcast lag.
    A folded session triggers a refresh of ledger savings rows.
 
