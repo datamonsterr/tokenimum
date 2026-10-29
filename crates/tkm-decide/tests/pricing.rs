@@ -43,7 +43,7 @@ fn invalid_top_level_model_listing_returns_an_error() {
     ] {
         assert!(parse_models(json).is_err(), "accepted {json}");
     }
-    assert!(parse_models(r#"{"data":[]}"#).unwrap().is_empty());
+    assert_eq!(parse_models(r#"{"data":[]}"#).unwrap().len(), 0);
 }
 
 #[test]

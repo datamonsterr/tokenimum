@@ -30,9 +30,9 @@ fn three_failures_within_five_minutes_skip_for_fifteen_minutes_then_retry() {
     chain.record_failure("a-20261029");
     clock.0.store(200_000, Ordering::Relaxed);
     chain.record_failure("a-20261029");
-    assert!(chain.active_models().is_empty());
+    assert_eq!(chain.active_models().len(), 0);
     clock.0.store(1_099_999, Ordering::Relaxed);
-    assert!(chain.active_models().is_empty());
+    assert_eq!(chain.active_models().len(), 0);
     clock.0.store(1_100_000, Ordering::Relaxed);
     assert_eq!(chain.active_models(), ["a-20261029"]);
 }
@@ -63,7 +63,7 @@ fn free_slot_is_inactive_until_successful_reprobe_and_moves_to_front() {
 #[test]
 fn free_suffix_is_probe_only_even_without_config_flag() {
     let chain = ModelChain::new(&[model("probe:free", false)], ManualClock::default());
-    assert!(chain.active_models().is_empty());
+    assert_eq!(chain.active_models().len(), 0);
 }
 #[test]
 fn request_errors_are_nonretryable_but_rate_limits_and_server_errors_retry() {
