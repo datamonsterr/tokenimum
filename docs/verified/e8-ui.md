@@ -9,6 +9,8 @@ Checked 2026-10-29:
 
 ## Known gaps
 
+- The facts table records neither retirement time nor update time. The 100 retired facts in a snapshot are selected by descending rowid (insertion order), the only available recency proxy; they cannot be reliably ordered by retirement time or independently of insertion order.
+
 - Decisions have no timestamps, so read-only decision spend and model shares cannot be reconstructed accurately. Live decision spend is available from SpendUpdate; the seven-day ledger trend uses session start times.
 - Fact notices omit scores; the snapshot score is retained, and newly noticed facts have an unknown score until reload.
 - Live rows have no event IDs. Their why overlay asks for a reload; stored redirects are associated directly with their event IDs.
