@@ -33,7 +33,16 @@ struct Item {
     description: String,
 }
 impl SkillSource for OtherskillSource {
-    fn candidates(&self, _: &RepoKey, host: Host, prompt: &str) -> Vec<SkillCandidate> {
+    fn candidates(&self, repo: &RepoKey, host: Host, prompt: &str) -> Vec<SkillCandidate> {
+        self.candidates_in(repo, host, prompt, Path::new("."))
+    }
+    fn candidates_in(
+        &self,
+        _: &RepoKey,
+        host: Host,
+        prompt: &str,
+        cwd: &Path,
+    ) -> Vec<SkillCandidate> {
         let agent = match host {
             Host::Claude => "claude",
             Host::Codex => "codex",
@@ -55,10 +64,11 @@ impl SkillSource for OtherskillSource {
                 "--prompt",
                 prompt,
                 "--timeout-ms",
-                "900",
+                "600",
             ])
-            .env("PATH", &self.path);
-            let bytes = process::output(cmd, Duration::from_secs(1)).ok()?;
+            .env("PATH", &self.path)
+            .current_dir(cwd);
+            let bytes = process::output(cmd, Duration::from_millis(700)).ok()?;
             let route: Route = serde_json::from_slice(&bytes).ok()?;
             if !matches!(route.status.as_str(), "ok" | "partial") {
                 return None;

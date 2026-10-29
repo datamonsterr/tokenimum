@@ -22,30 +22,76 @@ pub(crate) fn binary(path: &OsStr, name: &str) -> Option<PathBuf> {
         }
     })
 }
+const MAX_OUTPUT: u64 = 1024 * 1024;
+
+fn kill_group(child: &mut std::process::Child) {
+    #[cfg(unix)]
+    {
+        let _ = Command::new("/bin/kill")
+            .args(["-KILL", "--", &format!("-{}", child.id())])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+    }
+    let _ = child.kill();
+}
+
 pub(crate) fn output(mut cmd: Command, timeout: Duration) -> io::Result<Vec<u8>> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        cmd.process_group(0);
+    }
     let mut child = cmd.stdout(Stdio::piped()).stderr(Stdio::null()).spawn()?;
-    let mut stdout = child
+    let stdout = child
         .stdout
         .take()
         .ok_or_else(|| io::Error::other("missing stdout"))?;
     let (tx, rx) = mpsc::channel();
     thread::spawn(move || {
         let mut bytes = Vec::new();
-        let result = stdout.read_to_end(&mut bytes).map(|_| bytes);
+        let result = stdout
+            .take(MAX_OUTPUT + 1)
+            .read_to_end(&mut bytes)
+            .and_then(|_| {
+                if bytes.len() as u64 > MAX_OUTPUT {
+                    Err(io::Error::other("process output too large"))
+                } else {
+                    Ok(bytes)
+                }
+            });
         let _ = tx.send(result);
     });
     let deadline = Instant::now() + timeout;
     loop {
-        if let Some(status) = child.try_wait()? {
-            if !status.success() {
-                return Err(io::Error::other("process failed"));
+        match rx.try_recv() {
+            Ok(Err(error)) => {
+                kill_group(&mut child);
+                let _ = child.wait();
+                return Err(error);
             }
-            return rx
-                .recv_timeout(deadline.saturating_duration_since(Instant::now()))
-                .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "output timeout"))?;
+            Ok(Ok(bytes)) => {
+                while Instant::now() < deadline {
+                    if let Some(status) = child.try_wait()? {
+                        return if status.success() {
+                            Ok(bytes)
+                        } else {
+                            Err(io::Error::other("process failed"))
+                        };
+                    }
+                    thread::sleep(Duration::from_millis(10));
+                }
+                kill_group(&mut child);
+                let _ = child.wait();
+                return Err(io::Error::new(io::ErrorKind::TimedOut, "process timeout"));
+            }
+            Err(mpsc::TryRecvError::Disconnected) => {
+                return Err(io::Error::other("output reader failed"));
+            }
+            Err(mpsc::TryRecvError::Empty) => {}
         }
         if Instant::now() >= deadline {
-            let _ = child.kill();
+            kill_group(&mut child);
             let _ = child.wait();
             return Err(io::Error::new(io::ErrorKind::TimedOut, "process timeout"));
         }

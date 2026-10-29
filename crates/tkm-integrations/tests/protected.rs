@@ -1,4 +1,5 @@
 #![forbid(unsafe_code)]
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::pedantic)]
 
 use tkm_core::{
     model::Timestamp,

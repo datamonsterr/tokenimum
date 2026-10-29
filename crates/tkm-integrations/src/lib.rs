@@ -32,6 +32,16 @@ pub struct SkillCandidate {
 pub trait SkillSource: Send + Sync {
     /// Returns skill candidates for this prompt; an empty list means none.
     fn candidates(&self, repo: &RepoKey, host: Host, prompt: &str) -> Vec<SkillCandidate>;
+    /// Returns candidates using the session's working directory.
+    fn candidates_in(
+        &self,
+        repo: &RepoKey,
+        host: Host,
+        prompt: &str,
+        _cwd: &Path,
+    ) -> Vec<SkillCandidate> {
+        self.candidates(repo, host, prompt)
+    }
 }
 
 /// Default [`SkillSource`]: no candidates.

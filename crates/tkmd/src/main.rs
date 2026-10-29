@@ -111,10 +111,9 @@ async fn main() -> ExitCode {
             let paths = worker_paths.clone();
             let cwd = cwd.clone();
             let _ = tokio::task::spawn_blocking(move || {
-                if integrations.redetect_if_due(&cwd) {
-                    write_integration_status(&paths, &integrations);
-                }
+                integrations.redetect_if_due(&cwd);
                 integrations.refresh_runs();
+                write_integration_status(&paths, &integrations);
             })
             .await;
         }

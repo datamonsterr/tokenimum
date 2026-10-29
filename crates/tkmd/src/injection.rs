@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use tkm_core::facts::Scope;
 use tkm_core::inject::{self, InjectCandidate, Source};
@@ -157,6 +157,7 @@ impl Daemon {
         self: &Arc<Self>,
         context: &PromptContext,
     ) -> HResult<Option<(String, Vec<String>)>> {
+        let started = Instant::now();
         let me = self.clone();
         let loading = context.clone();
         let candidates = tokio::task::spawn_blocking(move || me.load_candidates(&loading))
@@ -177,7 +178,9 @@ impl Daemon {
             let ids = Self::ids_in_block(&items, &block);
             return Ok(Some((block, ids)));
         }
-        let scores = self.score_candidates(context, &items).await;
+        let wait = Duration::from_millis(context.settings.relevance_timeout_ms)
+            .saturating_sub(started.elapsed());
+        let scores = self.score_candidates(context, &items, wait).await;
         let (selected, block) = if let Some(scores) = scores {
             let selected = inject::select(&items, Some(&scores), config);
             let block = inject::render(&selected);
@@ -207,8 +210,9 @@ impl Daemon {
         &self,
         context: &PromptContext,
         items: &[InjectCandidate],
+        wait: Duration,
     ) -> Option<BTreeMap<String, f64>> {
-        if !context.settings.decide.enabled {
+        if !context.settings.decide.enabled || wait.is_zero() {
             return None;
         }
         let redactor = Redactor::new(RedactContext {
@@ -244,7 +248,6 @@ impl Daemon {
             state,
             questions,
         };
-        let wait = Duration::from_millis(context.settings.relevance_timeout_ms);
         match tokio::time::timeout(wait, self.decider.decide(request)).await {
             Ok(Outcome::Decision(decision)) => {
                 let mut scores = BTreeMap::new();
@@ -337,9 +340,9 @@ impl Daemon {
                 }
             }
         }
-        for skill in self
-            .skills
-            .candidates(&context.repo, context.host, &context.prompt)
+        for skill in
+            self.skills
+                .candidates_in(&context.repo, context.host, &context.prompt, &context.cwd)
         {
             items.push(InjectCandidate {
                 id: format!("skill:{}", skill.id),

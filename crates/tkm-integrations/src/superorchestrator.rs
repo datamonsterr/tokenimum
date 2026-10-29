@@ -10,7 +10,7 @@ use std::{
     ffi::{OsStr, OsString},
     fmt,
     fs::{self, OpenOptions},
-    io::{self, BufRead, BufReader, Write},
+    io::{self, BufRead, BufReader, Read, Write},
     path::{Path, PathBuf},
     process::{Command, Stdio},
     sync::{Arc, Mutex, mpsc},
@@ -242,14 +242,24 @@ fn write_message(input: &mut impl Write, value: &serde_json::Value) -> io::Resul
 }
 fn response(reader: &mut impl BufRead, id: u64) -> io::Result<()> {
     loop {
-        let mut line = String::new();
-        if reader.read_line(&mut line)? == 0 {
+        let mut bytes = Vec::new();
+        if reader.take(256 * 1024 + 1).read_until(b'\n', &mut bytes)? == 0 {
             return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "MCP closed"));
         }
-        let value: serde_json::Value = serde_json::from_str(&line).map_err(io::Error::other)?;
+        if bytes.len() > 256 * 1024 {
+            return Err(io::Error::other("MCP frame too large"));
+        }
+        let value: serde_json::Value = serde_json::from_slice(&bytes).map_err(io::Error::other)?;
         if value.get("id").and_then(serde_json::Value::as_u64) == Some(id) {
             return if value.get("error").is_some()
-                || value.get("result").is_none()
+                || !value
+                    .get("result")
+                    .is_some_and(serde_json::Value::is_object)
+                || (id == 1
+                    && value
+                        .pointer("/result/protocolVersion")
+                        .and_then(serde_json::Value::as_str)
+                        .is_none())
                 || value
                     .pointer("/result/isError")
                     .and_then(serde_json::Value::as_bool)

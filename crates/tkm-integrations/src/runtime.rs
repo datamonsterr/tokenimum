@@ -3,6 +3,7 @@ use crate::{
     EscalationEvent, Escalator, SkillCandidate, SkillSource,
     detect::{AdapterHealth, AdapterState, AdapterStatus, Clock, Mode, Probe},
     otherskill::OtherskillSource,
+    process,
     superorchestrator::{RunDetector, SuperorchestratorEscalator},
 };
 use std::{
@@ -145,6 +146,27 @@ impl SkillSource for Integrations {
             Vec::new()
         }
     }
+    fn candidates_in(
+        &self,
+        repo: &RepoKey,
+        host: Host,
+        prompt: &str,
+        cwd: &Path,
+    ) -> Vec<SkillCandidate> {
+        let project_config = cwd.ancestors().any(|p| {
+            p.join("otherskill.config.json").is_file()
+                || p.join(".otherskill/config.json").is_file()
+        });
+        let project_enabled = self.modes.1 == Mode::Auto
+            && project_config
+            && !self.health.1.in_backoff()
+            && process::binary(&self.path, "otherskill").is_some();
+        if self.otherskill_enabled() || project_enabled {
+            self.skills.candidates_in(repo, host, prompt, cwd)
+        } else {
+            Vec::new()
+        }
+    }
 }
 impl Escalator for Integrations {
     fn delegated_run(&self, cwd: &Path, env: &BTreeMap<String, String>) -> Option<String> {
@@ -160,7 +182,7 @@ impl Escalator for Integrations {
         cwd: &Path,
         env: &BTreeMap<String, String>,
     ) {
-        if self.superorchestrator_enabled() {
+        {
             let mut session_env = env.clone();
             if !session_env.contains_key("SUPERORCHESTRATOR_RUN_ID")
                 && let Some(run) = self.runs.match_cwd(cwd)

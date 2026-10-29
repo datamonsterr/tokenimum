@@ -68,7 +68,7 @@ installed tools: superorchestrator 0.1.0 (`superorchestrator --help`, `runs list
    `.otherskill/config.json` in the cwd or an ancestor. A failure at runtime disables the
    adapter for 15 minutes; detection reruns every 10 minutes.
 7. **otherskill call on the prompt path.** `otherskill select --json --agent <a> --prompt <text>
-   --timeout-ms 900`, argv only, killed after 1,000 ms. Host mapping: Claude Code `claude`,
+   --timeout-ms 600`, argv only, killed after 700 ms. Host mapping: Claude Code `claude`,
    Codex `codex`, agy `antigravity`, opencode `opencode`; other hosts get no otherskill
    candidates. Status `failed`, a non-zero exit, a timeout or bad JSON counts as a failure.
    Candidates are de-duplicated by skill name (first wins) and enter the shared budget as

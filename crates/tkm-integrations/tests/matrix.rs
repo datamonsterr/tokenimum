@@ -1,4 +1,5 @@
 #![forbid(unsafe_code)]
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::pedantic)]
 
 use std::{
     collections::BTreeMap,
@@ -169,7 +170,7 @@ fn runtime_delegated_escalation_reaches_mcp() {
         dir.path(),
         "superorchestrator",
         &format!(
-            "if [ \"$1\" = --version ]; then exit 0; fi; if [ \"$1\" = runs ]; then printf '[]'; exit 0; fi; while IFS= read -r line; do printf '%s\\n' \"$line\" >> '{}'; case \"$line\" in *'\"id\":1'*) echo '{{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{{}}}}';; *'\"id\":2'*) echo '{{\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{{}}}}';; esac; done",
+            "if [ \"$1\" = --version ]; then exit 0; fi; if [ \"$1\" = runs ]; then printf '[]'; exit 0; fi; while IFS= read -r line; do printf '%s\\n' \"$line\" >> '{}'; case \"$line\" in *'\"id\":1'*) echo '{{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{{\"protocolVersion\":\"2025-06-18\"}}}}';; *'\"id\":2'*) echo '{{\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{{}}}}';; esac; done",
             log.display()
         ),
     );
