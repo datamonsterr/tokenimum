@@ -865,6 +865,41 @@ mod replay_tests {
     use super::*;
     use tkm_hosts::claude::ClaudeAdapter;
     #[test]
+    fn fold_batches_candidate_and_exercised_fact_questions() {
+        let source = SessionSource {
+            agent_home: "/fake/agent".into(),
+            path: PathBuf::from(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/tests/fixtures/replay-form-repair.jsonl"
+            )),
+            session_id: "fixture".into(),
+            repo_key: RepoKey("fixture".into()),
+            cwd: "/fake/repo".into(),
+        };
+        let session = ClaudeAdapter::new().read_session(&source).unwrap();
+        let mut state = replay_fold(
+            &session,
+            FactsState::default(),
+            &BTreeSet::new(),
+            &tkm_core::facts::FactsConfig::default(),
+        )
+        .facts;
+        for fact in state.facts.values_mut() {
+            fact.life.status = Status::Active;
+        }
+        let (filters, contradictions) = prepare_fact_questions(&session, &state, &BTreeSet::new());
+        assert!(!filters.is_empty());
+        assert!(filters.keys().any(|key| key.starts_with("stable_")));
+        assert!(filters.keys().any(|key| key.starts_with("safe_")));
+        assert!(
+            contradictions
+                .keys()
+                .all(|key| key.starts_with("contradicts_"))
+        );
+        assert!(!contradictions.is_empty());
+    }
+
+    #[test]
     fn replay_matches_persisted_fixture_fold() {
         let store = Store::open_in_memory().unwrap();
         let repo = RepoKey("fixture".into());
