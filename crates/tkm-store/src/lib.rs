@@ -23,8 +23,10 @@
 //! # }
 //! ```
 
+mod mechanisms;
 mod queries;
 
+pub use mechanisms::{DenylistEntry, ENVELOPE_RING, FactRecord, FactState, ToolEvidence};
 pub use queries::Repo;
 
 use std::path::Path;
