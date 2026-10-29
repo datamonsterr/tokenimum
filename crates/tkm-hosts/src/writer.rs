@@ -261,7 +261,7 @@ pub(super) fn save_backup(
         .parent()
         .ok_or_else(|| unsafe_target(path, "backup has no parent"))?;
     let (temporary, mut file) = temporary_file(parent)?;
-    let result = (|| -> Result<(), AdapterError> {
+    let result = (|| -> Result<bool, AdapterError> {
         match fs::metadata(source) {
             Ok(metadata) => file.set_permissions(metadata.permissions())?,
             Err(error) if error.kind() == io::ErrorKind::NotFound => {}
