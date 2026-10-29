@@ -43,11 +43,12 @@ fn roundtrip_facts() {
     assert_eq!(store.get_fact(&key, "f").unwrap(), Some(value.clone()));
     assert!(store.insert_candidate_fact(&value).is_err());
     assert_eq!(store.list_facts(&key, None).unwrap(), vec![value.clone()]);
-    assert!(
+    assert_eq!(
         store
             .list_facts(&key, Some(FactState::Active))
             .unwrap()
-            .is_empty()
+            .len(),
+        0
     );
     store.update_fact_stats(&key, "f", 0.8, 4, 5, 6, 7).unwrap();
     value.score = 0.8;
@@ -82,11 +83,9 @@ fn roundtrip_tool_evidence() {
         store.list_tool_evidence(&key, Host::Claude).unwrap(),
         vec![value]
     );
-    assert!(
-        store
-            .list_tool_evidence(&key, Host::Codex)
-            .unwrap()
-            .is_empty()
+    assert_eq!(
+        store.list_tool_evidence(&key, Host::Codex).unwrap().len(),
+        0
     );
 }
 #[test]
@@ -116,24 +115,14 @@ fn roundtrip_denylist_applied() {
 #[test]
 fn roundtrip_envelopes() {
     let (store, key) = setup();
-    assert!(
-        store
-            .envelope_samples(&key, Host::Claude)
-            .unwrap()
-            .is_empty()
-    );
+    assert_eq!(store.envelope_samples(&key, Host::Claude).unwrap().len(), 0);
     store.push_envelope_sample(&key, Host::Claude, 7).unwrap();
     store.push_envelope_sample(&key, Host::Claude, 9).unwrap();
     assert_eq!(
         store.envelope_samples(&key, Host::Claude).unwrap(),
         vec![7, 9]
     );
-    assert!(
-        store
-            .envelope_samples(&key, Host::Codex)
-            .unwrap()
-            .is_empty()
-    );
+    assert_eq!(store.envelope_samples(&key, Host::Codex).unwrap().len(), 0);
 }
 #[test]
 fn fact_transitions_allowed() {

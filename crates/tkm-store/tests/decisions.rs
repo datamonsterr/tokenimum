@@ -63,11 +63,12 @@ fn roundtrip_decisions() {
             .collect::<Vec<_>>(),
         vec![latest_id, id]
     );
-    assert!(
+    assert_eq!(
         store
             .list_decisions_by_model_purpose("model-a", "other", 10)
             .unwrap()
-            .is_empty()
+            .len(),
+        0
     );
     assert_eq!(store.get_decision(-1).unwrap(), None);
 }
