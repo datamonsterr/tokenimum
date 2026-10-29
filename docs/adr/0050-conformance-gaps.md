@@ -1,64 +1,67 @@
 # ADR 0050: Conformance audit gaps and outstanding verification
 
-Status: recorded for follow-up, 2026-10-29. This record documents observed gaps; it does not
-change SPEC.md or assert that unfinished work satisfies the spec. Fixes and measurement require
-separate work.
+Status: refreshed 2026-10-29 against `da6a44d` on `epic/e10` (CI green). This record documents
+observed gaps; it does not change SPEC.md or assert that unfinished work satisfies the spec.
+The row-level status is in [spec-conformance.md](../spec-conformance.md): 498 met, 47 deferred,
+11 not applicable. Each deferred row carries one category: (a) needs live or real-world data or
+user action, (b) intentionally out of scope or limited per an ADR, (c) not implemented.
 
-1. The fold stores a zero `priced_cost`, despite pricing support in core; end-to-end session
-   pricing and weekly price refresh are not wired. See `crates/tkmd/src/fold.rs` and
-   `crates/tkm-core/src/ledger/pricing.rs`.
-2. Skill usage reports reconstruct at most 30 recent Claude sessions and skip other hosts;
-   loaded counts require reader catalog data. The store has no skill evidence table.
-   See `crates/tkm-cli/src/cmd/skills.rs`.
-3. M0 and real-session performance/savings/success targets cannot be established from synthetic
-   fixtures or the deterministic CI benchmarks alone. A representative real-session evaluation
-   and measurements are still needed; see ADR 0045 and ADR 0046.
-4. The M1 live shadow end-to-end test runs through `tkm init` and test fixtures; it does not
-   establish that real sessions produce shadow decisions before a person installs/configures the
-   daemon. See `crates/tkm-cli/tests/e2e_shadow.rs`.
-5. M4 real sessions for each hook-level host have not been demonstrated: Cursor, Kimi and
-   Codewhale examples in the verification notes are synthetic or reported. See
-   `docs/verified/e5b-hosts.md`.
-6. E10.6 replay benchmark harness is being merged in parallel; evidence is pending and the
-   controller will replace its placeholder.
-7. The Pi shim applies prompt context and notices, but no `pi.sendMessage` steer path is present;
-   the prompt path is available. See `shims/pi.ts`.
-8. The automatic fallback after a failed `tkm doctor` probe is not established by the mode
-   selection code: doctor reports missing events and fold-only is selected during init/config.
-   See `crates/tkm-cli/src/cmd/doctor.rs` and `crates/tkm-hosts/src/fold_only/mod.rs`.
-9. Codewhale's installer registers six events, excluding `session_idle`, and rejects project-scope
-   installation. See `crates/tkm-hosts/src/codewhale/install.rs`; ADR 0020 explains user scope.
-10. `tkm doctor --probe` inspects recorded hook events and probes models; it does not start a
-    Cursor probe session or switch individual missing events to idle-fold. See
-    `crates/tkm-cli/src/cmd/doctor.rs`.
-11. Repetition of Cursor sessionStart context at postToolUse is not established by the
-    pending-injection path: it retains context only when the original event could not inject.
-    See `crates/tkmd/src/injection.rs` and ADR 0017.
-12. The daemon fold always supplies `decisions: None` to fact lifecycle, so production folds do
-    not ask the specified batched stable/safe or contradiction decisions, even though core can
-    consume decision evidence. See `crates/tkmd/src/fold.rs` and `crates/tkm-core/src/facts/mod.rs`.
-13. The calibration gate checks a stored valid calibration record; configuration lists 14 days
-    and 200 turns, but the live decision path does not enforce those durations/counts independently
-    of the calibration row. See `crates/tkmd/src/live.rs` and `crates/tkm-config/src/config.rs`.
-14. Free-model re-probes are explicit through `tkm doctor --probe`; no daily scheduler was found
-    that updates the daemon's live model chain. See `crates/tkm-cli/src/cmd/doctor/models.rs` and
-    `crates/tkm-decide/src/client.rs`.
-15. `facts.enabled`, `ledger.enabled` and `hosts.<host>.enabled`/`level` appear in the config
-    registry but are not applied by daemon settings or host mode selection. In particular, fold
-    always calls the fact and ledger updates. See `crates/tkmd/src/settings.rs`,
-    `crates/tkmd/src/fold.rs` and `crates/tkm-hosts/src/fold_only/mod.rs`.
-16. No committed golden replay expected-action JSON was identified for all eight hosts, and no
-    executable comparison running TE as oracle on the same Claude and Codex fixture logs was
-    identified. There are ported behavioral tests and a single golden loop test; see
-    `crates/tkm-core/tests/facts_te.rs` and `crates/tkm-core/tests/loopguard_behavior.rs`.
-17. A fresh-machine end-to-end install and measured precision on representative labelled real
-    turns are not established by the existing fake-home and synthetic-labelled tests. See
-    `crates/tkm-cli/tests/init_lifecycle.rs` and ADR 0045.
-18. Gemini CLI hook applicability to agy has not been verified; SPEC 18 explicitly records it
-    as open and the implementation does not assume the two products share hooks.
-19. The fault tests cover several failure classes, but a single all-host matrix proving each
-    listed failure yields both a no-op reply and an error line has not been identified. See
-    `crates/tkmd/tests/faults.rs` and `crates/tkm-hook/tests/integration.rs`.
-20. TUI Spend prints daily spend, caps and a textual seven-day series, but does not render the
-    requested per-model share or sparkline. Session rows do not render the turn identifier, and
-    redirect rows do not render triggering calls. See `crates/tkm-ui/src/tui.rs`.
+## Closed since the first audit
+
+The original items 1, 2, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17 (fresh-install part), 19 and 20 are
+fixed and now `met` in the conformance table, with tests named there:
+
+- Priced ledger, weekly pricing refresh, nullable costs and restart spend, and skill loaded-vs-used
+  storage: ADR 0049.
+- Pi steer delivery, Codewhale `session_idle`, Cursor repeat of blocks on `postToolUse`.
+- Doctor fold-only fallback, `doctor --probe` with per-event idle-fold, and the daily free-model
+  scheduler: ADR 0051.
+- Batched fact filter and contradiction decisions in fold, the 14-day/200-turn shadow window, and
+  the `[facts]`, `[ledger]` and `[hosts.*]` switches.
+- Monitor panes (model share, sparkline, turn id, triggering calls).
+- Golden replay for eight hosts, TE parity on Claude and Codex logs, the fault matrix, and the
+  fresh-install CI job.
+
+## Open (a): needs live or real-world data or user action
+
+1. Representative repeat-repository outcome and savings/spend measurement (SPEC 2 G1, G4); see ADR
+   0045 and ADR 0046. Synthetic fixtures and CI benchmarks cannot establish it.
+2. M0 over 50 real sessions (SPEC 15 M0) and M1 shadow decisions on real sessions (M1); the
+   end-to-end test uses `tkm init` and fixtures (`crates/tkm-cli/tests/e2e_shadow.rs`).
+3. M4 real sessions for Cursor, Kimi and Codewhale, and the open items in
+   `docs/verified/e5b-hosts.md`: Cursor transcript format, agy `-p` tool events (SPEC 18).
+4. Pi async `session_shutdown` runtime behavior (`docs/verified/opencode-pi.md`).
+5. Gemini CLI hook applicability to agy (SPEC 18); the implementation assumes the products do not
+   share hooks.
+6. Ledger within 2% of billed cost and stuck precision on real labelled turns (SPEC 15 M2, M8).
+7. E10.6 replay benchmark: harness merged (ADR 0048); the sample run needs private real history.
+8. SPEC 13.2 dependency maintenance audit by a person.
+
+## Open (b): intentionally out of scope per ADR
+
+- Superorchestrator spend ingestion (SPEC 4.2, 9.2, 9.3, 15 M7, 17 Q5): ADR 0040 item 5. tokenimum
+  writes the JSONL sink; ingestion needs an upstream change.
+- Connect timeout 10 ms instead of 2 ms: ADR 0014.
+- Legacy opencode `storage/` tree and awaited shim `tool_done`: ADR 0025.
+- Kimi and Codewhale user-scope-only installers: ADR 0020.
+- Instructions file and skill path for hosts without a verified location (agy, Codex, Cursor,
+  Codewhale skills): ADR 0026.
+- otherskill selection limited to four host names: ADR 0040 item 7.
+
+## Open (c): not implemented
+
+C1. Deny writers other than Claude: Cursor CLI config, opencode `permission.<tool>`, Pi
+    `defaultTools` (SPEC 6.8, 6.11, 7.3, 11 `tkm prune apply/restore`, G6). See
+    `crates/tkm-hosts/src/writer/deny.rs` and ADR 0032.
+C2. 24-hour latest deadline for writing the deny list: the store records no candidate-ready time
+    (SPEC 7.3). See `crates/tkm-cli/src/cmd/prune.rs` and `crates/tkm-store/src/migrations.rs`.
+C3. `prune.protect` config key (SPEC 7.3). See `crates/tkm-config/src/config.rs`.
+C4. 30-day delegated-run cap on pruning: the store keeps a lifetime count only (SPEC 7.3). See
+    `crates/tkm-store/src/migrations.rs`.
+C5. Fact and relevance label contracts and `tkm calibrate --purpose facts|relevance` (SPEC 8.5,
+    11, 15 M8). See `crates/tkm-cli/src/cmd/calibrate.rs` and `crates/tkm-decide/src/calibrate.rs`.
+C6. Agreement mode: `decide_agreement` is never called and `decide.agreement` is only read (SPEC
+    8.5, 10.4, 17 Q7). See `crates/tkm-decide/src/client.rs`, `crates/tkmd/src/decider.rs` and
+    `crates/tkmd/src/settings.rs`.
+C7. Session log discovery without a hook transcript path for hosts other than Claude (SPEC 6.12).
+    See `crates/tkmd/src/fold.rs` and ADR 0018 item 5.

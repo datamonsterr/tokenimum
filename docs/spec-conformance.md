@@ -7,37 +7,71 @@ source show implementation, while tests and CI identify executable checks. An ev
 not imply that the test has been run locally. Historic host observations and model probes describe
 what was known at the date in SPEC, not current upstream guarantees.
 
-## Gaps found
+## Status and category summary
 
-The following exact SPEC text identifies gaps found in this audit. They are recorded for scheduling
-in [ADR 0050](../docs/adr/0050-conformance-gaps.md); that record does not close them.
+Refreshed 2026-10-29 against `da6a44d` on `epic/e10`, where CI is green. Counts cover all 556 rows.
 
-- SPEC 7.5: “Per session: tokens by class (input, cache write, cache read, output) from the session log; priced with a local price table (`pricing.toml`, refreshed weekly from OpenRouter `/api/v1/models` and harness vendor prices).” [fold.rs](../crates/tkmd/src/fold.rs) stores zero priced cost.
-- SPEC 7.3: “count skills loaded (injected or listed) vs invoked, per repository.” [skills.rs](../crates/tkm-cli/src/cmd/skills.rs) derives a limited report from Claude logs only.
-- SPEC 15 M4: “fold works on a real session of each”. [host verification](../docs/verified/e5b-hosts.md) identifies synthetic fixtures and forum-reported formats for hosts without local installs.
-- SPEC 2 G1: “Lower mean cost per session in repeat repositories without lowering task success.” [ADR 0050](../docs/adr/0050-conformance-gaps.md) records the missing representative outcome evaluation.
-- SPEC 2 G4: “total model spend under 1% of the agent spend it saves.” [ADR 0050](../docs/adr/0050-conformance-gaps.md) records the missing representative savings measurement.
+| Status | Rows |
+|---|---|
+| met | 498 |
+| deferred | 47 |
+| not applicable | 11 |
 
-- SPEC 6.3: “redirects via `pi.sendMessage(..., {deliverAs:"steer"})`”. [Pi shim](../shims/pi.ts) has no steer delivery path.
-- SPEC 6.1: “if the hook or shim path is unavailable, disabled by the person, or fails `tkm doctor`, the adapter drops to `fold-only`”. [doctor.rs](../crates/tkm-cli/src/cmd/doctor.rs) reports state but automatic switching after a failed probe is not established.
+Every `deferred` row starts its evidence with one category tag:
 
-- SPEC 6.10: “Events used: `session_start`, `message_submit`, `tool_call_before`, `tool_call_after`, `turn_end`, `session_end`, `session_idle`.” [Codewhale installer](../crates/tkm-hosts/src/codewhale/install.rs) does not register `session_idle`.
-- SPEC 6.8: “`tkm doctor` runs a probe session and records which events arrived; missing events switch that event to idle-fold.” [doctor.rs](../crates/tkm-cli/src/cmd/doctor.rs) reads recorded events but does not run a host session or switch mode.
+| Category | Meaning | Rows |
+|---|---|---|
+| (a) | Needs live or real-world data, or user action: real host sessions, live model spend, the replay benchmark sample run, secrets | 16 |
+| (b) | Intentionally out of scope or limited by an ADR (link in the row) | 14 |
+| (c) | Not implemented: code is missing | 17 |
 
+Rows fixed since the audit was written (priced ledger and pricing refresh, skill evidence, Pi steer,
+Codewhale `session_idle`, Cursor repeat, doctor fold-only fallback, `doctor --probe`, daily free-model
+scheduler, batched fact decisions, shadow window, config switches, monitor panes, golden, TE parity,
+fault matrix and fresh-install) are now `met` and cite their tests.
 
-- SPEC 8.2: “`tkm doctor` re-probes `:free` slugs daily and moves a free model to the front when it answers.” [doctor models](../crates/tkm-cli/src/cmd/doctor/models.rs) performs an explicit probe, with no daily scheduler established.
+### (c) Not implemented
 
+Each item gives the exact SPEC text and the files involved. Tracked in [ADR 0050](../docs/adr/0050-conformance-gaps.md).
 
+- **S2.G-6**, SPEC 2 G6: “Every action visible, explainable from stored evidence in plain language, and reversible.” Open part: pruning is applied and reversed for Claude only. Files: [deny.rs](../crates/tkm-hosts/src/writer/deny.rs), [prune.rs](../crates/tkm-cli/src/cmd/prune.rs).
+- **S6.8-7, S7.3-6**, SPEC 6.8 and 7.3: “Cursor | `<repo>/.cursor/cli.json` `permissions.deny` | verified surface”. Files: [deny.rs](../crates/tkm-hosts/src/writer/deny.rs), [cursor install.rs](../crates/tkm-hosts/src/cursor/install.rs).
+- **S6.11-9, S7.3-7**, SPEC 6.11 and 7.3: “opencode | `<repo>/opencode.json` `permission.<tool> = "deny"` | verified surface; MCP keys `<server>_<tool>`”. Files: [deny.rs](../crates/tkm-hosts/src/writer/deny.rs), [opencode install.rs](../crates/tkm-hosts/src/opencode/install.rs).
+- **S6.11-9, S7.3-8**, SPEC 6.11 and 7.3: “Pi | project settings `defaultTools` with `-name` | verified surface”. Files: [deny.rs](../crates/tkm-hosts/src/writer/deny.rs), [pi install.rs](../crates/tkm-hosts/src/pi/install.rs).
+- **S12-7**, SPEC 11: “`tkm prune [apply|restore [tool]]` | deny-list proposal, evidence, apply, give back”. Apply and restore work for Claude only. Files: [prune.rs](../crates/tkm-cli/src/cmd/prune.rs), [deny.rs](../crates/tkm-hosts/src/writer/deny.rs).
+- **S6.12-2**, SPEC 6.12: “`tkmd` watches known session directories (inotify/FSEvents through the `notify` crate; a 60 s scan when watching is not possible). A session idle for 30 minutes is folded.” Open part: only Claude derives a session log path without a hook transcript path; other hosts are marked `skipped`. Files: [fold.rs](../crates/tkmd/src/fold.rs), the host `reader.rs` files under [tkm-hosts](../crates/tkm-hosts/src/).
+- **S7.3-3**, SPEC 7.3: “Write the deny list only after 60 idle minutes in that repository (the prompt cache has expired), or after 24 hours at the latest.” The 60-minute idle check exists; the 24-hour deadline is not computed because the store records no candidate-ready time. Files: [prune.rs](../crates/tkm-cli/src/cmd/prune.rs), [migrations.rs](../crates/tkm-store/src/migrations.rs).
+- **S7.3-11**, SPEC 7.3: “anything in `prune.protect`”. The key is not in the config registry. Files: [config.rs](../crates/tkm-config/src/config.rs), [prune.rs](../crates/tkm-cli/src/cmd/prune.rs).
+- **S7.3-12**, SPEC 7.3: “a repository that has had any delegated run in the last 30 days keeps pruning at `propose` at most.” The store keeps only a lifetime `delegated_runs` count. Files: [migrations.rs](../crates/tkm-store/src/migrations.rs), [queries.rs](../crates/tkm-store/src/queries.rs), [prune.rs](../crates/tkm-cli/src/cmd/prune.rs).
+- **S8.5-2, S12-11**, SPEC 8.5 and 11: “Facts are labelled by later confirmation or contradiction.” and “`tkm calibrate [--purpose loop|facts|relevance]` | fit thresholds from labelled decisions”. Only `loop` calibrates. Files: [calibrate.rs](../crates/tkm-cli/src/cmd/calibrate.rs), [calibrate.rs (decide)](../crates/tkm-decide/src/calibrate.rs).
+- **S15-16**, SPEC 15 M8: “Calibration loop; leave shadow mode per purpose when precision targets are met”. Per-purpose calibration for facts and relevance is missing (same files as above); stuck precision on real labelled turns also needs live data.
+- **S8.5-1, S10.4-14, S17-7**, SPEC 8.5: “Agreement mode (optional): ask two models in parallel (Mercury + Jev); act only when both pass threshold.” `decide_agreement` exists but no daemon path calls it, and `decide.agreement` is only read. Files: [client.rs](../crates/tkm-decide/src/client.rs), [decider.rs](../crates/tkmd/src/decider.rs), [settings.rs](../crates/tkmd/src/settings.rs), [live.rs](../crates/tkmd/src/live.rs).
 
-- SPEC 6.8: “Blocks that matter are repeated on the next `postToolUse`.” [ADR 0050](../docs/adr/0050-conformance-gaps.md) item 11 records that this repetition is not established.
-- SPEC 15 M1: “shadow decisions logged on real sessions”. The [end-to-end test](../crates/tkm-cli/tests/e2e_shadow.rs) uses an installed fake home and fixture events.
+### (a) Needs live or real-world data or user action
 
+- S2.G-1 and S2.G-4: representative task-success and savings/spend measurement on real repeat-repository sessions with live models.
+- S6.4-15, S6.8-2, S18-6: real Cursor transcript.
+- S6.11-2, S18-11: live Pi `session_shutdown` probe.
+- S13.2-3: person-run dependency maintenance audit.
+- S14-1: replay benchmark sample run on private real history (harness merged).
+- S15-1: 50 recorded real sessions with live model comparisons.
+- S15-4: shadow decisions on real installed sessions.
+- S15-6: ledger within 2% of cost on real billed sessions (TE parity is met).
+- S15-10, S17-8: fold a real session of each host; close host verifications.
+- S18-4: agy `-p` tool events. S18-12: Gemini CLI hooks versus agy.
+
+### (b) Out of scope or limited per ADR
+
+- S4.2-7, S9.2-3, S9.3-1, S15-2, S17-5: superorchestrator spend ingestion, [ADR 0040](../docs/adr/0040-e9-integrations.md) item 5.
+- S5.1-2: 10 ms connect timeout, [ADR 0014](../docs/adr/0014-hook-client.md).
+- S6.4-1, S6.4-18: legacy opencode `storage/`, S14-5: awaited `tool_done`, [ADR 0025](../docs/adr/0025-shim-protocol.md).
+- S6.10-8: user-scope Kimi/Codewhale installer, [ADR 0020](../docs/adr/0020-e5b-host-adapters.md).
+- S6.12-1, S6.12-4, S12-17: hosts without verified instructions or skill paths, [ADR 0026](../docs/adr/0026-fold-only-mode.md).
+- S9.4-1: four otherskill host names, [ADR 0040](../docs/adr/0040-e9-integrations.md) item 7.
 
 ## Pending
 
-E10.6 replay benchmark harness is being merged in parallel. Its evidence is pending; the controller
-will replace the placeholder row after that work lands.
-
+Nothing pending. The E10.6 replay benchmark harness is merged; only its real-data sample run remains (S14-1, category (a)).
 
 ## 1. Summary
 
@@ -60,12 +94,12 @@ will replace the placeholder row after that work lands.
 
 | ID | Requirement | Status | Evidence |
 |---|---|---|---|
-| S2.G-1 | G1: reduce repeat-repo cost without loss of success | deferred | [0050-conformance-gaps.md](../docs/adr/0050-conformance-gaps.md) |
+| S2.G-1 | G1: reduce repeat-repo cost without loss of success | deferred | **(a)** [ADR 0050](../docs/adr/0050-conformance-gaps.md) item 3: needs real repeat-repository sessions and a task-success evaluation. |
 | S2.G-2 | G2: hook p50 &lt; 3 ms, p99 &lt; 10 ms | met | [0046-performance-gates.md](../docs/adr/0046-performance-gates.md) |
 | S2.G-3 | G3: share neutral facts by repository identity | met | [repo_paths.rs](../crates/tkm-config/tests/repo_paths.rs) |
-| S2.G-4 | G4: Decisions only; spend &lt; 1% of savings | deferred | [0050-conformance-gaps.md](../docs/adr/0050-conformance-gaps.md) |
+| S2.G-4 | G4: Decisions only; spend &lt; 1% of savings | deferred | **(a)** [ADR 0050](../docs/adr/0050-conformance-gaps.md) item 3: needs live model spend measured against real agent savings. |
 | S2.G-5 | G5: failures leave the agent running | met | [integration.rs](../crates/tkm-hook/tests/integration.rs) |
-| S2.G-6 | G6: actions visible, explainable, reversible | deferred | [0032-cli-prune-gaps.md](../docs/adr/0032-cli-prune-gaps.md) |
+| S2.G-6 | G6: actions visible, explainable, reversible | deferred | **(c)** [ADR 0032](../docs/adr/0032-cli-prune-gaps.md): only Claude has a deny writer, so Cursor, opencode and Pi pruning is proposal-only; see [deny.rs](../crates/tkm-hosts/src/writer/deny.rs). |
 | S2.G-7 | G7: standalone, optional integrations | met | [matrix.rs](../crates/tkm-integrations/tests/matrix.rs) |
 | S2.G-8 | G8: no unsafe in own crates | met | [ci.yml](../.github/workflows/ci.yml) |
 
@@ -99,7 +133,7 @@ will replace the placeholder row after that work lands.
 | S4.1-3 | Free gate judges asynchronously; code backstop redirects at 2.5 times envelope | met | [loopguard_behavior.rs](../crates/tkm-core/tests/loopguard_behavior.rs) |
 | S4.1-4 | Second stuck segment escalates without stopping turn | met | [live.rs](../crates/tkmd/tests/live.rs) |
 | S4.1-5 | Stop closes turn and good turns feed envelope | met | [live.rs](../crates/tkmd/tests/live.rs) |
-| S4.1-6 | SessionEnd folds facts, pruning and cache-aware ledger | deferred | [0050-conformance-gaps.md](../docs/adr/0050-conformance-gaps.md) |
+| S4.1-6 | SessionEnd folds facts, pruning and cache-aware ledger | met | [fold.rs](../crates/tkmd/tests/fold.rs) `session_end_marks_the_session_and_a_detached_fold_writes_the_ledger`, `fold_prices_session_with_configured_model_rates`; [fold.rs source](../crates/tkmd/src/fold.rs) `fold_prune` |
 
 ### 4.2 What tokenimum changes in that flow
 
@@ -108,10 +142,10 @@ will replace the placeholder row after that work lands.
 | S4.2-1 | Rust hook and daemon communicate by Unix socket | met | [lib.rs](../crates/tkm-hook/src/lib.rs) |
 | S4.2-2 | Turn state in memory, flush every 5 s and turn end | met | [0015-daemon-architecture-and-flush.md](../docs/adr/0015-daemon-architecture-and-flush.md) |
 | S4.2-3 | Noul judge and choice-based templated redirect | met | [live.rs](../crates/tkmd/src/live.rs) |
-| S4.2-4 | Code extracts facts, model filters; score relevance in shared budget | deferred | [ADR 0050](../docs/adr/0050-conformance-gaps.md) item 12 records missing fact decisions; [injection.rs](../crates/tkmd/src/injection.rs) scores relevance. |
+| S4.2-4 | Code extracts facts, model filters; score relevance in shared budget | met | [fold.rs](../crates/tkmd/tests/fold.rs) `fold_applies_mocked_filter_verdicts_after_calibration`, `fold_sends_one_candidate_batch_and_fails_open_on_decision_failure`; [injection.rs](../crates/tkmd/src/injection.rs) scores relevance |
 | S4.2-5 | Headless escalation forwarded or stored | met | [0040-e9-integrations.md](../docs/adr/0040-e9-integrations.md) |
 | S4.2-6 | Install into detected homes, optional account homes | met | [init_lifecycle.rs](../crates/tkm-cli/tests/init_lifecycle.rs) |
-| S4.2-7 | SQLite ledger and optional superorchestrator reporting | deferred | [0040-e9-integrations.md](../docs/adr/0040-e9-integrations.md) |
+| S4.2-7 | SQLite ledger and optional superorchestrator reporting | deferred | **(b)** [ADR 0040](../docs/adr/0040-e9-integrations.md) item 5: ledger is SQLite and spend lines go to the local sink ([e9_spend.rs](../crates/tkmd/tests/e9_spend.rs) `ledger_reports_only_uncached_known_costs_with_session_run`); superorchestrator has no ingestion API. |
 | S4.2-8 | Status, top, dashboard and why monitors | met | [cli.rs](../crates/tkm-cli/src/cli.rs) |
 
 ### 4.3 TE parameters kept as defaults
@@ -150,7 +184,7 @@ will replace the placeholder row after that work lands.
 | ID | Requirement | Status | Evidence |
 |---|---|---|---|
 | S5.1-1 | Hook reads stdin, forwards host/env over framed socket and fails open | met | [integration.rs](../crates/tkm-hook/tests/integration.rs) |
-| S5.1-2 | Connect timeout 2 ms | deferred | [0014-hook-client.md](../docs/adr/0014-hook-client.md) sets 10 ms due to safe-Rust scheduling. |
+| S5.1-2 | Connect timeout 2 ms | deferred | **(b)** [ADR 0014](../docs/adr/0014-hook-client.md) sets 10 ms due to safe-Rust scheduling. |
 | S5.1-3 | Event-specific read timeouts | met | [lib.rs](../crates/tkm-proto/src/lib.rs) |
 | S5.1-4 | Daemon uses tokio and systemd/launchd service; hook starts detached on miss | met | [service.rs](../crates/tkmd/tests/service.rs); [integration.rs](../crates/tkm-hook/tests/integration.rs) |
 | S5.1-5 | CLI command surface and read-only daemon-down fallback | met | [status_report.rs](../crates/tkm-cli/tests/status_report.rs) |
@@ -222,7 +256,7 @@ will replace the placeholder row after that work lands.
 | S6.1-6 | Codewhale: [hooks] in config.toml | met | [install.rs](../crates/tkm-hosts/src/codewhale/install.rs) |
 | S6.1-7 | opencode: Bun TypeScript shim | met | [opencode.ts](../shims/opencode.ts) |
 | S6.1-8 | Pi: TypeScript extension shim | met | [pi.ts](../shims/pi.ts) |
-| S6.1-9 | Unavailable, disabled or failed doctor hook falls back to fold-only | deferred | [0050-conformance-gaps.md](../docs/adr/0050-conformance-gaps.md) |
+| S6.1-9 | Unavailable, disabled or failed doctor hook falls back to fold-only | met | [host_level.rs](../crates/tkmd/tests/host_level.rs) `failed_probe_folds_and_success_restores_configured_level`, `daemon_suppresses_live_injection_when_doctor_forces_fold_only`; [doctor_checks.rs](../crates/tkm-cli/tests/doctor_checks.rs) `doctor_persists_fallback_then_clears_it_after_repair`; [ADR 0051](../docs/adr/0051-effective-host-probes-and-daily-models.md) |
 
 ### 6.2 Events tokenimum handles
 
@@ -242,7 +276,7 @@ will replace the placeholder row after that work lands.
 | S6.2-12 | No network wait on tool_done; later delivery or drop at turn end | met | [live.rs](../crates/tkmd/tests/live.rs) |
 | S6.2-13 | Prompt timeout uses cached default block | met | [inject.rs](../crates/tkmd/tests/inject.rs) |
 | S6.2-14 | Cursor and Codewhale defer prompt injection until injectable event | met | [0017-inject-layer.md](../docs/adr/0017-inject-layer.md) |
-| S6.2-15 | Missing session_end: 30 minute idle or next session start | deferred | [0018-fold-workers-and-idle-fold.md](../docs/adr/0018-fold-workers-and-idle-fold.md) describes a five-minute grace at next start. |
+| S6.2-15 | Missing session_end: 30 minute idle or next session start | met | [fold.rs](../crates/tkmd/tests/fold.rs) `idle_sessions_fold_after_thirty_minutes_on_a_fake_clock`, `unfinished_earlier_session_in_the_same_repo_folds_at_the_next_session_start`; [ADR 0018](../docs/adr/0018-fold-workers-and-idle-fold.md) describes a five-minute grace at next start |
 | S6.2-16 | Host hook timeouts exceed internal read deadlines | met | [contracts.rs](../crates/tkm-hosts/tests/contracts.rs) |
 | S6.2-17 | claude: `session_start` → `SessionStart` | met | [claude_contract.rs](../crates/tkm-hosts/tests/claude_contract.rs) |
 | S6.2-18 | codex: `session_start` → `SessionStart` | met | [codex_contract.rs](../crates/tkm-hosts/tests/codex_contract.rs) |
@@ -297,7 +331,7 @@ will replace the placeholder row after that work lands.
 | S6.3-6 | Codewhale tool_call_before decision allow and additionalContext ≤2,000 chars; empty no-op | met | [codewhale_contract.rs](../crates/tkm-hosts/tests/codewhale_contract.rs) |
 | S6.3-7 | opencode chat.message synthetic text part, toast notice, unmodified no-op | met | [opencode_contract.rs](../crates/tkm-hosts/tests/opencode_contract.rs) |
 | S6.3-8 | Pi before_agent_start custom message, ui.notify notice, undefined no-op | met | [pi_contract.rs](../crates/tkm-hosts/tests/pi_contract.rs) |
-| S6.3-10 | Pi redirects via pi.sendMessage steer | deferred | [0050-conformance-gaps.md](../docs/adr/0050-conformance-gaps.md) |
+| S6.3-10 | Pi redirects via pi.sendMessage steer | met | [shim.rs](../crates/tkm-hosts/tests/shim.rs) `pi_shim_delivers_redirects_as_steering_messages`; [pi_contract.rs](../crates/tkm-hosts/tests/pi_contract.rs) `tool_results_deliver_redirects_as_steering_context`; [pi.ts](../shims/pi.ts) |
 | S6.3-11 | Never use blocking replies or stop a turn | met | [contracts.rs](../crates/tkm-hosts/tests/contracts.rs) |
 
 ### 6.4 Session log readers
@@ -312,16 +346,16 @@ will replace the placeholder row after that work lands.
 | S6.4-6 | codewhale log path and normalized reader | met | [codewhale_reader.rs](../crates/tkm-hosts/tests/codewhale_reader.rs) |
 | S6.4-7 | opencode log path and normalized reader | met | [opencode_reader.rs](../crates/tkm-hosts/tests/opencode_reader.rs) |
 | S6.4-8 | pi log path and normalized reader | met | [pi_reader.rs](../crates/tkm-hosts/tests/pi_reader.rs) |
-| S6.4-1 | Legacy opencode storage and export fallback | deferred | [0025-shim-protocol.md](../docs/adr/0025-shim-protocol.md) |
+| S6.4-1 | Legacy opencode storage and export fallback | deferred | **(b)** [ADR 0025](../docs/adr/0025-shim-protocol.md): the legacy `storage/` tree and export are not read; [reader.rs](../crates/tkm-hosts/src/opencode/reader.rs) returns Unsupported and the caller falls back to fold-only. |
 | S6.4-10 | Foreign SQLite opened read only | met | [reader.rs](../crates/tkm-hosts/src/opencode/reader.rs) |
 | S6.4-11 | Unknown records counted; &gt;20% skipped yields partial ledger-only fold | met | [fold.rs](../crates/tkmd/tests/fold.rs) |
 | S6.4-12 | Claude Code reader source: `<home>/projects/<cwd-slug>/<session>.jsonl` | met | [claude_reader.rs](../crates/tkm-hosts/tests/claude_reader.rs) |
 | S6.4-13 | Codex reader source: `<CODEX_HOME>/sessions/YYYY/MM/DD/rollout-<ts>-<uuid>.jsonl`; older files `.jsonl.zst` | met | [codex_reader.rs](../crates/tkm-hosts/tests/codex_reader.rs) |
 | S6.4-14 | agy reader source: hook `transcriptPath` = `<home>/.gemini/antigravity-cli/brain/<id>/.system_generated/logs/transcript_full.jsonl` (one JSON step per line, with token counts) | met | [agy_reader.rs](../crates/tkm-hosts/tests/agy_reader.rs) |
-| S6.4-15 | Cursor reader source: `transcript_path` in hook payload (also env `CURSOR_TRANSCRIPT_PATH`) | deferred | [cursor_reader.rs](../crates/tkm-hosts/tests/cursor_reader.rs); [e5b-hosts.md](../docs/verified/e5b-hosts.md) |
+| S6.4-15 | Cursor reader source: `transcript_path` in hook payload (also env `CURSOR_TRANSCRIPT_PATH`) | deferred | **(a)** [cursor_reader.rs](../crates/tkm-hosts/tests/cursor_reader.rs) passes on fixtures; [e5b-hosts.md](../docs/verified/e5b-hosts.md) records the transcript format as forum-reported until a real Cursor session is read. |
 | S6.4-16 | Kimi Code reader source: `~/.kimi/sessions/<md5(workdir)>/<session-id>/{context.jsonl,wire.jsonl,state.json}` | met | [kimi_reader.rs](../crates/tkm-hosts/tests/kimi_reader.rs) |
 | S6.4-17 | DeepSeek harness (Codewhale) reader source: `$CODEWHALE_HOME/sessions/<uuid>.json` | met | [codewhale_reader.rs](../crates/tkm-hosts/tests/codewhale_reader.rs) |
-| S6.4-18 | opencode reader source: SQLite `~/.local/share/opencode/opencode.db` (tables `session`, `message`, `part`, ...; path from `opencode db path`); legacy `~/.local/share/opencode/storage/` | deferred | [opencode_reader.rs](../crates/tkm-hosts/tests/opencode_reader.rs); [0025-shim-protocol.md](../docs/adr/0025-shim-protocol.md) |
+| S6.4-18 | opencode reader source: SQLite `~/.local/share/opencode/opencode.db` (tables `session`, `message`, `part`, ...; path from `opencode db path`); legacy `~/.local/share/opencode/storage/` | deferred | **(b)** [opencode_reader.rs](../crates/tkm-hosts/tests/opencode_reader.rs) covers `opencode.db`; the legacy `storage/` tree is out of scope per [ADR 0025](../docs/adr/0025-shim-protocol.md). |
 | S6.4-19 | Pi reader source: `~/.pi/agent/sessions/--<cwd-encoded>--/<timestamp>_<session-id>.jsonl`, header `{type:"session",version:3,...}` | met | [pi_reader.rs](../crates/tkm-hosts/tests/pi_reader.rs) |
 
 ### 6.5 Claude Code
@@ -342,7 +376,7 @@ will replace the placeholder row after that work lands.
 | S6.6-1 | hooks.json settings and shell-string handlers | met | [codex_install.rs](../crates/tkm-hosts/tests/codex_install.rs) |
 | S6.6-2 | Event payload and reply mapping | met | [codex_contract.rs](../crates/tkm-hosts/tests/codex_contract.rs) |
 | S6.6-3 | Print /hooks trust step; never write trusted_hash or bypass flag | met | [install.rs](../crates/tkm-hosts/src/codex/install.rs) |
-| S6.6-4 | Trusted hooks under codex exec; untrusted fallback | deferred | [claude-codex.md](../docs/verified/claude-codex.md) verifies host behavior; [0050-conformance-gaps.md](../docs/adr/0050-conformance-gaps.md) notes missing automatic fallback. |
+| S6.6-4 | Trusted hooks under codex exec; untrusted fallback | met | [host_level.rs](../crates/tkmd/tests/host_level.rs) `failed_probe_folds_and_success_restores_configured_level`; [host_probe.rs](../crates/tkm-cli/tests/host_probe.rs) `missing_binary_forces_fold_only_and_records_every_event_missing`; host trust verified in [claude-codex.md](../docs/verified/claude-codex.md) |
 | S6.6-5 | Built-in tool pruning report only | met | [mod.rs](../crates/tkm-hosts/src/codex/mod.rs) |
 
 ### 6.7 Antigravity (`agy`)
@@ -363,12 +397,12 @@ will replace the placeholder row after that work lands.
 | S6.8-1 | User and project hooks.json versioned flat format | met | [cursor_install.rs](../crates/tkm-hosts/tests/cursor_install.rs) |
 | S6.8-10 | Map six Cursor lifecycle and tool events | met | [cursor_contract.rs](../crates/tkm-hosts/tests/cursor_contract.rs) |
 | S6.8-3 | beforeSubmitPrompt records prompt; defer injection to postToolUse | met | [inject.rs](../crates/tkmd/tests/inject.rs) |
-| S6.8-4 | sessionStart content repeated on next postToolUse | deferred | [0050-conformance-gaps.md](../docs/adr/0050-conformance-gaps.md); deferred-injection behavior is not proof of repetition. |
-| S6.8-5 | Probe Cursor session and switch missing events to idle-fold | deferred | [0050-conformance-gaps.md](../docs/adr/0050-conformance-gaps.md) |
+| S6.8-4 | sessionStart content repeated on next postToolUse | met | [inject.rs](../crates/tkmd/tests/inject.rs) `cursor_repeats_session_start_context_on_next_tool_result` |
+| S6.8-5 | Probe Cursor session and switch missing events to idle-fold | met | [host_probe.rs](../crates/tkm-cli/tests/host_probe.rs) `fake_host_subset_records_arrivals_and_marks_missing_events_idle_fold`; [event_probe.rs](../crates/tkmd/tests/event_probe.rs) `event_policy_preserves_native_event_independence_and_recovers`; [ADR 0051](../docs/adr/0051-effective-host-probes-and-daily-models.md) |
 | S6.8-6 | Explicit hook timeout and trust instructions | met | [cursor_install.rs](../crates/tkm-hosts/tests/cursor_install.rs) |
-| S6.8-7 | Cursor deny path .cursor/cli.json permissions.deny | deferred | [0032-cli-prune-gaps.md](../docs/adr/0032-cli-prune-gaps.md) records proposal-only non-Claude writers. |
+| S6.8-7 | Cursor deny path .cursor/cli.json permissions.deny | deferred | **(c)** [ADR 0032](../docs/adr/0032-cli-prune-gaps.md): no Cursor CLI deny writer; see [deny.rs](../crates/tkm-hosts/src/writer/deny.rs) and [cursor install.rs](../crates/tkm-hosts/src/cursor/install.rs). |
 | S6.8-8 | Detect Claude hook duplicates and warn | met | [cursor_install.rs](../crates/tkm-hosts/tests/cursor_install.rs); [server.rs](../crates/tkmd/tests/server.rs) |
-| S6.8-2 | Transcript format remains forum-reported | deferred | [e5b-hosts.md](../docs/verified/e5b-hosts.md) |
+| S6.8-2 | Transcript format remains forum-reported | deferred | **(a)** [e5b-hosts.md](../docs/verified/e5b-hosts.md): the Cursor transcript format stays forum-reported until a real session is observed. |
 
 ### 6.9 Kimi Code
 
@@ -384,8 +418,8 @@ will replace the placeholder row after that work lands.
 | ID | Requirement | Status | Evidence |
 |---|---|---|---|
 | S6.10-1 | Codewhale (codewhale / legacy deepseek) target; dsh future adapter | met | [e5b-hosts.md](../docs/verified/e5b-hosts.md); [mod.rs](../crates/tkm-hosts/src/codewhale/mod.rs) |
-| S6.10-8 | User config [[hooks.hooks]], project hook path | deferred | [0020-e5b-host-adapters.md](../docs/adr/0020-e5b-host-adapters.md) records user-only installer. |
-| S6.10-3 | Six lifecycle/tool events plus session_idle | deferred | [0050-conformance-gaps.md](../docs/adr/0050-conformance-gaps.md) |
+| S6.10-8 | User config [[hooks.hooks]], project hook path | deferred | **(b)** [ADR 0020](../docs/adr/0020-e5b-host-adapters.md): the installer is user-scope only; project scope returns Unsupported. |
+| S6.10-3 | Six lifecycle/tool events plus session_idle | met | [codewhale_install.rs](../crates/tkm-hosts/tests/codewhale_install.rs) `install_registers_session_idle_with_its_native_event` |
 | S6.10-4 | Map DEEPSEEK env markers and stdin | met | [codewhale_contract.rs](../crates/tkm-hosts/tests/codewhale_contract.rs) |
 | S6.10-5 | Only tool_call_before additionalContext, caps and no blocking | met | [codewhale_contract.rs](../crates/tkm-hosts/tests/codewhale_contract.rs) |
 | S6.10-6 | continue_on_error true and explicit timeouts | met | [install.rs](../crates/tkm-hosts/src/codewhale/install.rs) |
@@ -404,8 +438,8 @@ will replace the placeholder row after that work lands.
 | S6.11-5 | opencode and Pi user and project install paths and trust | met | [opencode_install.rs](../crates/tkm-hosts/tests/opencode_install.rs); [pi_install.rs](../crates/tkm-hosts/tests/pi_install.rs) |
 | S6.11-6 | opencode session.created, chat.message, tool.execute.after, session.idle, session.deleted | met | [opencode_contract.rs](../crates/tkm-hosts/tests/opencode_contract.rs) |
 | S6.11-7 | Pi session_start, before_agent_start, tool_result, agent_end, session_shutdown | met | [pi_contract.rs](../crates/tkm-hosts/tests/pi_contract.rs) |
-| S6.11-2 | Pi async session_shutdown awaited by host | deferred | [opencode-pi.md](../docs/verified/opencode-pi.md) documents missing runtime probe. |
-| S6.11-9 | opencode permission and Pi defaultTools deny targets | deferred | [0032-cli-prune-gaps.md](../docs/adr/0032-cli-prune-gaps.md) |
+| S6.11-2 | Pi async session_shutdown awaited by host | deferred | **(a)** [opencode-pi.md](../docs/verified/opencode-pi.md) documents the missing runtime probe; needs a live Pi session. |
+| S6.11-9 | opencode permission and Pi defaultTools deny targets | deferred | **(c)** [ADR 0032](../docs/adr/0032-cli-prune-gaps.md): no opencode `permission.<tool>` or Pi `defaultTools` writer; see [opencode install.rs](../crates/tkm-hosts/src/opencode/install.rs) and [pi install.rs](../crates/tkm-hosts/src/pi/install.rs). |
 
 | S6.11-1 | Pi session shutdown forwards a best-effort session end | met | [Pi shim](../shims/pi.ts); [Pi contract](../crates/tkm-hosts/tests/pi_contract.rs). |
 
@@ -415,11 +449,11 @@ will replace the placeholder row after that work lands.
 |---|---|---|---|
 | S6.12-8 | Watch logs; fold after 30 minutes idle; scan every 60 seconds if watch unavailable | met | [0018-fold-workers-and-idle-fold.md](../docs/adr/0018-fold-workers-and-idle-fold.md) |
 | S6.12-9 | Optional marked instructions block, regeneration and git exclude | met | [fold_only_instructions.rs](../crates/tkm-hosts/tests/fold_only_instructions.rs) |
-| S6.12-1 | agy instructions path | deferred | [0026-fold-only-mode.md](../docs/adr/0026-fold-only-mode.md) records no verified agy path. |
-| S6.12-4 | Generated tokenimum skill for each harness | deferred | [0026-fold-only-mode.md](../docs/adr/0026-fold-only-mode.md) lists hosts without verified skill paths. |
+| S6.12-1 | agy instructions path | deferred | **(b)** [ADR 0026](../docs/adr/0026-fold-only-mode.md) records no verified agy instructions path; agy stays report-only. |
+| S6.12-4 | Generated tokenimum skill for each harness | deferred | **(b)** [ADR 0026](../docs/adr/0026-fold-only-mode.md) lists hosts without verified skill directories ([skill.rs](../crates/tkm-hosts/src/fold_only/skill.rs) covers Claude, opencode, Kimi, Pi). |
 | S6.12-5 | tkm run passes session/host env and folds at exit | met | [run_wrapper.rs](../crates/tkm-cli/tests/run_wrapper.rs) |
 | S6.12-6 | No live loop guard in fold-only | met | [fold_only_mode.rs](../crates/tkm-hosts/tests/fold_only_mode.rs) |
-| S6.12-2 | Discover stored sessions across hosts without transcript path | deferred | [0018-fold-workers-and-idle-fold.md](../docs/adr/0018-fold-workers-and-idle-fold.md) documents Claude-only discovery. |
+| S6.12-2 | Discover stored sessions across hosts without transcript path | deferred | **(c)** [ADR 0018](../docs/adr/0018-fold-workers-and-idle-fold.md) item 5: only Claude derives a log path from the cwd; other hosts are marked `skipped`; see [fold.rs](../crates/tkmd/src/fold.rs). |
 
 ### 6.13 Settings writers and install steps per harness
 
@@ -483,17 +517,17 @@ will replace the placeholder row after that work lands.
 |---|---|---|---|
 | S7.3-1 | Count per-repository and harness loaded/used by prompt and session | met | [prune_rules.rs](../crates/tkm-core/tests/prune_rules.rs) |
 | S7.3-2 | Candidate after 10 prompts across 2 sessions or 5 sessions | met | [prune_rules.rs](../crates/tkm-core/tests/prune_rules.rs) |
-| S7.3-3 | Write after 60 idle minutes or 24-hour latest deadline | deferred | [0032-cli-prune-gaps.md](../docs/adr/0032-cli-prune-gaps.md) |
+| S7.3-3 | Write after 60 idle minutes or 24-hour latest deadline | deferred | **(c)** [ADR 0032](../docs/adr/0032-cli-prune-gaps.md): the store records no candidate-ready time, so the 24-hour cap is not computed; see [prune.rs](../crates/tkm-cli/src/cmd/prune.rs). |
 | S7.3-4 | off, report, propose, apply modes | met | [mod.rs](../crates/tkm-core/src/prune/mod.rs) |
 | S7.3-5 | Claude .claude/settings.local.json permissions.deny | met | [deny.rs](../crates/tkm-hosts/src/writer/deny.rs) |
-| S7.3-6 | Cursor .cursor/cli.json permissions.deny | deferred | [0032-cli-prune-gaps.md](../docs/adr/0032-cli-prune-gaps.md) |
-| S7.3-7 | opencode opencode.json permission.&lt;tool&gt; | deferred | [0032-cli-prune-gaps.md](../docs/adr/0032-cli-prune-gaps.md) |
-| S7.3-8 | Pi project defaultTools -name | deferred | [0032-cli-prune-gaps.md](../docs/adr/0032-cli-prune-gaps.md) |
+| S7.3-6 | Cursor .cursor/cli.json permissions.deny | deferred | **(c)** [ADR 0032](../docs/adr/0032-cli-prune-gaps.md): Cursor deny writer missing; see [deny.rs](../crates/tkm-hosts/src/writer/deny.rs). |
+| S7.3-7 | opencode opencode.json permission.&lt;tool&gt; | deferred | **(c)** [ADR 0032](../docs/adr/0032-cli-prune-gaps.md): opencode permission writer missing; see [deny.rs](../crates/tkm-hosts/src/writer/deny.rs). |
+| S7.3-8 | Pi project defaultTools -name | deferred | **(c)** [ADR 0032](../docs/adr/0032-cli-prune-gaps.md): Pi defaultTools writer missing; see [deny.rs](../crates/tkm-hosts/src/writer/deny.rs). |
 | S7.3-9 | Codex, agy, Kimi, Codewhale report-only pruning | met | [contracts.rs](../crates/tkm-hosts/tests/contracts.rs) |
 | S7.3-10 | Own entries only; preserve foreign rules, git exclude, refuse tracked and unsafe symlinks | met | [writer.rs](../crates/tkm-hosts/tests/writer.rs) |
-| S7.3-11 | Protect TE and host tools, headroom, prune.protect and conditional orchestrator tools | deferred | [0032-cli-prune-gaps.md](../docs/adr/0032-cli-prune-gaps.md) |
-| S7.3-12 | Delegated run in last 30 days caps pruning at propose | deferred | [0032-cli-prune-gaps.md](../docs/adr/0032-cli-prune-gaps.md) |
-| S7.3-13 | Per-repository skills loaded versus invoked, export ranking prior | deferred | [0050-conformance-gaps.md](../docs/adr/0050-conformance-gaps.md) |
+| S7.3-11 | Protect TE and host tools, headroom, prune.protect and conditional orchestrator tools | deferred | **(c)** [ADR 0032](../docs/adr/0032-cli-prune-gaps.md): `prune.protect` is not in the config registry; see [config.rs](../crates/tkm-config/src/config.rs) and [prune.rs](../crates/tkm-cli/src/cmd/prune.rs). |
+| S7.3-12 | Delegated run in last 30 days caps pruning at propose | deferred | **(c)** [ADR 0032](../docs/adr/0032-cli-prune-gaps.md): the store keeps only a lifetime `delegated_runs` count, not a last-run time; see [migrations.rs](../crates/tkm-store/src/migrations.rs). |
+| S7.3-13 | Per-repository skills loaded versus invoked, export ranking prior | met | [skills_wiring.rs](../crates/tkm-cli/tests/skills_wiring.rs) `skills_json_ranks_recorded_invocations_in_current_repository`; [sessions.rs](../crates/tkm-store/tests/sessions.rs) `skill_evidence_is_persistent_per_session_and_replaceable`; [ADR 0049](../docs/adr/0049-priced-ledger-and-skill-evidence.md) |
 | S7.3-14 | Never delete or hide a skill | met | [skills.rs](../crates/tkm-core/src/prune/skills.rs) |
 
 ### 7.4 Loop guard
@@ -515,10 +549,10 @@ will replace the placeholder row after that work lands.
 
 | ID | Requirement | Status | Evidence |
 |---|---|---|---|
-| S7.5-1 | Per-session token classes and pricing.toml, weekly refreshed from OpenRouter/vendor | deferred | [0050-conformance-gaps.md](../docs/adr/0050-conformance-gaps.md) |
+| S7.5-1 | Per-session token classes and pricing.toml, weekly refreshed from OpenRouter/vendor | met | [pricing.rs](../crates/tkm-decide/tests/pricing.rs) `refresh_uses_fixture_rates_and_preserves_stale_table_on_failure`; [fold.rs](../crates/tkmd/tests/fold.rs) `fold_prices_session_with_configured_model_rates`; [ledger_pricing.rs](../crates/tkm-core/tests/ledger_pricing.rs); [ADR 0049](../docs/adr/0049-priced-ledger-and-skill-evidence.md); vendor rates are local entries |
 | S7.5-2 | Record per-decision tokens, cost, model, latency and questions | met | [live.rs](../crates/tkmd/src/live.rs) |
 | S7.5-3 | Per-session decision-cost overhead | met | [e9_spend.rs](../crates/tkmd/tests/e9_spend.rs) |
-| S7.5-4 | Savings by repo and host against shadow/pre-action baseline; samples and confidence band | deferred | [0050-conformance-gaps.md](../docs/adr/0050-conformance-gaps.md) explains zero priced session costs. |
+| S7.5-4 | Savings by repo and host against shadow/pre-action baseline; samples and confidence band | met | [ledger_savings.rs](../crates/tkm-core/tests/ledger_savings.rs) `savings_groups_and_confidence`; [status_report.rs](../crates/tkm-cli/tests/status_report.rs) `status_reports_envelope_pending_tools_and_savings_samples` |
 | S7.5-5 | Flag shadow sessions for comparisons | met | [live.rs](../crates/tkmd/tests/live.rs) |
 
 ## 8. Decision client (`tkm-decide`)
@@ -541,7 +575,7 @@ will replace the placeholder row after that work lands.
 |---|---|---|---|
 | S8.2-1 | Configurable free Mercury probe slot, paid dated Mercury, pplx flash and Jev | met | [chain.rs](../crates/tkm-decide/tests/chain.rs) |
 | S8.2-2 | Pin dated versions, reject latest aliases | met | [chain.rs](../crates/tkm-decide/tests/chain.rs) |
-| S8.2-3 | Daily free model re-probe and promotion | deferred | [0050-conformance-gaps.md](../docs/adr/0050-conformance-gaps.md) |
+| S8.2-3 | Daily free model re-probe and promotion | met | [model_scheduler.rs](../crates/tkmd/tests/model_scheduler.rs) `daily_probe_promotes_free_model_and_restart_restores_without_http`, `workers_schedule_a_probe_without_an_explicit_doctor_call`; [ADR 0051](../docs/adr/0051-effective-host-probes-and-daily-models.md) |
 | S8.2-4 | 404/5xx/1,500 ms timeout/invalid answer fallback; three failures in five minutes skip 15 | met | [client.rs](../crates/tkm-decide/tests/client.rs); [chain.rs](../crates/tkm-decide/tests/chain.rs) |
 | S8.2-5 | No calibration: record answer, take no action | met | [live.rs](../crates/tkmd/tests/live.rs) |
 | S8.2-6 | decide.enabled=false or offline preset uses code-only behavior | met | [e9_settings.rs](../crates/tkmd/tests/e9_settings.rs) |
@@ -561,7 +595,7 @@ will replace the placeholder row after that work lands.
 | S8.4-3 | Batch purpose questions; deny data collection and allow fallbacks | met | [client.rs](../crates/tkm-decide/tests/client.rs) |
 | S8.4-4 | Cache model/state/questions: relevance 10 min, fact filter 24 h | met | [cache.rs](../crates/tkm-decide/tests/cache.rs) |
 | S8.4-5 | Daily $0.50 and session $0.02 budget; code-only over cap | met | [budget.rs](../crates/tkm-decide/tests/budget.rs); [client.rs](../crates/tkm-decide/tests/client.rs) |
-| S8.4-1 | Retain cap spend across daemon restart | deferred | [0015-daemon-architecture-and-flush.md](../docs/adr/0015-daemon-architecture-and-flush.md) |
+| S8.4-1 | Retain cap spend across daemon restart | met | [e9_spend.rs](../crates/tkmd/tests/e9_spend.rs) `spend_attempts_survive_restart_and_unknown_costs_are_counted`; [ADR 0049](../docs/adr/0049-priced-ledger-and-skill-evidence.md) |
 | S8.4-7 | Top shows daily and session caps | met | [tui.rs](../crates/tkm-ui/src/tui.rs) |
 | S8.4-8 | OPENROUTER_API_KEY or mode-600 openrouter.env | met | [key.rs](../crates/tkm-decide/tests/key.rs) |
 | S8.4-9 | Optional key reuse only after consent, without copying | met | [integrations_wiring.rs](../crates/tkm-cli/tests/integrations_wiring.rs) |
@@ -571,9 +605,9 @@ will replace the placeholder row after that work lands.
 | ID | Requirement | Status | Evidence |
 |---|---|---|---|
 | S8.5-7 | 14-day or 200-turn initial shadow period | met | [live.rs](../crates/tkmd/src/live.rs), [decisions.rs](../crates/tkm-store/tests/decisions.rs) |
-| S8.5-2 | Label loop outcomes and fact confirmation/contradiction | deferred | [0045-offline-decision-bench.md](../docs/adr/0045-offline-decision-bench.md) notes fact/relevance label contracts are missing. |
+| S8.5-2 | Label loop outcomes and fact confirmation/contradiction | deferred | **(c)** [ADR 0032](../docs/adr/0032-cli-prune-gaps.md), [ADR 0045](../docs/adr/0045-offline-decision-bench.md): facts and relevance have no label contract; [calibrate.rs](../crates/tkm-cli/src/cmd/calibrate.rs) prints "not available yet". |
 | S8.5-3 | Fit per-model threshold with ≥0.9 stuck precision and minimum recall | met | [calibrate_ops.rs](../crates/tkm-cli/tests/calibrate_ops.rs) |
-| S8.5-1 | Agreement: two models in parallel, act only on consensus | deferred | [0016-live-layer-and-decision-queue.md](../docs/adr/0016-live-layer-and-decision-queue.md) |
+| S8.5-1 | Agreement: two models in parallel, act only on consensus | deferred | **(c)** [ADR 0016](../docs/adr/0016-live-layer-and-decision-queue.md): `decide_agreement` exists in [client.rs](../crates/tkm-decide/src/client.rs) but no daemon path calls it; see [decider.rs](../crates/tkmd/src/decider.rs). |
 | S8.5-5 | Offline cached fixture replay and model comparison | met | [replay_ops.rs](../crates/tkm-cli/tests/replay_ops.rs) |
 | S8.5-6 | Defaults t_stuck .85, t_progress .30, t_low .30, t_high .80 | met | [calibrate.rs](../crates/tkm-decide/tests/calibrate.rs) |
 
@@ -599,8 +633,8 @@ will replace the placeholder row after that work lands.
 | ID | Requirement | Status | Evidence |
 |---|---|---|---|
 | S9.2-1 | Standalone: all detected homes, facts/memory, escalation, local spend, propose pruning | met | [matrix.rs](../crates/tkm-integrations/tests/matrix.rs) |
-| S9.2-2 | Standalone plus otherskill: select, dedupe, shared budget, ranking prior, consented key reuse | deferred | [0050-conformance-gaps.md](../docs/adr/0050-conformance-gaps.md) notes incomplete skill evidence. |
-| S9.2-3 | Orchestrated: account homes, delegated detection, escalation and spend report | deferred | [0040-e9-integrations.md](../docs/adr/0040-e9-integrations.md) item 5 documents missing spend ingestion. |
+| S9.2-2 | Standalone plus otherskill: select, dedupe, shared budget, ranking prior, consented key reuse | met | [matrix.rs](../crates/tkm-integrations/tests/matrix.rs); [integrations_wiring.rs](../crates/tkm-cli/tests/integrations_wiring.rs); [skills_wiring.rs](../crates/tkm-cli/tests/skills_wiring.rs) `skills_json_ranks_recorded_invocations_in_current_repository` |
+| S9.2-3 | Orchestrated: account homes, delegated detection, escalation and spend report | deferred | **(b)** [ADR 0040](../docs/adr/0040-e9-integrations.md) item 5: spend report is a local JSONL sink; superorchestrator ingestion needs an upstream change. |
 | S9.2-4 | Both adapters enabled, fall back on removal | met | [matrix.rs](../crates/tkm-integrations/tests/matrix.rs) |
 
 ### 9.3 superorchestrator adapter
@@ -611,15 +645,15 @@ will replace the placeholder row after that work lands.
 | S9.3-2 | Detect delegated runs by env run ID or cached run worktree | met | [e9.rs](../crates/tkm-integrations/tests/e9.rs) |
 | S9.3-3 | Send structured escalation via integration; never cancel run | met | [0040-e9-integrations.md](../docs/adr/0040-e9-integrations.md) |
 | S9.3-4 | Choice suggests continue/redirect/cancel/reroute from digest and routing level | met | [live.rs](../crates/tkmd/src/live.rs) |
-| S9.3-1 | Report each decision cost under tokenimum-decisions so routing sees spend | deferred | [0040-e9-integrations.md](../docs/adr/0040-e9-integrations.md) item 5: superorchestrator ingestion needed. |
+| S9.3-1 | Report each decision cost under tokenimum-decisions so routing sees spend | deferred | **(b)** [ADR 0040](../docs/adr/0040-e9-integrations.md) item 5: lines are written under account `tokenimum-decisions`; superorchestrator ingestion is an upstream follow-up. |
 
 ### 9.4 otherskill adapter
 
 | ID | Requirement | Status | Evidence |
 |---|---|---|---|
-| S9.4-1 | Call otherskill select with literal agent/prompt arguments | deferred | [0040-e9-integrations.md](../docs/adr/0040-e9-integrations.md) item 7 limits selection to four supported host names. |
+| S9.4-1 | Call otherskill select with literal agent/prompt arguments | deferred | **(b)** [ADR 0040](../docs/adr/0040-e9-integrations.md) item 7: otherskill supports only `claude`, `codex`, `antigravity`, `opencode`; other hosts get no candidates. |
 | S9.4-2 | Ask whether tokenimum owns merged block, dedupe by skill name; otherwise facts only | met | [integrations_wiring.rs](../crates/tkm-cli/tests/integrations_wiring.rs) |
-| S9.4-3 | Export loaded-vs-used evidence as ranking prior | deferred | [0050-conformance-gaps.md](../docs/adr/0050-conformance-gaps.md) |
+| S9.4-3 | Export loaded-vs-used evidence as ranking prior | met | [skills_wiring.rs](../crates/tkm-cli/tests/skills_wiring.rs) `skills_json_ranks_recorded_invocations_in_current_repository`; [ADR 0049](../docs/adr/0049-priced-ledger-and-skill-evidence.md) |
 | S9.4-4 | Separate model chain from otherskill free models | met | [0040-e9-integrations.md](../docs/adr/0040-e9-integrations.md) |
 
 ### 9.5 Repository identity across worktrees
@@ -695,7 +729,7 @@ will replace the placeholder row after that work lands.
 | S10.4-11 | hosts.claude.enabled and per-host level auto/hooks/shim/fold-only | met | [settings.rs](../crates/tkmd/src/settings.rs), [init_lifecycle.rs](../crates/tkm-cli/tests/init_lifecycle.rs) |
 | S10.4-12 | integrations.superorchestrator and integrations.otherskill | met | [config.rs](../crates/tkm-config/src/config.rs) |
 | S10.4-13 | ui.web.enabled and ui.web.bind | met | [config.rs](../crates/tkm-config/src/config.rs) |
-| S10.4-14 | decide.agreement | deferred | [0016-live-layer-and-decision-queue.md](../docs/adr/0016-live-layer-and-decision-queue.md) |
+| S10.4-14 | decide.agreement | deferred | **(c)** [ADR 0016](../docs/adr/0016-live-layer-and-decision-queue.md): `decide.agreement` is read in [settings.rs](../crates/tkmd/src/settings.rs) but never acted on. |
 | S10.4-15 | tkm config show [--effective] | met | [config_ops.rs](../crates/tkm-cli/tests/config_ops.rs) |
 | S10.4-16 | tkm config get, set, unset [--global/--repo/--local] | met | [config_ops.rs](../crates/tkm-cli/tests/config_ops.rs) |
 | S10.4-17 | tkm config preset &lt;name&gt; [--repo] | met | [config_ops.rs](../crates/tkm-cli/tests/config_ops.rs) |
@@ -791,17 +825,17 @@ will replace the placeholder row after that work lands.
 | S12-4 | tkm dashboard | met | [ui_commands.rs](../crates/tkm-cli/tests/ui_commands.rs) |
 | S12-5 | tkm why &lt;event/last&gt; [--session id] | met | [why_report.rs](../crates/tkm-cli/tests/why_report.rs) |
 | S12-6 | tkm facts [--all/--brief] and facts forget &lt;id&gt; | met | [facts_report.rs](../crates/tkm-cli/tests/facts_report.rs) |
-| S12-7 | tkm prune [apply/restore [tool]] | deferred | [prune_ops.rs](../crates/tkm-cli/tests/prune_ops.rs); [0032-cli-prune-gaps.md](../docs/adr/0032-cli-prune-gaps.md) |
-| S12-8 | tkm skills [--json] | deferred | [skills_wiring.rs](../crates/tkm-cli/tests/skills_wiring.rs); [0050-conformance-gaps.md](../docs/adr/0050-conformance-gaps.md) |
+| S12-7 | tkm prune [apply/restore [tool]] | deferred | **(c)** [ADR 0032](../docs/adr/0032-cli-prune-gaps.md): `tkm prune apply/restore` writes Claude only; [prune_ops.rs](../crates/tkm-cli/tests/prune_ops.rs) `prune_unsupported_host_reports_proposal_only`. |
+| S12-8 | tkm skills [--json] | met | [skills_wiring.rs](../crates/tkm-cli/tests/skills_wiring.rs) `skills_json_without_database_is_empty_ranking_prior`, `skills_text_prints_readable_evidence_table` |
 | S12-9 | tkm config ... | met | [config_ops.rs](../crates/tkm-cli/tests/config_ops.rs) |
 | S12-10 | tkm models [probe] | met | [models_ops.rs](../crates/tkm-cli/tests/models_ops.rs) |
-| S12-11 | tkm calibrate [--purpose loop/facts/relevance] | deferred | [calibrate_ops.rs](../crates/tkm-cli/tests/calibrate_ops.rs); [0032-cli-prune-gaps.md](../docs/adr/0032-cli-prune-gaps.md) |
+| S12-11 | tkm calibrate [--purpose loop/facts/relevance] | deferred | **(c)** [ADR 0032](../docs/adr/0032-cli-prune-gaps.md): only `--purpose loop` calibrates; [calibrate_ops.rs](../crates/tkm-cli/tests/calibrate_ops.rs); [calibrate.rs](../crates/tkm-cli/src/cmd/calibrate.rs). |
 | S12-12 | tkm replay &lt;session-or-fixture&gt; | met | [replay_ops.rs](../crates/tkm-cli/tests/replay_ops.rs) |
 | S12-13 | tkm run &lt;harness&gt; [args...] | met | [run_wrapper.rs](../crates/tkm-cli/tests/run_wrapper.rs) |
-| S12-14 | tkm doctor [--probe] | deferred | [doctor_checks.rs](../crates/tkm-cli/tests/doctor_checks.rs); [0050-conformance-gaps.md](../docs/adr/0050-conformance-gaps.md) |
+| S12-14 | tkm doctor [--probe] | met | [host_probe.rs](../crates/tkm-cli/tests/host_probe.rs) `fake_host_subset_records_arrivals_and_marks_missing_events_idle_fold`; [doctor_checks.rs](../crates/tkm-cli/tests/doctor_checks.rs) `doctor_persists_fallback_then_clears_it_after_repair` |
 | S12-15 | tkm export [--show-digests] | met | [export_report.rs](../crates/tkm-cli/tests/export_report.rs) |
 | S12-16 | tkm uninstall [--host h] | met | [uninstall_lifecycle.rs](../crates/tkm-cli/tests/uninstall_lifecycle.rs) |
-| S12-17 | tokenimum read-only skill for each harness, no effect claim | deferred | [0026-fold-only-mode.md](../docs/adr/0026-fold-only-mode.md) lists hosts without verified skill directories. |
+| S12-17 | tokenimum read-only skill for each harness, no effect claim | deferred | **(b)** [ADR 0026](../docs/adr/0026-fold-only-mode.md) lists hosts without verified skill directories; Claude, opencode, Kimi and Pi are covered. |
 
 ## 13. Language and safety policy: entirely safe Rust
 
@@ -825,7 +859,7 @@ will replace the placeholder row after that work lands.
 |---|---|---|---|
 | S13.2-1 | cargo-deny advisories, allowed licenses, bans and crates.io sources | met | [deny.toml](../deny.toml); [ci.yml](../.github/workflows/ci.yml) |
 | S13.2-2 | cargo-geiger report for dependency changes, allowlist unsafe and fail unjustified diff | met | [geiger_diff.py](../scripts/geiger_diff.py); [ci.yml](../.github/workflows/ci.yml) |
-| S13.2-3 | Prefer crates forbidding unsafe; reject unsafe crates without 12 months maintenance | deferred | [unsafe-allowlist.md](../docs/unsafe-allowlist.md) states the initial review is not a complete maintenance audit. |
+| S13.2-3 | Prefer crates forbidding unsafe; reject unsafe crates without 12 months maintenance | deferred | **(a)** [unsafe-allowlist.md](../docs/unsafe-allowlist.md) states the initial review is not a complete maintenance audit; needs a person to check dependency release dates. |
 | S13.2-4 | Daily cargo audit; Cargo.lock committed | met | [audit.yml](../.github/workflows/audit.yml); [Cargo.lock](../Cargo.lock) |
 | S13.2-5 | Static musl release with repeat-build reproducibility check | met | [0047-linux-static-release-builds.md](../docs/adr/0047-linux-static-release-builds.md); [release.yml](../.github/workflows/release.yml) |
 
@@ -856,34 +890,34 @@ will replace the placeholder row after that work lands.
 | S14-2 | daemon tool_done &lt;200 µs | met | [0046-performance-gates.md](../docs/adr/0046-performance-gates.md) |
 | S14-3 | prompt scored &lt;1,500 ms, cached &lt;5 ms | met | [0046-performance-gates.md](../docs/adr/0046-performance-gates.md) |
 | S14-4 | opencode/Pi shim overhead p50 &lt;15 ms, p99 &lt;40 ms | met | [0046-performance-gates.md](../docs/adr/0046-performance-gates.md) |
-| S14-5 | tool_done shim spawn without await when no reply pending | deferred | [0025-shim-protocol.md](../docs/adr/0025-shim-protocol.md) states tool_done is awaited. |
+| S14-5 | tool_done shim spawn without await when no reply pending | deferred | **(b)** [ADR 0025](../docs/adr/0025-shim-protocol.md): `tool_done` is awaited by the shim (bounded by the 5 ms daemon read); see [pi.ts](../shims/pi.ts). |
 | S14-6 | Session fold &lt;500 ms CPU excluding decisions | met | [0046-performance-gates.md](../docs/adr/0046-performance-gates.md) |
 | S14-7 | Idle memory &lt;30 MB, &lt;40 MB with web | met | [0046-performance-gates.md](../docs/adr/0046-performance-gates.md) |
 | S14-8 | Idle CPU ~0; event driven and 60s fallback scan | met | [0046-performance-gates.md](../docs/adr/0046-performance-gates.md) |
 | S14-9 | tkm top refresh &lt;50 ms/frame | met | [0046-performance-gates.md](../docs/adr/0046-performance-gates.md) |
 | S14-10 | Criterion/hyperfine CI fixtures and &gt;20% regression gate | met | [0046-performance-gates.md](../docs/adr/0046-performance-gates.md); [bench.yml](../.github/workflows/bench.yml) |
-| S14-1 | E10.6 replay benchmark harness pending controller merge | deferred | [0050-conformance-gaps.md](../docs/adr/0050-conformance-gaps.md) item 6; controller will replace placeholder. |
+| S14-1 | E10.6 replay benchmark harness pending controller merge | deferred | **(a)** Harness merged ([replay_bench.rs](../crates/tkm-cli/tests/replay_bench.rs), [replay-benchmark.yml](../.github/workflows/replay-benchmark.yml), [ADR 0048](../docs/adr/0048-history-replay-benchmark.md)); the sample run needs private real session history and live model spend. |
 
 ## 15. Milestones
 
 | ID | Requirement | Status | Evidence |
 |---|---|---|---|
-| S15-1 | M0: 50 recorded Claude and Codex sessions, real model comparisons and report | deferred | [0045-offline-decision-bench.md](../docs/adr/0045-offline-decision-bench.md) says sessions and cached answers are synthetic. |
+| S15-1 | M0: 50 recorded Claude and Codex sessions, real model comparisons and report | deferred | **(a)** [ADR 0045](../docs/adr/0045-offline-decision-bench.md) says sessions and cached answers are synthetic; needs 50 recorded real sessions and live model spend. |
 | S15-18 | M1: hook, daemon, store, config, Claude and shadow loop | met | [e2e_shadow.rs](../crates/tkm-cli/tests/e2e_shadow.rs) |
 | S15-3 | M1: p99 hook &lt;10 ms and safe-Rust CI policy | met | [0046-performance-gates.md](../docs/adr/0046-performance-gates.md); [ci.yml](../.github/workflows/ci.yml) |
-| S15-4 | M1: shadow decisions logged on real sessions | deferred | [0050-conformance-gaps.md](../docs/adr/0050-conformance-gaps.md) item 4 documents fixture-based test. |
-| S15-5 | M2: facts and ledger for Claude and Codex | deferred | [0050-conformance-gaps.md](../docs/adr/0050-conformance-gaps.md) items 1 and 12. |
-| S15-6 | M2: facts match TE fixtures; ledger within 2% of cost | deferred | [0050-conformance-gaps.md](../docs/adr/0050-conformance-gaps.md) items 1 and 16. |
-| S15-7 | M3: init, status, top, why, presets and switches | deferred | [0050-conformance-gaps.md](../docs/adr/0050-conformance-gaps.md) item 15: switches not applied. |
+| S15-4 | M1: shadow decisions logged on real sessions | deferred | **(a)** [ADR 0050](../docs/adr/0050-conformance-gaps.md) item 4: [e2e_shadow.rs](../crates/tkm-cli/tests/e2e_shadow.rs) uses fixtures; needs real installed sessions. |
+| S15-5 | M2: facts and ledger for Claude and Codex | met | [golden_replay.rs](../crates/tkmd/tests/golden_replay.rs) `golden_replay_claude`, `golden_replay_codex`; [fold.rs](../crates/tkmd/tests/fold.rs) `fold_prices_session_with_configured_model_rates` |
+| S15-6 | M2: facts match TE fixtures; ledger within 2% of cost | deferred | **(a)** Facts match TE: [parity_te.rs](../crates/tkmd/tests/parity_te.rs) `parity_claude_fact_formation_and_loop_gate_match_te`, `parity_codex_fact_formation_and_loop_gate_match_te`. Ledger within 2% of cost needs real billed sessions ([ADR 0050](../docs/adr/0050-conformance-gaps.md)). |
+| S15-7 | M3: init, status, top, why, presets and switches | met | [fold.rs](../crates/tkmd/tests/fold.rs) `disabled_facts_and_ledger_do_not_persist_fold_results`, `disabled_host_does_not_create_or_fold_sessions`; [e9_settings.rs](../crates/tkmd/tests/e9_settings.rs); [host_level.rs](../crates/tkmd/tests/host_level.rs); [status_snapshots.rs](../crates/tkm-cli/tests/status_snapshots.rs) |
 | S15-8 | M3: fresh machine one-command install and every action explainable | met | [fresh_install.py](../scripts/fresh_install.py); [test_fresh_install.py](../scripts/tests/test_fresh_install.py); [ci.yml](../.github/workflows/ci.yml) `fresh-install` job; [why.rs](../crates/tkm-cli/src/cmd/why.rs) |
 | S15-9 | M4: agy, Cursor, Kimi, Codewhale hooks and idle-fold | met | [0020-e5b-host-adapters.md](../docs/adr/0020-e5b-host-adapters.md) |
-| S15-10 | M4: fold a real session of each; doctor probe reports events; verifications closed or documented | deferred | [0050-conformance-gaps.md](../docs/adr/0050-conformance-gaps.md) items 5 and 10. |
+| S15-10 | M4: fold a real session of each; doctor probe reports events; verifications closed or documented | deferred | **(a)** [ADR 0050](../docs/adr/0050-conformance-gaps.md) item 5: [host_probe.rs](../crates/tkm-cli/tests/host_probe.rs) covers the doctor probe with fakes; folding a real session of each host and closing [e5b-hosts.md](../docs/verified/e5b-hosts.md) items needs real host installs. |
 | S15-11 | M5: opencode/Pi shims ≤40 lines, hash-checked and fold-only with --no-shims | met | [shim.rs](../crates/tkm-hosts/tests/shim.rs); [fold_only_e2e.rs](../crates/tkm-hosts/tests/fold_only_e2e.rs) |
 | S15-12 | M6: duplicate-free injection under 600 tokens, protected tools and four integration combinations | met | [inject_assembly.rs](../crates/tkm-core/tests/inject_assembly.rs); [matrix.rs](../crates/tkm-integrations/tests/matrix.rs); [protected.rs](../crates/tkm-integrations/tests/protected.rs) |
-| S15-13 | M6: otherskill loaded-vs-used evidence | deferred | [0050-conformance-gaps.md](../docs/adr/0050-conformance-gaps.md) item 2. |
+| S15-13 | M6: otherskill loaded-vs-used evidence | met | [sessions.rs](../crates/tkm-store/tests/sessions.rs) `skill_evidence_is_persistent_per_session_and_replaceable`; [skills_wiring.rs](../crates/tkm-cli/tests/skills_wiring.rs); [ADR 0049](../docs/adr/0049-priced-ledger-and-skill-evidence.md) |
 | S15-14 | M7: account-home installation and delegated escalation | met | [e9.rs](../crates/tkm-integrations/tests/e9.rs) |
-| S15-2 | M7: spend visible in superorchestrator status | deferred | [0040-e9-integrations.md](../docs/adr/0040-e9-integrations.md) item 5. |
-| S15-16 | M8: per-purpose calibrated decisions and stuck precision ≥0.9 on labelled turns | deferred | [0045-offline-decision-bench.md](../docs/adr/0045-offline-decision-bench.md) describes synthetic labels and missing fact/relevance contracts. |
+| S15-2 | M7: spend visible in superorchestrator status | deferred | **(b)** [ADR 0040](../docs/adr/0040-e9-integrations.md) item 5: spend lines are written locally; superorchestrator status ingestion is an upstream follow-up. |
+| S15-16 | M8: per-purpose calibrated decisions and stuck precision ≥0.9 on labelled turns | deferred | **(c)** [ADR 0045](../docs/adr/0045-offline-decision-bench.md): stuck precision is measured on synthetic labels, and facts/relevance calibration has no label contract; see [calibrate.rs](../crates/tkm-cli/src/cmd/calibrate.rs). Real labelled turns also needed. |
 | S15-17 | M8: dashboard local-only with token | met | [web.rs](../crates/tkmd/tests/web.rs) |
 
 ## 16. Testing
@@ -908,10 +942,10 @@ will replace the placeholder row after that work lands.
 | S17-2 | 2: DeepSeek harness identity | met | [0001-open-question-defaults.md](../docs/adr/0001-open-question-defaults.md); [e5b-hosts.md](../docs/verified/e5b-hosts.md) |
 | S17-3 | 3: SQLite/TLS unsafe dependency policy | met | [0001-open-question-defaults.md](../docs/adr/0001-open-question-defaults.md); [unsafe-allowlist.md](../docs/unsafe-allowlist.md) |
 | S17-4 | 4: otherskill selection hand-off and one injector | met | [0001-open-question-defaults.md](../docs/adr/0001-open-question-defaults.md); [0040-e9-integrations.md](../docs/adr/0040-e9-integrations.md) |
-| S17-5 | 5: orchestrator event/spend API and daemon supervisor | deferred | [0001-open-question-defaults.md](../docs/adr/0001-open-question-defaults.md); [0040-e9-integrations.md](../docs/adr/0040-e9-integrations.md) notes missing spend ingestion. |
+| S17-5 | 5: orchestrator event/spend API and daemon supervisor | deferred | **(b)** [ADR 0040](../docs/adr/0040-e9-integrations.md) item 5: no orchestrator spend ingestion API; escalation channel is implemented ([e9.rs](../crates/tkm-integrations/tests/e9.rs)). |
 | S17-6 | 6: port TE logic with attribution, reimplement I/O | met | [0001-open-question-defaults.md](../docs/adr/0001-open-question-defaults.md); [NOTICE](../NOTICE) |
-| S17-7 | 7: agreement mode default and availability | deferred | [0001-open-question-defaults.md](../docs/adr/0001-open-question-defaults.md); [0016-live-layer-and-decision-queue.md](../docs/adr/0016-live-layer-and-decision-queue.md) records missing daemon wiring. |
-| S17-8 | 8: Cursor, agy, Kimi, Codex behavior verification | deferred | [0001-open-question-defaults.md](../docs/adr/0001-open-question-defaults.md); [e5b-hosts.md](../docs/verified/e5b-hosts.md) records unobserved agy tool events. |
+| S17-7 | 7: agreement mode default and availability | deferred | **(c)** [ADR 0016](../docs/adr/0016-live-layer-and-decision-queue.md): agreement mode has no daemon wiring; see [client.rs](../crates/tkm-decide/src/client.rs) and [settings.rs](../crates/tkmd/src/settings.rs). [ADR 0001](../docs/adr/0001-open-question-defaults.md) |
+| S17-8 | 8: Cursor, agy, Kimi, Codex behavior verification | deferred | **(a)** [e5b-hosts.md](../docs/verified/e5b-hosts.md) records agy tool events and Cursor/Kimi/Codewhale behavior as unobserved without real installs. |
 | S17-9 | 9: committed instruction-file injection opt-in | met | [0001-open-question-defaults.md](../docs/adr/0001-open-question-defaults.md); [fold_only_instructions.rs](../crates/tkm-hosts/tests/fold_only_instructions.rs) |
 
 ## 18. To-verify register
@@ -921,15 +955,15 @@ will replace the placeholder row after that work lands.
 | S18-1 | Claude trust, Stop/SessionEnd fields and permissions syntax | met | [claude-codex.md](../docs/verified/claude-codex.md) |
 | S18-2 | Codex exec trust and deny keys | met | [claude-codex.md](../docs/verified/claude-codex.md) |
 | S18-3 | agy reply, trust, permissions, transcript and DB schema | met | [e5b-hosts.md](../docs/verified/e5b-hosts.md) |
-| S18-4 | agy PreToolUse/PostToolUse under agy -p | deferred | [e5b-hosts.md](../docs/verified/e5b-hosts.md) records events unobserved in probes. |
+| S18-4 | agy PreToolUse/PostToolUse under agy -p | deferred | **(a)** [e5b-hosts.md](../docs/verified/e5b-hosts.md): agy `-p` tool events were unobserved in probes; needs an agy version that emits them. |
 | S18-5 | Cursor CLI coverage, timeout, injection and third-party hooks | met | [e5b-hosts.md](../docs/verified/e5b-hosts.md) |
-| S18-6 | Cursor transcript format | deferred | [e5b-hosts.md](../docs/verified/e5b-hosts.md) records forum-only evidence. |
+| S18-6 | Cursor transcript format | deferred | **(a)** [e5b-hosts.md](../docs/verified/e5b-hosts.md): Cursor transcript format is forum-only; needs a real Cursor session. |
 | S18-7 | Kimi project hooks, plugins and stdout injection | met | [e5b-hosts.md](../docs/verified/e5b-hosts.md) |
 | S18-8 | Codewhale identity and session format | met | [e5b-hosts.md](../docs/verified/e5b-hosts.md) |
 | S18-9 | opencode timeouts, toast, session.created source and permission keys | met | [opencode-pi.md](../docs/verified/opencode-pi.md) |
 | S18-10 | Pi notify API and handler timeouts | met | [opencode-pi.md](../docs/verified/opencode-pi.md) |
-| S18-11 | Pi async session_shutdown runtime behavior | deferred | [opencode-pi.md](../docs/verified/opencode-pi.md) records that runtime probe is needed. |
-| S18-12 | Gemini CLI hooks apply to agy | deferred | [0050-conformance-gaps.md](../docs/adr/0050-conformance-gaps.md) item 18. |
+| S18-11 | Pi async session_shutdown runtime behavior | deferred | **(a)** [opencode-pi.md](../docs/verified/opencode-pi.md): needs a live Pi runtime probe of async `session_shutdown`. |
+| S18-12 | Gemini CLI hooks apply to agy | deferred | **(a)** [ADR 0050](../docs/adr/0050-conformance-gaps.md) item 18: needs a check of Gemini CLI hook behavior against agy; implementation assumes no shared hooks. |
 
 ## 19. References
 
