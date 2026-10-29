@@ -53,6 +53,70 @@ async fn serves_a_framed_request_and_returns_a_reply_frame() {
 }
 
 #[tokio::test]
+async fn slow_prompt_orders_its_session_without_blocking_another() {
+    use std::time::Duration;
+    use tkm_decide::client::{NoDecisionReason, Outcome};
+
+    let env = Env::new();
+    seed_fact(&env, "example.com");
+    let (decider, gate) = ScriptedDecider::gated(Outcome::NoDecision(NoDecisionReason::Disabled));
+    let daemon = daemon_with(&env, Default::default(), decider.clone());
+    let Bind::Bound(server) = Server::bind(daemon.clone()).await.unwrap() else {
+        panic!("socket should be free");
+    };
+    let _server = tokio::spawn(async move { server.run(std::future::pending()).await.unwrap() });
+    let socket = env.paths.socket.clone();
+    let prompt_task = tokio::spawn(async move {
+        let mut stream = UnixStream::connect(socket).await.unwrap();
+        stream
+            .write_all(&encode_frame(&prompt(), MAX_REQUEST_FRAME).unwrap())
+            .await
+            .unwrap();
+        let mut bytes = Vec::new();
+        let _ = stream.read_to_end(&mut bytes).await;
+    });
+    assert!(eventually(2, || decider.calls() == 1).await);
+    let socket = env.paths.socket.clone();
+    let tool_task = tokio::spawn(async move {
+        let mut stream = UnixStream::connect(socket).await.unwrap();
+        stream
+            .write_all(&encode_frame(&tool_done(), MAX_REQUEST_FRAME).unwrap())
+            .await
+            .unwrap();
+        let mut header = [0; 4];
+        stream.read_exact(&mut header).await.unwrap();
+    });
+    tokio::time::sleep(Duration::from_millis(350)).await;
+    assert!(
+        !tool_task.is_finished(),
+        "same-session event overtook prompt"
+    );
+    let mut other = tool_done();
+    other.payload["session_id"] = "another-session".into();
+    tokio::time::timeout(Duration::from_millis(200), roundtrip(&env, &other))
+        .await
+        .expect("another session must make progress");
+    tokio::time::sleep(Duration::from_millis(250)).await;
+    gate.notify_one();
+    tokio::time::timeout(Duration::from_secs(2), tool_task)
+        .await
+        .unwrap()
+        .unwrap();
+    prompt_task.abort();
+    roundtrip(&env, &stop()).await;
+    daemon.flush_now().await;
+    let store = tkm_store::open_read_only(&env.paths.db).unwrap();
+    let calls: i64 = store
+        .query_row(
+            "SELECT turns.calls FROM turns JOIN sessions ON sessions.id = turns.session_id WHERE sessions.session_id = ?1",
+            [prompt().payload["session_id"].as_str().unwrap()],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(calls, 1);
+}
+
+#[tokio::test]
 async fn socket_is_mode_600_in_a_private_directory() {
     let env = Env::new();
     let (_daemon, _server) = serve(&env).await;
