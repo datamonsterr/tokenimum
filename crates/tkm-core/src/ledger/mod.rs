@@ -107,3 +107,8 @@ impl CostLedger {
         }
     }
 }
+
+/// Deliberate temporary purity-gate violation.
+pub fn purity_violation() {
+    let _ = std::fs::read("synthetic");
+}
