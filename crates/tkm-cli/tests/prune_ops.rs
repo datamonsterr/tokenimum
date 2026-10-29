@@ -167,3 +167,36 @@ fn prune_apply_one_and_restore_all_four_hosts() {
             .all(|entry| entry.restored)
     );
 }
+
+#[test]
+fn prune_honors_user_protection_and_disabled_orchestrator() {
+    let s = support_ops::Sandbox::new();
+    seed(&s);
+    std::fs::write(
+        s.repo.join(".tokenimum.toml"),
+        "[prune]\nprotect = ['mcp__example__*']\n[integrations]\nsuperorchestrator = 'off'\n",
+    )
+    .unwrap();
+    let paths = tkm_config::paths::Paths::from_dirs(
+        s.home.path(),
+        Some(&s.home.path().join("data")),
+        Some(&s.home.path().join("config")),
+        Some(&s.home.path().join("run")),
+    );
+    let store = tkm_store::Store::open(paths.db).unwrap();
+    let repo = tkm_config::repo::repo_identity(&s.repo, "", Some(s.home.path()));
+    for _ in 0..5 {
+        store
+            .record_tool_unused_session(
+                &repo.key,
+                Host::Claude,
+                "mcp__superorchestrator__spawn_agent",
+            )
+            .unwrap();
+    }
+    let out = s.run(&["prune"]);
+    assert!(out.status.success());
+    let text = String::from_utf8_lossy(&out.stdout);
+    assert!(!text.contains("mcp__example__unused"));
+    assert!(text.contains("mcp__superorchestrator__spawn_agent"));
+}
