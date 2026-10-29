@@ -618,7 +618,12 @@ fn apply_agy_writes_a_marked_instructions_block() {
     scratch.init_git();
     let report = apply(&scratch.0, Host::Agy, "fact", ApplyOptions::default()).unwrap();
     let path = scratch.0.join("AGENTS.md");
-    assert_eq!(report.changed_files, vec![path.clone()]);
+    assert!(report.changed_files.contains(&path));
+    assert!(
+        report
+            .changed_files
+            .contains(&scratch.0.join("AGENTS.md.tkm-bak"))
+    );
     let content = fs::read_to_string(path).unwrap();
     assert!(content.contains("<!-- tokenimum:begin -->"));
     assert!(content.contains("fact"));

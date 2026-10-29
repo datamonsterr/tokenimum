@@ -642,7 +642,7 @@ async fn agreement_prefers_jev_over_the_fallback_and_charges_both_costs() {
     let fake = Arc::new(Fake::default());
     let ledger = Arc::new(InMemoryLedger::default());
     let config = DecideConfig {
-        session_cap_usd: 0.000000001,
+        session_cap_usd: 0.000_000_001,
         ..DecideConfig::default()
     };
     let client = DecisionClient::new(
