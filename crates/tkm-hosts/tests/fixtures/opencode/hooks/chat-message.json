@@ -1,0 +1,59 @@
+{
+  "hook": "chat.message",
+  "input": {
+    "sessionID": "ses_example1",
+    "agent": "build",
+    "model": {
+      "providerID": "example",
+      "modelID": "example-model-a"
+    },
+    "messageID": "msg_example1"
+  },
+  "output": {
+    "message": {
+      "id": "msg_example1",
+      "sessionID": "ses_example1",
+      "role": "user",
+      "time": {
+        "created": 1791436988425
+      },
+      "agent": "build",
+      "model": {
+        "providerID": "example",
+        "modelID": "example-model-a"
+      }
+    },
+    "parts": [
+      {
+        "id": "prt_example1",
+        "sessionID": "ses_example1",
+        "messageID": "msg_example1",
+        "type": "text",
+        "text": "Fix the failing test"
+      },
+      {
+        "id": "prt_example2",
+        "sessionID": "ses_example1",
+        "messageID": "msg_example1",
+        "type": "text",
+        "text": "Synthetic injected context.",
+        "synthetic": true
+      },
+      {
+        "id": "prt_example3",
+        "sessionID": "ses_example1",
+        "messageID": "msg_example1",
+        "type": "file",
+        "mime": "text/plain",
+        "url": "file:///home/user/project/a.txt"
+      },
+      {
+        "id": "prt_example4",
+        "sessionID": "ses_example1",
+        "messageID": "msg_example1",
+        "type": "text",
+        "text": "and run it"
+      }
+    ]
+  }
+}

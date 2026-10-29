@@ -237,7 +237,7 @@ fails `tkm doctor`, the adapter drops to `fold-only` (section 6.12).
 | `session_start` | `SessionStart` | `SessionStart` | `SessionStart` | `sessionStart` | `SessionStart` | `session_start` (env only, no stdin, cannot inject) | `event` `session.created` | `session_start` | 300 ms |
 | `prompt` | `UserPromptSubmit` | `UserPromptSubmit` | `PreInvocation` (`lastUserInput`, agy ≥ 1.4.7) | `beforeSubmitPrompt` (cannot inject) | `UserPromptSubmit` | `message_submit` | `chat.message` | `before_agent_start` | 1,500 ms (relevance scoring) |
 | `tool_done` | `PostToolUse`, `PostToolUseFailure` | `PostToolUse` | `PostToolUse` | `postToolUse`, `postToolUseFailure` | `PostToolUse`, `PostToolUseFailure` | `tool_call_after` | `tool.execute.after` | `tool_result` | 5 ms |
-| `turn_end` | `Stop` | `Stop` | `Stop` | `stop` | `Stop` | `turn_end` | `event` `session.idle` | `turn_end` / `agent_end` | 5 ms |
+| `turn_end` | `Stop` | `Stop` | `Stop` | `stop` | `Stop` | `turn_end` | `event` `session.idle` | `agent_end` (not `turn_end`, ADR 0025) | 5 ms |
 | `session_end` | `SessionEnd` | `SessionEnd` | **missing**: idle-fold | `sessionEnd` | `SessionEnd` | `session_end` (env only) | `event` `session.deleted`; else idle-fold | `session_shutdown` | 5 ms |
 
 Rules:
@@ -266,8 +266,8 @@ The host adapter maps a tokenimum action to the harness format:
 | Cursor | `{"additional_context":"..."}` on `sessionStart`, `postToolUse`, `postToolUseFailure` | `user_message` exists only on block/deny replies; tokenimum uses no notice on Cursor and logs instead | exit 0, `{}` |
 | Kimi Code | exit 0 with plain stdout on `SessionStart`/`UserPromptSubmit` as documented; kimi-cli 1.52.0 source ignores hook stdout (verified 2026-10-29), so the instructions-file block is the working path | no notice field documented | exit 0, empty stdout |
 | DeepSeek harness (Codewhale) | `tool_call_before` → `{"decision":"allow","additionalContext":"..."}` (appended to the tool result as `[hook context]`, cap 2,000 chars per field); `message_submit` can rewrite prompt text but tokenimum never rewrites prompts | none | exit 0, empty stdout |
-| opencode (shim) | push a text part in `chat.message` output, or push to `output.system` in `experimental.chat.system.transform` | toast via SDK client: exact call **to verify** (https://opencode.ai/docs/plugins/) | return without mutation |
-| Pi (shim) | `before_agent_start` returns `{message:{customType:"tokenimum",content,display:false}}`; redirects via `pi.sendMessage(..., {deliverAs:"steer"})` | custom message with `display:true`; `ctx.ui` notify API **to verify** (https://github.com/badlogic/pi-mono/blob/main/packages/coding-agent/docs/extensions.md) | return `undefined` |
+| opencode (shim) | push a text part in `chat.message` output, or push to `output.system` in `experimental.chat.system.transform` | toast via `client.tui.showToast({body:{message,variant:"info"}})`, verified 2026-10-29 (`docs/verified/opencode-pi.md`) | return without mutation |
+| Pi (shim) | `before_agent_start` returns `{message:{customType:"tokenimum",content,display:false}}`; redirects via `pi.sendMessage(..., {deliverAs:"steer"})` | `ctx.ui.notify(message, "info")`, verified 2026-10-29 (`docs/verified/opencode-pi.md`) | return `undefined` |
 
 tokenimum never uses blocking replies (`decision: "block"`, exit 2, `continue: false`,
 `followup_message`, `terminationBehavior`). It never stops a turn.
@@ -448,15 +448,20 @@ Rust live integration is therefore not possible. tokenimum has two modes for eac
 
 opencode mapping: `session_start` = `event` `session.created`; `prompt` = `chat.message`;
 `tool_done` = `tool.execute.after`; `turn_end` = `event` `session.idle`; `session_end` = `event`
-`session.deleted`, else idle-fold. Hook timeouts: none documented, so the shim's own spawn timeout
-is the limit. Whether `session.created` fires under `opencode run`: **to verify**.
+`session.deleted`, else idle-fold. Hook timeouts: none (checked 2026-10-29), so the shim's own spawn
+timeout is the limit. `session.created` is published when `opencode run` creates its session (source
+read, not run at runtime), so the daemon still creates a session on the first event for an unknown
+id and keeps the idle-fold fallback. Wire contract: `docs/adr/0025-shim-protocol.md`.
 
 opencode pruning target: `opencode.json` `permission` object (`"<tool>": "deny"`, patterns
-supported). Source: https://opencode.ai/docs/permissions/. MCP tool keys **to verify**.
+supported). Source: https://opencode.ai/docs/permissions/. MCP tools are keyed `<server>_<tool>` (both
+parts sanitized to `[a-zA-Z0-9_-]`), verified 2026-10-29; a `<server>_*` wildcard key is expected from
+the documented `*` wildcard but was not run.
 
 Pi mapping: `session_start`; `prompt` = `before_agent_start`; `tool_done` = `tool_result`;
-`turn_end` = `turn_end`; `session_end` = `session_shutdown` (whether async work is awaited there:
-**to verify**). Pi handler timeouts: **to verify**. Pi pruning target: settings `defaultTools`
+`turn_end` = `agent_end` (Pi's `turn_end` fires per model response, `agent_end` once per run; ADR 0025);
+`session_end` = `session_shutdown` (the docs do not say whether async work is awaited there, so it is
+best effort). Pi has no documented handler timeouts; the shim bounds `pi.exec`. Pi pruning target: settings `defaultTools`
 (`-name` entries) in project settings. Source:
 https://github.com/badlogic/pi-mono/blob/main/packages/coding-agent/docs/settings.md
 
@@ -577,7 +582,7 @@ Port TE `toolprune` and `plugin/denylist.py`:
   |---|---|---|
   | Claude Code | `<repo>/.claude/settings.local.json` `permissions.deny` | verified surface |
   | Cursor | `<repo>/.cursor/cli.json` `permissions.deny` | verified surface |
-  | opencode | `<repo>/opencode.json` `permission.<tool> = "deny"` | verified surface; MCP keys to verify |
+  | opencode | `<repo>/opencode.json` `permission.<tool> = "deny"` | verified surface; MCP keys `<server>_<tool>` |
   | Pi | project settings `defaultTools` with `-name` | verified surface |
   | Codex | none for built-in tools (MCP `disabled_tools` only) | verified 2026-10-29; report only |
   | agy | none per repository (`settings.json` `permissions` is user scope) | verified 2026-10-29; report only |
@@ -1140,8 +1145,8 @@ Benchmarks (criterion + hyperfine) run in CI against fixtures; a regression over
 | Cursor | ~~which hooks fire in the CLI; default timeout; `sessionStart` injection; third-party hook loading~~ closed 2026-10-29 (CLI facts from forum); transcript format only forum-reported | https://cursor.com/docs/hooks |
 | Kimi Code | ~~project-level hooks; plugin hooks; stdout injection per event~~ closed 2026-10-29 (stdout not consumed in 1.52.0) | https://raw.githubusercontent.com/MoonshotAI/kimi-cli/main/docs/en/customization/hooks.md |
 | DeepSeek harness | ~~which harness is meant; session file format~~ closed 2026-10-29 (Codewhale; `sessions/<uuid>.json`) | https://github.com/Hmbown/DeepSeek-TUI/blob/main/docs/HOOKS.md |
-| opencode | plugin hook timeouts; toast API; `session.created` under `opencode run`; MCP permission keys | https://opencode.ai/docs/plugins/, https://opencode.ai/docs/permissions/ |
-| Pi | `ctx.ui` notify API; handler timeouts; async work in `session_shutdown` | https://github.com/badlogic/pi-mono/blob/main/packages/coding-agent/docs/extensions.md |
+| opencode | ~~plugin hook timeouts; toast API; `session.created` under `opencode run`; MCP permission keys~~ closed 2026-10-29, `docs/verified/opencode-pi.md` (`session.created` from source, not run) | https://opencode.ai/docs/plugins/, https://opencode.ai/docs/permissions/ |
+| Pi | ~~`ctx.ui` notify API; handler timeouts~~ closed 2026-10-29; async work in `session_shutdown` stays open (not in the docs, needs a runtime probe), `docs/verified/opencode-pi.md` | https://github.com/badlogic/pi-mono/blob/main/packages/coding-agent/docs/extensions.md |
 | Gemini CLI | whether its hooks apply to agy (assumed not) | https://geminicli.com/docs/hooks/ |
 
 ## 19. References

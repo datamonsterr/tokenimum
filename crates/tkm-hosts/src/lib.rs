@@ -12,8 +12,12 @@ pub mod codewhale;
 pub mod codex;
 pub mod cursor;
 pub mod digest;
+pub mod fold_only;
 pub mod kimi;
+pub mod opencode;
+pub mod pi;
 pub mod probe;
+pub mod shim;
 mod toml_util;
 pub mod writer;
 
