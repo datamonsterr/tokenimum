@@ -143,6 +143,8 @@ impl EnvelopeEntry {
 pub struct StateMap {
     /// Source of session incarnation identifiers.
     pub session_generation: u64,
+    /// Sessions disabled by their resolved host configuration.
+    pub disabled_sessions: std::collections::HashSet<Tag>,
     /// Live sessions.
     pub sessions: HashMap<Tag, SessionState>,
     /// Envelopes per (repository, host).

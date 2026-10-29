@@ -763,6 +763,9 @@ impl Daemon {
         _now: u64,
     ) {
         for record in &resolved.stale {
+            if !resolved.settings.host(record.key.host).enabled {
+                continue;
+            }
             let tag: Tag = (record.key.host, record.key.session_id.clone());
             if lock(&self.state).sessions.contains_key(&tag) {
                 continue;
@@ -794,6 +797,9 @@ impl Daemon {
     }
 
     pub(crate) fn spawn_fold(self: &Arc<Self>, job: FoldJob) {
+        if !job.settings.host(job.host).enabled {
+            return;
+        }
         self.folds.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         let me = self.clone();
         tokio::spawn(async move {

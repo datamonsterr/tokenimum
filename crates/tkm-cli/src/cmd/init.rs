@@ -66,11 +66,34 @@ pub fn run(ctx: &mut Ctx<'_>, args: &InitArgs) -> Result<ExitCode, CliError> {
     }
     let choice = key::automatic(ctx, &config)?;
     let registry = AdapterRegistry::standard();
+    let host_settings = tkmd::settings::Settings::from_config(&config);
     let mut failed = false;
     let mut targets = Vec::new();
     writeln!(ctx.stdout, "Installation plan:")?;
     for (host, home, account) in homes {
-        match target(ctx, &registry, host, home, args.no_shims) {
+        if !host_settings.host(host).enabled {
+            continue;
+        }
+        let mode = match host_settings.effective_host_level(host) {
+            tkmd::settings::HostLevel::Auto => mode_for(host, !args.no_shims),
+            tkmd::settings::HostLevel::Hooks if !matches!(host, Host::Opencode | Host::Pi) => {
+                IntegrationMode::Hooks
+            }
+            tkmd::settings::HostLevel::Shim if matches!(host, Host::Opencode | Host::Pi) => {
+                IntegrationMode::Shim
+            }
+            tkmd::settings::HostLevel::FoldOnly => IntegrationMode::FoldOnly,
+            _ => {
+                writeln!(
+                    ctx.stderr,
+                    "fail {} install: unsupported integration level",
+                    host.as_str()
+                )?;
+                failed = true;
+                continue;
+            }
+        };
+        match target(ctx, &registry, host, home, mode) {
             Ok(mut target) => {
                 target.account = account;
                 writeln!(
@@ -265,9 +288,8 @@ fn target(
     registry: &AdapterRegistry,
     host: Host,
     home: PathBuf,
-    no_shims: bool,
+    mode: IntegrationMode,
 ) -> Result<Target, CliError> {
-    let mode = mode_for(host, !no_shims);
     let mut report = InstallReport {
         dry_run: true,
         ..InstallReport::default()

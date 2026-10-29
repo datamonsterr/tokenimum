@@ -417,9 +417,17 @@ impl Daemon {
             return Ok(noop_reply(request.host));
         };
         if event.kind == EventKind::ToolDone {
+            if !self.host_allows_live(event.host, &event.session_id) {
+                return Ok(noop_reply(request.host));
+            }
             return self.tool_done(request, adapter.as_ref(), event);
         }
         let tag = (event.host, event.session_id.clone());
+        if event.kind == EventKind::SessionStart {
+            lock(&self.state).disabled_sessions.remove(&tag);
+        } else if lock(&self.state).disabled_sessions.contains(&tag) {
+            return Ok(noop_reply(request.host));
+        }
         let kind = event.kind;
         let recorded = self.observe_hook(&tag, kind, request.host_event.as_deref());
         let result = match event.kind {
@@ -436,6 +444,22 @@ impl Daemon {
         result
     }
 
+    fn host_allows_live(&self, host: Host, session_id: &str) -> bool {
+        let state = lock(&self.state);
+        let tag = (host, session_id.to_owned());
+        if state.disabled_sessions.contains(&tag) {
+            return false;
+        }
+        let settings = state
+            .sessions
+            .get(&tag)
+            .map_or(self.default_settings.as_ref(), |session| {
+                session.settings.as_ref()
+            });
+        settings.host(host).enabled
+            && settings.effective_host_level(host) != crate::settings::HostLevel::FoldOnly
+    }
+
     /// Synchronous `tool_done` entry point: the hot path. Mutates memory and pushes to queues
     /// only; no network, no disk, no `.await`.
     pub fn handle_tool_done(&self, request: &Request) -> Reply {
@@ -446,6 +470,9 @@ impl Daemon {
         let adapter = self.adapters.get(host);
         let result = match adapter.map_event(request) {
             Ok(Some(event)) if event.kind == EventKind::ToolDone => {
+                if !self.host_allows_live(event.host, &event.session_id) {
+                    return noop_reply(host);
+                }
                 self.tool_done(request, adapter.as_ref(), event)
             }
             Ok(_) => Ok(noop_reply(host)),
@@ -1099,6 +1126,15 @@ impl Daemon {
         }
         let now = self.clock.now_ms();
         let tag: Tag = (seed.host, seed.session_id.clone());
+        if !resolved.settings.host(seed.host).enabled
+            || resolved.settings.effective_host_level(seed.host)
+                == crate::settings::HostLevel::FoldOnly
+        {
+            let mut state = lock(&self.state);
+            state.sessions.remove(&tag);
+            state.disabled_sessions.insert(tag);
+            return;
+        }
         let mut stale_tags: Vec<Tag> = Vec::new();
         {
             let mut guard = lock(&self.state);

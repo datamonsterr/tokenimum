@@ -309,6 +309,12 @@ impl Settings {
         out
     }
 
+    /// Returns the effective host integration level; fallback policy can override this accessor.
+    #[must_use]
+    pub fn effective_host_level(&self, host: tkm_proto::Host) -> HostLevel {
+        self.host(host).level
+    }
+
     /// Returns the settings for a host.
     #[must_use]
     pub fn host(&self, host: tkm_proto::Host) -> HostSettings {
