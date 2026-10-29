@@ -4,17 +4,15 @@
 //! `state` is only held for in-memory work of a few microseconds (the flusher never touches it:
 //! it drains `outbox`), so a handler never waits behind disk or network.
 
-use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
 use tkm_config::paths::{ErrorLog, Paths};
-use tkm_config::repo::repo_identity;
 use tkm_core::inject;
 use tkm_core::loopguard::{EscalationMode, LoopAction, TurnGuard, stop_key};
-use tkm_core::model::{Call, HookEvent, RepoKey, StopReason, Timestamp, Turn};
+use tkm_core::model::{HookEvent, RepoKey, StopReason, Timestamp, Turn};
 use tkm_hosts::{AdapterError, HostAdapter};
 use tkm_integrations::{Escalator, NoEscalator, NoSkills, SkillSource};
 use tkm_proto::monitor::{MonitorMessage, RedirectNotice, SessionUpdate};
@@ -117,9 +115,9 @@ impl DaemonOptions {
             escalator: Arc::new(NoEscalator),
             ledger: Arc::new(StoreLedger::default()),
             flush_interval: Duration::from_secs(5),
-            idle_after: Duration::from_secs(30 * 60),
+            idle_after: Duration::from_mins(30),
             scan_interval: Duration::from_secs(60),
-            stale_after: Duration::from_secs(5 * 60),
+            stale_after: Duration::from_mins(5),
             monitor_capacity: 256,
             env: Vec::new(),
             paths,
@@ -595,6 +593,7 @@ impl Daemon {
 
     // ------------------------------------------------------------- tool_done
 
+    #[allow(clippy::unnecessary_wraps)]
     fn tool_done(
         &self,
         request: &Request,
@@ -892,10 +891,10 @@ impl Daemon {
             let session = sessions
                 .entry(tag.clone())
                 .or_insert_with(|| self.lazy_session(&seed, None, now));
-            session.repo = resolved.repo.clone();
-            session.repo_label = resolved.label.clone();
+            session.repo.clone_from(&resolved.repo);
+            session.repo_label.clone_from(&resolved.label);
             session.root = Some(resolved.root.clone());
-            session.settings = resolved.settings.clone();
+            session.settings.clone_from(&resolved.settings);
             session.resolved = true;
             session.next_turn_idx = session.next_turn_idx.max(resolved.turn_base);
             if let Some(turn) = session.turn.as_mut()

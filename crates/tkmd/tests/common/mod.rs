@@ -14,7 +14,6 @@ use tkm_config::paths::Paths;
 use tkm_core::model::{RepoKey, Timestamp};
 use tkm_decide::api::Answer;
 use tkm_decide::client::{DecideRequest, Decision, Outcome};
-use tkm_hosts::HostAdapter as _;
 use tkm_proto::{EventKind, Host, PROTOCOL_VERSION, Reply, Request};
 use tkm_store::{Repo, Store, StoreError};
 use tkmd::backing::{Backing, SqliteBacking};

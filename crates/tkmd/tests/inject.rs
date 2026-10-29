@@ -1,4 +1,5 @@
 //! E4.4 inject layer: candidates, relevance scoring, timeout fallback, deferral, cache.
+#![forbid(unsafe_code)]
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::pedantic)]
 
 mod common;

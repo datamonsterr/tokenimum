@@ -1,5 +1,6 @@
 //! Fault injection: each failure yields the host's no-op reply and one `errors.log` line, and the
 //! daemon keeps serving (SPEC 13.4, EPICS E4 DoD).
+#![forbid(unsafe_code)]
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::pedantic)]
 
 mod common;

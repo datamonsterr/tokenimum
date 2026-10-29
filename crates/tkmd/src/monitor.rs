@@ -36,6 +36,7 @@ pub struct Monitor {
 impl Monitor {
     /// Binds `tkmd-monitor.sock` beside the hook socket. The caller already owns the daemon
     /// lock (see [`crate::server::Server::bind`]), so a leftover file is stale.
+    #[allow(clippy::unused_async)]
     pub async fn bind(daemon: &Arc<Daemon>) -> io::Result<Self> {
         let paths = daemon.paths();
         paths.ensure_runtime_dir()?;

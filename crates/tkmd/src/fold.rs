@@ -155,8 +155,8 @@ fn persist_facts(
             continue;
         };
         let existing = before.iter().find(|r| r.fact_id == record.fact_id);
-        match existing {
-            Some(old) => {
+        if let Some(old) = existing {
+            {
                 if let Some(params) = text_params(fact) {
                     store.update_fact_params(repo, &record.fact_id, &params)?;
                 }
@@ -173,7 +173,8 @@ fn persist_facts(
                     store.transition_fact(repo, &record.fact_id, record.state)?;
                 }
             }
-            None => {
+        } else {
+            {
                 store.insert_candidate_fact(&record)?;
                 if record.state != FactState::Candidate {
                     store.transition_fact(repo, &record.fact_id, record.state)?;
@@ -499,7 +500,6 @@ impl Daemon {
                                     FactEventKind::Contradicted => "contradicted",
                                     FactEventKind::Promoted => "promoted",
                                     FactEventKind::Retired => "retired",
-                                    _ => "changed",
                                 }
                                 .to_owned(),
                             })
@@ -518,7 +518,7 @@ impl Daemon {
                     });
                 }
                 Ok(Err(error)) => {
-                    me.log_error(&format!("fold {} {session_id}: {error}", host.as_str()))
+                    me.log_error(&format!("fold {} {session_id}: {error}", host.as_str()));
                 }
                 Err(error) => me.log_error(&format!("fold task {session_id}: {error}")),
             }
@@ -527,6 +527,7 @@ impl Daemon {
     }
 
     /// Folds every session idle for at least `idle_after`.
+    #[allow(clippy::unused_async)]
     pub async fn scan_idle(self: &Arc<Self>) {
         let now = self.clock.now_ms();
         let idle = u64::try_from(self.idle_after.as_millis()).unwrap_or(u64::MAX);

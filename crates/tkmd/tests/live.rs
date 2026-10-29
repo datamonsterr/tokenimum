@@ -1,4 +1,5 @@
 //! E4.3 live layer: gate, judge queue, delivery on a later `tool_done`, shadow mode, escalation.
+#![forbid(unsafe_code)]
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::pedantic)]
 
 mod common;
@@ -6,7 +7,7 @@ mod common;
 use std::sync::Arc;
 
 use common::*;
-use tkm_decide::calibrate::{CalibrationKey, Thresholds};
+use tkm_decide::calibrate::{CalibrationKey, CalibrationStore as _, Thresholds};
 use tkm_decide::client::{NoDecisionReason, Outcome};
 use tkm_proto::Host;
 use tkmd::settings::{LoopMode, Settings};
