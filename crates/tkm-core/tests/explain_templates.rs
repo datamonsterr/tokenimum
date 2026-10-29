@@ -33,29 +33,76 @@ fn explanation(kind: ActionKind) -> Explanation {
     }
 }
 macro_rules! render_test {
-    ($name:ident, $kind:ident) => {
+    ($name:ident, $kind:ident, $action:literal, $detail:literal) => {
         #[test]
         fn $name() {
             let e = explanation(ActionKind::$kind);
-            let text = render(&e);
-            for section in ["What happened:", "Why:", "Model checks:", "Cost", "Undo:"] {
-                assert!(text.contains(section), "{section}");
-            }
+            assert_eq!(render(&e), concat!("Event 1\n\nWhat happened: ", $action, ":\n  ", $detail, "\n\nWhy: reason\n\nModel checks: checks\nCost of those checks: $0.\n\nUndo: undo"));
             let json = serde_json::to_string(&e).unwrap();
             assert_eq!(serde_json::from_str::<Explanation>(&json).unwrap(), e);
         }
     };
 }
-render_test!(explain_renders_fact_injected, FactInjected);
-render_test!(explain_renders_fact_promoted, FactPromoted);
-render_test!(explain_renders_fact_retired, FactRetired);
-render_test!(explain_renders_redirect, Redirect);
-render_test!(explain_renders_escalation, Escalation);
-render_test!(explain_renders_deny_list_proposal, DenyListProposal);
-render_test!(explain_renders_deny_list_write, DenyListWrite);
-render_test!(explain_renders_restore, Restore);
-render_test!(explain_renders_budget_reached, BudgetReached);
-render_test!(explain_renders_adapter_disabled, AdapterDisabled);
+render_test!(
+    explain_renders_fact_injected,
+    FactInjected,
+    "tokenimum added a short note to the agent's context",
+    "\"detail\""
+);
+render_test!(
+    explain_renders_fact_promoted,
+    FactPromoted,
+    "tokenimum promoted a repository fact",
+    "detail"
+);
+render_test!(
+    explain_renders_fact_retired,
+    FactRetired,
+    "tokenimum retired a repository fact",
+    "detail"
+);
+render_test!(
+    explain_renders_redirect,
+    Redirect,
+    "tokenimum redirected the agent",
+    "detail"
+);
+render_test!(
+    explain_renders_escalation,
+    Escalation,
+    "tokenimum escalated the turn",
+    "detail"
+);
+render_test!(
+    explain_renders_deny_list_proposal,
+    DenyListProposal,
+    "tokenimum proposed a deny-list change",
+    "detail"
+);
+render_test!(
+    explain_renders_deny_list_write,
+    DenyListWrite,
+    "tokenimum wrote a deny-list change",
+    "detail"
+);
+render_test!(
+    explain_renders_restore,
+    Restore,
+    "tokenimum restored a tool",
+    "detail"
+);
+render_test!(
+    explain_renders_budget_reached,
+    BudgetReached,
+    "tokenimum reached a budget",
+    "detail"
+);
+render_test!(
+    explain_renders_adapter_disabled,
+    AdapterDisabled,
+    "tokenimum disabled an adapter",
+    "detail"
+);
 #[test]
 fn explain_sanitizes_parameters() {
     let mut e = explanation(ActionKind::Redirect);
