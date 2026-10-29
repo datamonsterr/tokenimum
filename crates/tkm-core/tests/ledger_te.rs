@@ -63,13 +63,13 @@ fn te_ledger_effective_exec_falls_back_to_total() {
 #[test]
 fn te_ledger_cost_ledger_amortizes() {
     let mut l = CostLedger::default();
-    l.add(100.0, 20.0);
-    l.add(200.0, 0.0);
+    l.add(100.0, 20.0).unwrap();
+    l.add(200.0, 0.0).unwrap();
     assert_eq!(l.cum_exec, 300.0);
     assert_eq!(l.cum_overhead, 20.0);
-    assert_eq!(l.cum_total(), 320.0);
-    assert_eq!(l.amortized_per_task(), 160.0);
-    assert!(l.overhead_frac() > 0.0 && l.overhead_frac() < 1.0);
+    assert_eq!(l.cum_total(), Some(320.0));
+    assert_eq!(l.amortized_per_task(), Some(160.0));
+    assert!(l.overhead_frac().unwrap() > 0.0 && l.overhead_frac().unwrap() < 1.0);
 }
 
 #[test]

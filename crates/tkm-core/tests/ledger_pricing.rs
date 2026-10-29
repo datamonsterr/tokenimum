@@ -88,8 +88,8 @@ fn decision_costs_are_summed() {
             question_names: vec!["question".into()],
         })
         .collect();
-    assert_eq!(decision_overhead(&ds), 1.0);
-    assert_eq!(decision_overhead(&[]), 0.0);
+    assert_eq!(decision_overhead(&ds), Some(1.0));
+    assert_eq!(decision_overhead(&[]), Some(0.0));
 }
 
 #[test]
@@ -109,7 +109,7 @@ fn decision_overhead_table() {
                 question_names: Vec::new(),
             })
             .collect();
-        assert_eq!(decision_overhead(&decisions), expected);
+        assert_eq!(decision_overhead(&decisions), Some(expected));
     }
 }
 

@@ -33,7 +33,7 @@ class PurityCheck(unittest.TestCase):
             return subprocess.run(["bash", str(SCRIPT)], cwd=root, env=env, capture_output=True, check=False).returncode
 
     def test_forbidden_sources(self):
-        for source in ["use std::{fs, io};", "use std::{io::stdin};", "use std::io::stdout;", "std::io::stderr();", "use std::thread;", "use std::time::{SystemTime, Instant};", "use std::{net, process, env};"]:
+        for source in ["use std::{fs, io};", "use std::{io::stdin};", "use std::io::stdout;", "std::io::stderr();", "use std::thread;", "use std::time::{SystemTime, Instant};", "use std::{net, process, env};", "use std::io as console; console::stdin();", "use std::{time, io};"]:
             with self.subTest(source=source):
                 self.assertNotEqual(self.check(source), 0)
 
@@ -43,7 +43,7 @@ class PurityCheck(unittest.TestCase):
                 self.assertEqual(self.check(source), 0)
 
     def test_dependencies(self):
-        for name in ["rand", "getrandom", "libc", "nix", "socket2", "foo-sys"]:
+        for name in ["rand", "rand_core", "rand_chacha", "getrandom", "fastrand", "rustix", "libc", "nix", "socket2", "foo-sys"]:
             with self.subTest(name=name):
                 self.assertNotEqual(self.check("", name), 0)
                 self.assertEqual(self.check("", name, "dev"), 0)

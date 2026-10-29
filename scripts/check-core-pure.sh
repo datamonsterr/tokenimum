@@ -23,7 +23,7 @@ while stack:
         continue
     seen.add(package_id)
     name = packages[package_id]["name"]
-    if name in {"tokio", "reqwest", "rusqlite", "hyper", "mio"} or name.endswith("-sys"):
+    if name in {"tokio", "reqwest", "rusqlite", "hyper", "mio", "rand", "rand_core", "rand_chacha", "getrandom", "fastrand", "rustix", "libc", "nix", "socket2"} or name.endswith("-sys"):
         bad.append(name)
     for dep in nodes[package_id]["deps"]:
         if any(kind["kind"] is None for kind in dep["dep_kinds"]):
@@ -31,7 +31,25 @@ while stack:
 if bad:
     raise SystemExit("forbidden core dependencies: " + ", ".join(sorted(bad)))
 PY
-if grep -R -n -E 'std::(fs|net|process|env)|File::|SystemTime::now|Instant::now|tokio|reqwest|rusqlite' crates/tkm-core/src; then
-    echo 'forbidden I/O reference in tkm-core source' >&2
-    exit 1
-fi
+python3 - <<'PYCODE'
+from pathlib import Path
+import re
+import sys
+
+# Match direct paths as well as grouped use trees. Comments are deliberately
+# included, as in the original check. Braced trees may span multiple lines.
+direct = re.compile(r"\bstd\s*::\s*(?:(?:fs|net|process|env|thread)\b|io\s*::\s*(?:stdin|stdout|stderr)\b|time\s*::\s*(?:SystemTime|Instant)\b)")
+groups = re.compile(r"\bstd\s*::[^;]*\{[^;]*;", re.DOTALL)
+namespace_import = re.compile(r"\buse\s+std\s*::\s*(?:io|time)\s*(?:as\s+\w+\s*)?;")
+namespace_group = re.compile(r"\b(?:io|time)\s*(?:,|}|as\s+\w+)")
+forbidden_group = re.compile(r"\b(?:fs|net|process|env|thread|stdin|stdout|stderr|SystemTime|Instant)\b")
+other = re.compile(r"\b(?:File\s*::|SystemTime\s*::\s*now|Instant\s*::\s*now|tokio|reqwest|rusqlite)\b")
+bad = False
+for path in Path("crates/tkm-core/src").rglob("*.rs"):
+    source = path.read_text(encoding="utf-8")
+    if direct.search(source) or other.search(source) or namespace_import.search(source) or any(forbidden_group.search(match.group()) or namespace_group.search(match.group()) for match in groups.finditer(source)):
+        print(f"forbidden I/O reference in {path}", file=sys.stderr)
+        bad = True
+if bad:
+    sys.exit(1)
+PYCODE
