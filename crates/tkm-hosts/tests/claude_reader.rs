@@ -219,3 +219,22 @@ fn fixture_call_digests_equal_live_hooks_for_all_tools_and_failure() {
         assert_eq!(read.output_digest, live.output_digest, "{fixture} output");
     }
 }
+
+#[test]
+fn tool_use_result_without_text_falls_back_to_result_content() {
+    let log = [
+        json!({"type":"user","message":{"role":"user","content":"go"}}),
+        json!({"type":"assistant","message":{"content":[{"type":"tool_use","id":"c0","name":"Bash","input":{"command":"python -m pytest -q"}}]}}),
+        json!({"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"c0","content":"1 passed","is_error":false}]},"toolUseResult":{"exit_code":0}}),
+    ]
+    .iter()
+    .map(|row| format!("{row}\n"))
+    .collect::<String>();
+    let path = temporary_log(&log);
+    let session = ClaudeAdapter::new()
+        .read_session(&source(path.clone()))
+        .unwrap();
+    assert_eq!(session.turns[0].calls[0].output_digest, "1 passed");
+    assert_eq!(session.turns[0].calls[0].exit_code, Some(0));
+    fs::remove_file(path).unwrap();
+}
