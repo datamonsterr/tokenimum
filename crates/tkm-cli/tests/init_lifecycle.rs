@@ -279,3 +279,16 @@ fn init_environment_key_keeps_decisions_enabled_without_copying_secret() {
     assert!(!config.contains(secret));
     assert!(!tkm_decide::key::default_key_file(&fixture.home).exists());
 }
+
+#[test]
+fn init_honors_host_switch_and_integration_level() {
+    let fixture = Fixture::new();
+    fs::create_dir_all(fixture.paths.global_config.parent().unwrap()).unwrap();
+    fs::write(&fixture.paths.global_config, "[hosts.claude]\nenabled = false\n[hosts.codex]\nlevel = \"fold-only\"\n[hosts.pi]\nlevel = \"shim\"\n").unwrap();
+    let output = fixture.run(&["init", "--yes", "--dry-run"]);
+    assert!(output.status.success(), "{output:?}");
+    let plan = stdout(&output);
+    assert!(!plan.contains("claude: hooks"));
+    assert!(plan.contains("codex: fold-only"), "{plan}");
+    assert!(plan.contains("pi: shim"), "{plan}");
+}

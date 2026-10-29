@@ -349,3 +349,27 @@ async fn fold_prices_session_with_configured_model_rates() {
         .unwrap();
     assert!(cost > 0.0);
 }
+
+#[tokio::test]
+async fn disabled_host_does_not_create_or_fold_sessions() {
+    let env = Env::new();
+    let mut settings = Settings::default();
+    settings.hosts.insert(
+        "claude".into(),
+        tkmd::settings::HostSettings {
+            enabled: false,
+            level: tkmd::settings::HostLevel::Auto,
+        },
+    );
+    let daemon = daemon_with(&env, settings, Arc::new(NullDecider));
+    daemon.handle(start_request(&transcript())).await;
+    daemon.handle(end_request(&transcript())).await;
+    daemon.settle().await;
+    let store = env.store();
+    assert!(
+        store
+            .list_sessions_by_repo(&tkm_core::model::RepoKey(FIXTURE_REPO.into()), 100)
+            .unwrap()
+            .is_empty()
+    );
+}
