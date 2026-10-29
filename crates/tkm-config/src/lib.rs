@@ -1,11 +1,11 @@
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
-//! Layered configuration and presets.
+//! Layered configuration and repository paths.
 
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn arithmetic_works() {
-        assert_eq!(2 + 2, 4);
-    }
-}
+/// Filesystem locations and error log.
+pub mod paths;
+/// Repository identity resolution.
+pub mod repo;
+
+/// Configuration layers, validation, presets and editing.
+pub mod config;
