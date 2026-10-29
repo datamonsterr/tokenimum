@@ -27,3 +27,13 @@ worktrees resolve their shared git directory before choosing a remote or main ch
 The socket is `$XDG_RUNTIME_DIR/tokenimum/tkmd.sock` when a runtime directory is available;
 otherwise it is `<data dir>/run/tkmd.sock`. Its directory is private and the socket is mode 0600
 on Unix.
+
+## Remote normalization follows TokenEconomizer
+
+As in TokenEconomizer's `paths.py`, the entire normalized remote is lowercased. Repositories on
+case-sensitive hosts whose paths differ only in case therefore share a key; this is accepted for
+parity. SCP-style remotes with a path starting with a digit are treated as host:port, also for
+TokenEconomizer parity.
+
+Saving `.tokenimum.local.toml` adds `/.tokenimum.local.toml` to the shared Git `info/exclude`
+file, including for linked worktrees.

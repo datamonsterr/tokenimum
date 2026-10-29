@@ -4,6 +4,7 @@
 //! Resolve shared repository identities without invoking git.
 use std::{
     fs,
+    io::{self, Write},
     path::{Path, PathBuf},
 };
 use tkm_core::model::RepoKey;
@@ -110,7 +111,10 @@ fn origin_url(root: &Path) -> Option<String> {
             && key.trim() == "url"
             && !value.trim().is_empty()
         {
-            let value = value.trim().to_owned();
+            let value = parse_config_value(value);
+            if value.is_empty() {
+                continue;
+            }
             if first.is_none() {
                 first = Some(value.clone());
             }
@@ -120,6 +124,37 @@ fn origin_url(root: &Path) -> Option<String> {
         }
     }
     origin.or(first)
+}
+fn parse_config_value(raw: &str) -> String {
+    let mut quoted = false;
+    let mut escaped = false;
+    let mut end = raw.len();
+    for (index, ch) in raw.char_indices() {
+        if escaped {
+            escaped = false;
+        } else if quoted && ch == '\\' {
+            escaped = true;
+        } else if ch == '"' {
+            quoted = !quoted;
+        } else if !quoted && matches!(ch, '#' | ';') {
+            end = index;
+            break;
+        }
+    }
+    let value = raw[..end].trim();
+    let Some(inner) = value.strip_prefix('"').and_then(|v| v.strip_suffix('"')) else {
+        return value.to_owned();
+    };
+    let mut result = String::new();
+    let mut chars = inner.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch == '\\' && matches!(chars.peek(), Some('"' | '\\')) {
+            result.push(chars.next().unwrap_or(ch));
+        } else {
+            result.push(ch);
+        }
+    }
+    result
 }
 /// Normalize a git remote to its canonical spelling.
 #[must_use]
@@ -210,6 +245,27 @@ pub fn repo_identity(start: &Path, ceilings: &str, home: Option<&Path>) -> RepoI
 ///
 /// # Errors
 /// Returns an error if the exclude file cannot be read or written.
-pub fn exclude_local_config(_repo_root: &Path) -> std::io::Result<bool> {
-    unimplemented!()
+pub fn exclude_local_config(repo_root: &Path) -> io::Result<bool> {
+    let common = common_dir(repo_root)
+        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "Git common directory not found"))?;
+    let info = common.join("info");
+    fs::create_dir_all(&info)?;
+    let path = info.join("exclude");
+    let content = match fs::read_to_string(&path) {
+        Ok(content) => content,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => String::new(),
+        Err(error) => return Err(error),
+    };
+    if content.lines().any(|line| line == "/.tokenimum.local.toml") {
+        return Ok(false);
+    }
+    let mut file = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)?;
+    if !content.is_empty() && !content.ends_with('\n') {
+        writeln!(file)?;
+    }
+    writeln!(file, "/.tokenimum.local.toml")?;
+    Ok(true)
 }

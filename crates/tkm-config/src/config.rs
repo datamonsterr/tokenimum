@@ -1,5 +1,11 @@
 //! Layered configuration and file editing.
-use std::{collections::BTreeMap, path::PathBuf, sync::LazyLock};
+use std::{
+    collections::BTreeMap,
+    io::Write,
+    path::PathBuf,
+    sync::LazyLock,
+    time::{SystemTime, UNIX_EPOCH},
+};
 /// A configuration file or value could not be read or validated.
 #[derive(Debug, thiserror::Error)]
 pub enum ConfigError {
@@ -679,10 +685,15 @@ fn flatten(
     output: &mut Vec<(String, toml_edit::Item)>,
 ) {
     for (name, item) in table.iter() {
-        let key = if prefix.is_empty() {
-            name.to_owned()
+        let segment = if name.contains('.') {
+            format!("{name:?}")
         } else {
-            format!("{prefix}.{name}")
+            name.to_owned()
+        };
+        let key = if prefix.is_empty() {
+            segment
+        } else {
+            format!("{prefix}.{segment}")
         };
         if let Some(child) = item.as_table_like() {
             flatten(child, &key, output);
@@ -981,18 +992,33 @@ impl ConfigFile {
             }
         };
         let mut parts = key.split('.').peekable();
-        let mut table = self.document.as_table_mut();
+        let mut table: &mut dyn toml_edit::TableLike = self.document.as_table_mut();
+        let mut inline = false;
         while let Some(part) = parts.next() {
             if parts.peek().is_none() {
                 table.insert(part, item);
                 break;
             }
             if !table.contains_key(part) {
-                table.insert(part, toml_edit::Item::Table(toml_edit::Table::new()));
+                let child = if inline {
+                    toml_edit::Item::Value(toml_edit::Value::InlineTable(
+                        toml_edit::InlineTable::new(),
+                    ))
+                } else {
+                    toml_edit::Item::Table(toml_edit::Table::new())
+                };
+                table.insert(part, child);
             }
-            table = table
+            let child = table
                 .get_mut(part)
-                .and_then(toml_edit::Item::as_table_mut)
+                .ok_or_else(|| ConfigError::InvalidValue {
+                    key: key.to_owned(),
+                    value: raw.to_owned(),
+                    reason: format!("{part} is not a table"),
+                })?;
+            inline = child.is_inline_table();
+            table = child
+                .as_table_like_mut()
                 .ok_or_else(|| ConfigError::InvalidValue {
                     key: key.to_owned(),
                     value: raw.to_owned(),
@@ -1010,13 +1036,16 @@ impl ConfigFile {
             return Err(ConfigError::UnknownKey(key.to_owned()));
         }
         let mut parts = key.split('.').peekable();
-        let mut table = self.document.as_table_mut();
+        let mut table: &mut dyn toml_edit::TableLike = self.document.as_table_mut();
         while let Some(part) = parts.next() {
             if parts.peek().is_none() {
                 table.remove(part);
                 break;
             }
-            match table.get_mut(part).and_then(toml_edit::Item::as_table_mut) {
+            match table
+                .get_mut(part)
+                .and_then(toml_edit::Item::as_table_like_mut)
+            {
                 Some(next) => table = next,
                 None => return Ok(()),
             }
@@ -1028,13 +1057,38 @@ impl ConfigFile {
     /// # Errors
     /// Returns an error if the destination cannot be written.
     pub fn save(&self) -> Result<(), ConfigError> {
-        if let Some(parent) = self.path.parent() {
-            std::fs::create_dir_all(parent).map_err(|source| ConfigError::Io {
-                path: parent.to_path_buf(),
-                source,
-            })?;
-        }
-        std::fs::write(&self.path, self.document.to_string()).map_err(|source| ConfigError::Io {
+        let parent = self
+            .path
+            .parent()
+            .filter(|path| !path.as_os_str().is_empty())
+            .unwrap_or_else(|| std::path::Path::new("."));
+        let write = || -> std::io::Result<()> {
+            std::fs::create_dir_all(parent)?;
+            if self.layer == Layer::RepoLocal && parent.join(".git").exists() {
+                crate::repo::exclude_local_config(parent)?;
+            }
+            let nanos = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos();
+            let temp = parent.join(format!(".tokenimum-{}-{nanos}.tmp", std::process::id()));
+            let mut file = std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&temp)?;
+            let result = (|| {
+                file.write_all(self.document.to_string().as_bytes())?;
+                file.flush()?;
+                file.sync_all()?;
+                drop(file);
+                std::fs::rename(&temp, &self.path)
+            })();
+            if result.is_err() {
+                let _ = std::fs::remove_file(temp);
+            }
+            result
+        };
+        write().map_err(|source| ConfigError::Io {
             path: self.path.clone(),
             source,
         })

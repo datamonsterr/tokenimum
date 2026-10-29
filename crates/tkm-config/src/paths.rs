@@ -132,10 +132,18 @@ impl ErrorLog {
                 let mut rotated = self.path.as_os_str().to_os_string();
                 rotated.push(".1");
                 let rotated = PathBuf::from(rotated);
-                if rotated.exists() {
-                    fs::remove_file(&rotated)?;
+                // Unix rename replaces the previous backup atomically.
+                #[cfg(not(unix))]
+                if let Err(error) = fs::remove_file(&rotated)
+                    && error.kind() != io::ErrorKind::NotFound
+                {
+                    return Err(error);
                 }
-                fs::rename(&self.path, rotated)?;
+                if let Err(error) = fs::rename(&self.path, rotated)
+                    && error.kind() != io::ErrorKind::NotFound
+                {
+                    return Err(error);
+                }
             }
             Err(e) if e.kind() != io::ErrorKind::NotFound => return Err(e),
             _ => {}
