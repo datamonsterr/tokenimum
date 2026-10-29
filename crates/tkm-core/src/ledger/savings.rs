@@ -145,7 +145,7 @@ fn t_critical(df: f64) -> f64 {
     }
     let (mut lo, mut hi) = (0.0, 16.0);
     for _ in 0..60 {
-        let mid = (lo + hi) / 2.0;
+        let mid = f64::midpoint(lo, hi);
         let x = df / (df + mid * mid);
         if regularized_beta(x, df / 2.0, 0.5) > 0.05 {
             lo = mid;
@@ -153,7 +153,7 @@ fn t_critical(df: f64) -> f64 {
             hi = mid;
         }
     }
-    (lo + hi) / 2.0
+    f64::midpoint(lo, hi)
 }
 
 // Lanczos approximation, g=7; valid for the positive arguments used here.
