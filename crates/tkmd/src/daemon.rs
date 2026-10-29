@@ -886,6 +886,7 @@ impl Daemon {
             let StateMap {
                 sessions,
                 envelopes,
+                turn_bases,
                 ..
             } = &mut *guard;
             let session = sessions
@@ -896,7 +897,11 @@ impl Daemon {
             session.root = Some(resolved.root.clone());
             session.settings.clone_from(&resolved.settings);
             session.resolved = true;
-            session.next_turn_idx = session.next_turn_idx.max(resolved.turn_base);
+            let remembered = turn_bases.get(&tag).copied().unwrap_or(0);
+            session.next_turn_idx = session
+                .next_turn_idx
+                .max(resolved.turn_base)
+                .max(remembered);
             if let Some(turn) = session.turn.as_mut()
                 && turn.idx < session.next_turn_idx
                 && turn.total_calls == 0

@@ -76,8 +76,10 @@ async fn timeout_falls_back_to_the_cached_default_block() {
     seed_fact(&env, "example.com");
     // The decider never answers: the gate is never released.
     let (decider, _gate) = ScriptedDecider::gated(relevance(&[]));
-    let mut settings = Settings::default();
-    settings.relevance_timeout_ms = 150;
+    let settings = Settings {
+        relevance_timeout_ms: 150,
+        ..Settings::default()
+    };
     let daemon = daemon_with(&env, settings, decider.clone());
     let started = std::time::Instant::now();
     let reply = daemon.handle(prompt()).await;
