@@ -107,9 +107,11 @@ pub fn dedupe(items: &[InjectCandidate]) -> Vec<InjectCandidate> {
     }
     result
 }
-// Replace Unicode general categories Cc and Cf, including directional and
-// zero-width formatting. A regex compilation failure fails closed.
-pub(crate) fn sanitize_line(text: &str) -> String {
+/// Replaces Unicode general categories Cc and Cf, including directional and
+/// zero-width formatting, so stored text prints safely on one line.
+/// A regex compilation failure fails closed.
+#[must_use]
+pub fn sanitize_line(text: &str) -> String {
     let Ok(pattern) = regex::Regex::new(r"[\p{Cc}\p{Cf}]") else {
         return String::new();
     };

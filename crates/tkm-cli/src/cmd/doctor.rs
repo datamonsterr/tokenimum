@@ -24,7 +24,7 @@ use crate::{cli::DoctorArgs, ctx::Ctx, error::CliError};
 pub fn run(ctx: &mut Ctx<'_>, args: &DoctorArgs) -> Result<ExitCode, CliError> {
     let mut failed = false;
     match daemon::probe(&ctx.paths) {
-        DaemonState::Running { version } => line(
+        DaemonState::Running { version, .. } => line(
             ctx,
             "ok",
             "daemon",
