@@ -11,13 +11,14 @@ use tkm_core::model::{Call, Host, Session, StopReason, Timestamp, Turn, Usage};
 use crate::digest::{args_digest, output_digest, truncate};
 use crate::{AdapterError, SessionSource};
 
+/// 2^63 is exactly representable as f64; values outside +/-this are out of i64 range.
+const LIMIT: f64 = 9_223_372_036_854_775_808.0;
+
 fn float_seconds_to_timestamp(seconds: f64) -> Option<Timestamp> {
     if !seconds.is_finite() {
         return None;
     }
     let millis = (seconds * 1000.0).round();
-    // +/-2^63 are exactly representable as f64; anything outside is out of i64 range.
-    const LIMIT: f64 = 9_223_372_036_854_775_808.0;
     if !(-LIMIT..LIMIT).contains(&millis) {
         return None;
     }

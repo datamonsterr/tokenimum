@@ -176,7 +176,13 @@ fn dry_run_does_not_modify_disk() {
     let adapter = CursorAdapter::new();
     let report = adapter.install(&context).unwrap();
     assert!(report.dry_run);
-    assert_eq!(report.changed_files, vec![hooks_path.clone()]);
+    assert_eq!(
+        report.changed_files,
+        vec![
+            hooks_path.clone(),
+            context.agent_home.join("hooks.json.tkm-bak")
+        ]
+    );
     assert!(!hooks_path.exists());
 }
 
