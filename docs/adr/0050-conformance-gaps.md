@@ -2,7 +2,7 @@
 
 Status: refreshed 2026-10-29 against `da6a44d` on `epic/e10` (CI green). This record documents
 observed gaps; it does not change SPEC.md or assert that unfinished work satisfies the spec.
-The row-level status is in [spec-conformance.md](../spec-conformance.md): 499 met, 46 deferred,
+The row-level status is in [spec-conformance.md](../spec-conformance.md): 501 met, 44 deferred,
 11 not applicable. Each deferred row carries one category: (a) needs live or real-world data or
 user action, (b) intentionally out of scope or limited per an ADR, (c) not implemented.
 
@@ -44,7 +44,6 @@ fixed and now `met` in the conformance table, with tests named there:
 - Connect timeout 10 ms instead of 2 ms: ADR 0014.
 - Legacy opencode `storage/` tree and awaited shim `tool_done`: ADR 0025.
 - Kimi and Codewhale user-scope-only installers: ADR 0020.
-- Skill paths for hosts without a verified location (Codex, agy, Cursor, Codewhale): ADR 0026.
 - otherskill selection limited to four host names: ADR 0040 item 7.
 
 ## Open (c): not implemented
