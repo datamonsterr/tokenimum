@@ -113,11 +113,11 @@ impl MonitorState {
                         fact.state = state.into();
                     }
                 } else {
-                    if self.live_fact_keys.len() >= 2_000 {
-                        if let Some((repo, fact_id)) = self.live_fact_keys.pop_front() {
-                            self.facts
-                                .retain(|fact| fact.repo != repo || fact.fact_id != fact_id);
-                        }
+                    if self.live_fact_keys.len() >= 2_000
+                        && let Some((repo, fact_id)) = self.live_fact_keys.pop_front()
+                    {
+                        self.facts
+                            .retain(|fact| fact.repo != repo || fact.fact_id != fact_id);
                     }
                     self.live_fact_keys
                         .push_back((update.repo.clone(), update.fact_id.clone()));

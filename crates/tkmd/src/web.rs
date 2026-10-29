@@ -176,12 +176,10 @@ impl WebServer {
                 match receiver.recv().await {
                     Ok(message) => {
                         if matches!(&message, tkm_proto::monitor::MonitorMessage::Session(update) if update.phase == "folded")
+                            && let Ok(snapshot) = feed_state.reload_snapshot().await
+                            && let Ok(mut state) = feed_state.monitor.write()
                         {
-                            if let Ok(snapshot) = feed_state.reload_snapshot().await {
-                                if let Ok(mut state) = feed_state.monitor.write() {
-                                    state.savings = snapshot.savings;
-                                }
-                            }
+                            state.savings = snapshot.savings;
                         }
                         if let Ok(mut state) = feed_state.monitor.write() {
                             state.apply(message);
@@ -191,10 +189,10 @@ impl WebServer {
                         if let Ok(mut state) = feed_state.monitor.write() {
                             state.degraded = true;
                         }
-                        if let Ok(snapshot) = feed_state.reload_snapshot().await {
-                            if let Ok(mut state) = feed_state.monitor.write() {
-                                *state = snapshot;
-                            }
+                        if let Ok(snapshot) = feed_state.reload_snapshot().await
+                            && let Ok(mut state) = feed_state.monitor.write()
+                        {
+                            *state = snapshot;
                         }
                     }
                     Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
