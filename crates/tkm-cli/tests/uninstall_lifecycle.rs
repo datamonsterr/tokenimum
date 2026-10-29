@@ -186,6 +186,56 @@ fn uninstall_stop_failure_keeps_recovery_row_until_retry() {
 }
 
 #[test]
+fn uninstall_requires_manager_after_repeated_init_start_failure() {
+    let fixture = Fixture::new();
+    fixture.init();
+    let service = fixture.temp.path().join("config/systemd/user/tkmd.service");
+    let reversal = fixture.paths.data_dir.join("init-reversal.json");
+    let service_before = fs::read(&service).unwrap();
+    let reversal_before = fs::read(&reversal).unwrap();
+    fs::remove_file(fixture.bin.join("systemctl")).unwrap();
+    fs::remove_file(fixture.bin.join("tkmd")).unwrap();
+    let output = fixture
+        .command(&["init", "--yes"])
+        .env("TKM_TKMD_BIN", fixture.bin.join("missing-tkmd"))
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{output:?}");
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("detached tkmd could not start"),
+        "{output:?}"
+    );
+
+    let output = fixture.run(&["uninstall"]);
+    assert_eq!(output.status.code(), Some(1), "{output:?}");
+    assert!(
+        String::from_utf8_lossy(&output.stderr)
+            .contains("systemctl missing; cannot stop/disable tkmd"),
+        "{output:?}"
+    );
+    assert!(!fixture.installs().is_empty());
+    assert_eq!(fs::read(&service).unwrap(), service_before);
+    assert_eq!(fs::read(&reversal).unwrap(), reversal_before);
+    assert!(fixture.paths.global_config.exists());
+
+    fixture.script(
+        "systemctl",
+        "printf 'systemctl %s\\n' \"$*\" >> \"$CALL_LOG\"\n",
+    );
+    let output = fixture.run(&["uninstall"]);
+    assert!(output.status.success(), "{output:?}");
+    let calls = fs::read_to_string(fixture.temp.path().join("calls.log")).unwrap();
+    assert!(
+        calls.contains("systemctl --user disable tkmd.service"),
+        "{calls}"
+    );
+    assert!(fixture.installs().is_empty());
+    assert!(!service.exists());
+    assert!(!reversal.exists());
+    assert!(!fixture.paths.global_config.exists());
+}
+
+#[test]
 fn uninstall_running_detached_daemon_prints_stop_command_and_keeps_manifest() {
     use std::io::Write;
     use std::os::unix::net::UnixListener;
