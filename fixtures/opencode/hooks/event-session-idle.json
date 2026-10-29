@@ -1,0 +1,10 @@
+{
+  "hook": "event",
+  "event": {
+    "id": "evt_example2",
+    "type": "session.idle",
+    "properties": {
+      "sessionID": "ses_example1"
+    }
+  }
+}

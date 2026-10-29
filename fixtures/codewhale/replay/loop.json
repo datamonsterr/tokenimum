@@ -1,0 +1,12 @@
+{
+  "event": "tool_call_after",
+  "session_id": "golden-loop",
+  "workspace": "/synthetic/repo",
+  "tool": "exec_shell",
+  "execution_receipt": {
+    "command": "python -m pytest -q",
+    "exit_code": 1,
+    "stdout": "",
+    "stderr": "ImportError: missing module"
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "hook": "before_agent_start",
+  "event": {
+    "type": "before_agent_start",
+    "messageType": "custom"
+  },
+  "cwd": "/home/user/project",
+  "session_id": "00000000-0000-4000-8000-000000000001"
+}

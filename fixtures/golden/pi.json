@@ -1,8 +1,131 @@
-[
-  {"fixture": "session_start",     "event": "session_start", "host_event": "session_start",     "action": "Nothing", "stdout": ""},
-  {"fixture": "before_agent_start","event": "prompt",        "host_event": "before_agent_start","action": "Nothing", "stdout": ""},
-  {"fixture": "tool_result_bash",  "event": "tool_done",     "host_event": "tool_result",       "action": "Nothing", "stdout": ""},
-  {"fixture": "tool_result_bash_error", "event": "tool_done","host_event": "tool_result",       "action": "Nothing", "stdout": ""},
-  {"fixture": "turn_end",          "event": "turn_end",      "host_event": "turn_end",          "action": "Nothing", "stdout": ""},
-  {"fixture": "agent_end",         "event": "session_end",   "host_event": "agent_end",         "action": "Nothing", "stdout": ""}
-]
+{
+  "hooks": [
+    {
+      "fixture": "agent_end.json",
+      "event": "turn_end",
+      "action": {
+        "kind": "nothing"
+      },
+      "stdout": "",
+      "mapped_event": "turn_end",
+      "fold_fact_ids": []
+    },
+    {
+      "fixture": "before_agent_start.json",
+      "event": "prompt",
+      "action": {
+        "kind": "nothing"
+      },
+      "stdout": "",
+      "mapped_event": "prompt",
+      "fold_fact_ids": []
+    },
+    {
+      "fixture": "before_agent_start_custom.json",
+      "event": "prompt",
+      "action": {
+        "kind": "nothing"
+      },
+      "stdout": "",
+      "mapped_event": null,
+      "fold_fact_ids": []
+    },
+    {
+      "fixture": "session_shutdown.json",
+      "event": "session_end",
+      "action": {
+        "kind": "nothing"
+      },
+      "stdout": "",
+      "mapped_event": "session_end",
+      "fold_fact_ids": []
+    },
+    {
+      "fixture": "session_start.json",
+      "event": "session_start",
+      "action": {
+        "kind": "nothing"
+      },
+      "stdout": "",
+      "mapped_event": "session_start",
+      "fold_fact_ids": []
+    },
+    {
+      "fixture": "tool_result_bash.json",
+      "event": "tool_done",
+      "action": {
+        "kind": "nothing"
+      },
+      "stdout": "",
+      "mapped_event": "tool_done",
+      "fold_fact_ids": []
+    },
+    {
+      "fixture": "tool_result_bash_error.json",
+      "event": "tool_done",
+      "action": {
+        "kind": "nothing"
+      },
+      "stdout": "",
+      "mapped_event": "tool_done",
+      "fold_fact_ids": []
+    },
+    {
+      "fixture": "tool_result_edit.json",
+      "event": "tool_done",
+      "action": {
+        "kind": "nothing"
+      },
+      "stdout": "",
+      "mapped_event": "tool_done",
+      "fold_fact_ids": []
+    },
+    {
+      "fixture": "tool_result_edit_outside.json",
+      "event": "tool_done",
+      "action": {
+        "kind": "nothing"
+      },
+      "stdout": "",
+      "mapped_event": "tool_done",
+      "fold_fact_ids": []
+    },
+    {
+      "fixture": "tool_result_write.json",
+      "event": "tool_done",
+      "action": {
+        "kind": "nothing"
+      },
+      "stdout": "",
+      "mapped_event": "tool_done",
+      "fold_fact_ids": []
+    },
+    {
+      "fixture": "turn_end.json",
+      "event": "turn_end",
+      "action": {
+        "kind": "nothing"
+      },
+      "stdout": "",
+      "mapped_event": null,
+      "fold_fact_ids": []
+    }
+  ],
+  "mocked_loop": [
+    {
+      "call": 18,
+      "action": "request_judge",
+      "verdict": "stuck"
+    },
+    {
+      "call": 19,
+      "action": {
+        "kind": "inject",
+        "text": "tokenimum: the last 19 calls repeated \"ImportError\". Re-read the error and the failing expectation before editing again. Failing command: \"python -m pytest -q\"."
+      },
+      "redirect": "reread_error",
+      "stdout": "{\"steer\":\"tokenimum: the last 19 calls repeated \\\"ImportError\\\". Re-read the error and the failing expectation before editing again. Failing command: \\\"python -m pytest -q\\\".\"}"
+    }
+  ],
+  "fold_fact_ids": []
+}

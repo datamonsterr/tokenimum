@@ -1,0 +1,20 @@
+{
+  "hook": "tool.execute.after",
+  "input": {
+    "tool": "write",
+    "sessionID": "ses_example1",
+    "callID": "call_example1",
+    "args": {
+      "filePath": "/home/user/project/src/new.rs",
+      "content": "x"
+    }
+  },
+  "output": {
+    "title": "synthetic",
+    "output": "Wrote file successfully.",
+    "metadata": {
+      "filepath": "/home/user/project/src/new.rs",
+      "exists": false
+    }
+  }
+}

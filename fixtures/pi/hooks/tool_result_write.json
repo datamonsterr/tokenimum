@@ -1,0 +1,21 @@
+{
+  "hook": "tool_result",
+  "event": {
+    "type": "tool_result",
+    "toolName": "write",
+    "toolCallId": "call_example1",
+    "input": {
+      "path": "src/new.rs",
+      "content": "x"
+    },
+    "content": [
+      {
+        "type": "text",
+        "text": "Wrote 1 byte"
+      }
+    ],
+    "isError": false
+  },
+  "cwd": "/home/user/project",
+  "session_id": "00000000-0000-4000-8000-000000000001"
+}

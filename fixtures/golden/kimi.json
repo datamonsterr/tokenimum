@@ -1,8 +1,81 @@
-[
-  {"fixture": "SessionStart",       "event": "session_start", "action": "Nothing", "stdout": ""},
-  {"fixture": "UserPromptSubmit",   "event": "prompt",        "action": "Nothing", "stdout": ""},
-  {"fixture": "PostToolUse",        "event": "tool_done",     "action": "Nothing", "stdout": ""},
-  {"fixture": "PostToolUseFailure", "event": "tool_done",     "action": "Nothing", "stdout": ""},
-  {"fixture": "Stop",               "event": "turn_end",      "action": "Nothing", "stdout": ""},
-  {"fixture": "SessionEnd",         "event": "session_end",   "action": "Nothing", "stdout": ""}
-]
+{
+  "hooks": [
+    {
+      "fixture": "PostToolUse.json",
+      "event": "tool_done",
+      "action": {
+        "kind": "nothing"
+      },
+      "stdout": "",
+      "mapped_event": "tool_done",
+      "fold_fact_ids": []
+    },
+    {
+      "fixture": "PostToolUseFailure.json",
+      "event": "tool_done",
+      "action": {
+        "kind": "nothing"
+      },
+      "stdout": "",
+      "mapped_event": "tool_done",
+      "fold_fact_ids": []
+    },
+    {
+      "fixture": "SessionEnd.json",
+      "event": "session_end",
+      "action": {
+        "kind": "nothing"
+      },
+      "stdout": "",
+      "mapped_event": "session_end",
+      "fold_fact_ids": []
+    },
+    {
+      "fixture": "SessionStart.json",
+      "event": "session_start",
+      "action": {
+        "kind": "nothing"
+      },
+      "stdout": "",
+      "mapped_event": "session_start",
+      "fold_fact_ids": []
+    },
+    {
+      "fixture": "Stop.json",
+      "event": "turn_end",
+      "action": {
+        "kind": "nothing"
+      },
+      "stdout": "",
+      "mapped_event": "turn_end",
+      "fold_fact_ids": []
+    },
+    {
+      "fixture": "UserPromptSubmit.json",
+      "event": "prompt",
+      "action": {
+        "kind": "nothing"
+      },
+      "stdout": "",
+      "mapped_event": "prompt",
+      "fold_fact_ids": []
+    }
+  ],
+  "mocked_loop": [
+    {
+      "call": 18,
+      "action": "request_judge",
+      "verdict": "stuck"
+    },
+    {
+      "call": 19,
+      "action": {
+        "kind": "inject",
+        "text": "tokenimum: the last 19 calls repeated \"ImportError\". Re-read the error and the failing expectation before editing again. Failing command: \"python -m pytest -q\"."
+      },
+      "redirect": "reread_error",
+      "stdout": ""
+    }
+  ],
+  "fold_fact_ids": []
+}

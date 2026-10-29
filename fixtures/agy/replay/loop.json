@@ -1,0 +1,13 @@
+{
+  "conversationId": "golden-loop",
+  "workspacePaths": [
+    "/synthetic/repo"
+  ],
+  "toolCall": {
+    "name": "run_command",
+    "args": {
+      "CommandLine": "python -m pytest -q"
+    }
+  },
+  "error": "ImportError: missing module"
+}
