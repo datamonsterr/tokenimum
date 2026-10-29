@@ -41,7 +41,7 @@ use std::time::Duration;
 
 use rusqlite::{Connection, ErrorCode, OpenFlags, TransactionBehavior};
 
-const SCHEMA_VERSION: i64 = 1;
+const SCHEMA_VERSION: i64 = 2;
 const DEFAULT_BUSY_TIMEOUT: Duration = Duration::from_secs(2);
 
 /// Store operations can fail because of I/O, SQLite, migration, or JSON errors.
@@ -113,9 +113,38 @@ fn migration_error(error: rusqlite::Error) -> StoreError {
 /// A single SQLite connection to tokenimum's store.
 pub struct Store {
     conn: Connection,
+    schema_version: i64,
 }
 
 impl Store {
+    /// Wrap an existing read-only connection for typed reporting queries.
+    /// No migrations, directory creation or writes occur.
+    ///
+    /// # Errors
+    /// Returns an error if the connection permits writes, the schema is newer than supported,
+    /// or SQLite cannot inspect it.
+    pub fn from_read_only_connection(conn: Connection) -> Result<Self, StoreError> {
+        if !conn.is_readonly("main")? {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "report connection must be read-only",
+            )
+            .into());
+        }
+        let schema_version: i64 =
+            conn.pragma_query_value(None, "user_version", |row| row.get(0))?;
+        if schema_version > SCHEMA_VERSION {
+            return Err(StoreError::NewerSchema {
+                found: schema_version,
+                supported: SCHEMA_VERSION,
+            });
+        }
+        Ok(Self {
+            conn,
+            schema_version,
+        })
+    }
+
     /// Open a database, creating missing parent directories.
     ///
     /// # Errors
@@ -204,7 +233,10 @@ impl Store {
                 .map_err(migration_error)?;
             tx.commit().map_err(migration_error)?;
         }
-        Ok(Self { conn })
+        Ok(Self {
+            conn,
+            schema_version: SCHEMA_VERSION,
+        })
     }
 }
 

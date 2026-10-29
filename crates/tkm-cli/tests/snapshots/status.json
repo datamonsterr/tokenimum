@@ -1,0 +1,48 @@
+{
+  "daemon": {
+    "state": "down (read-only DB)",
+    "version": "unknown",
+    "uptime": "unknown"
+  },
+  "preset": "balanced",
+  "adapters": [
+    {
+      "name": "superorchestrator",
+      "enabled": false,
+      "reason": "adapter unavailable; configured auto"
+    },
+    {
+      "name": "otherskill",
+      "enabled": false,
+      "reason": "adapter unavailable; configured auto"
+    }
+  ],
+  "repositories": [
+    {
+      "repo_key": "github.com/acme/api",
+      "harnesses": [],
+      "facts": {
+        "active": 0,
+        "candidates": 0,
+        "retired_last_7_days": 0
+      },
+      "loop_guard": {
+        "mode": "redirect",
+        "envelopes": [],
+        "redirects_last_7_days": 0,
+        "escalations_last_7_days": 0
+      },
+      "pruning": {
+        "mode": "propose",
+        "pending_proposals": 0
+      },
+      "spend": {
+        "decisions_today_usd": 0.0,
+        "daily_cap_usd": 0.5,
+        "scope": "global"
+      },
+      "savings": [],
+      "last_actions": []
+    }
+  ]
+}

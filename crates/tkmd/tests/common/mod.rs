@@ -363,6 +363,7 @@ pub fn seed_fact(env: &Env, host_name: &str) {
             contradictions: 0,
             fire_count: 3,
             fire_sessions: 4,
+            state_changed_at: None,
         })
         .unwrap();
     store

@@ -98,6 +98,12 @@ pub enum MonitorMessage {
     Hello {
         /// Wire protocol version, [`crate::PROTOCOL_VERSION`].
         version: u16,
+        /// Daemon package version, absent for older protocol-1 peers.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        daemon_version: Option<String>,
+        /// Daemon start time in Unix milliseconds, absent for older peers.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        started_at_ms: Option<i64>,
     },
     /// Session state change.
     Session(SessionUpdate),
@@ -117,10 +123,44 @@ mod tests {
 
     #[test]
     fn hello_round_trips_with_tag() {
-        let json = serde_json::to_string(&MonitorMessage::Hello { version: 1 }).unwrap();
+        let json = serde_json::to_string(&MonitorMessage::Hello {
+            version: 1,
+            daemon_version: None,
+            started_at_ms: None,
+        })
+        .unwrap();
         assert_eq!(json, r#"{"type":"hello","version":1}"#);
         let back: MonitorMessage = serde_json::from_str(&json).unwrap();
-        assert_eq!(back, MonitorMessage::Hello { version: 1 });
+        assert_eq!(
+            back,
+            MonitorMessage::Hello {
+                version: 1,
+                daemon_version: None,
+                started_at_ms: None
+            }
+        );
+    }
+
+    #[test]
+    fn hello_metadata_round_trips_and_legacy_frames_decode() {
+        let legacy: MonitorMessage =
+            serde_json::from_str(r#"{"type":"hello","version":1}"#).unwrap();
+        assert!(matches!(
+            legacy,
+            MonitorMessage::Hello {
+                version: 1,
+                daemon_version: None,
+                started_at_ms: None
+            }
+        ));
+        let message = MonitorMessage::Hello {
+            version: 1,
+            daemon_version: Some("0.2.0".into()),
+            started_at_ms: Some(42),
+        };
+        let back: MonitorMessage =
+            serde_json::from_str(&serde_json::to_string(&message).unwrap()).unwrap();
+        assert_eq!(message, back);
     }
 
     #[test]

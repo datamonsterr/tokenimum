@@ -75,6 +75,9 @@ pub struct FactRecord {
     pub fire_count: u32,
     /// Observed sessions.
     pub fire_sessions: u32,
+    /// Most recent lifecycle transition time, absent for legacy writes.
+    #[serde(default)]
+    pub state_changed_at: Option<Timestamp>,
 }
 
 /// Persisted tool usage evidence.
@@ -130,6 +133,7 @@ fn read_fact(row: &rusqlite::Row<'_>) -> rusqlite::Result<FactRecord> {
         contradictions: row.get(8)?,
         fire_count: row.get(9)?,
         fire_sessions: row.get(10)?,
+        state_changed_at: row.get::<_, Option<i64>>(11)?.map(Timestamp),
     })
 }
 fn read_tool(row: &rusqlite::Row<'_>) -> rusqlite::Result<ToolEvidence> {
@@ -164,6 +168,29 @@ fn require_changed(count: usize) -> Result<(), StoreError> {
     Ok(())
 }
 impl Store {
+    fn fact_columns(&self) -> &'static str {
+        if self.schema_version < 2 {
+            "repo_key, fact_id, family, scope, text_params, state, score, confirmations, contradictions, fire_count, fire_sessions, NULL AS state_changed_at"
+        } else {
+            "repo_key, fact_id, family, scope, text_params, state, score, confirmations, contradictions, fire_count, fire_sessions, state_changed_at"
+        }
+    }
+
+    /// SQLite identity of a fact, for action evidence links (fact names remain repository-local).
+    ///
+    /// # Errors
+    /// Returns an error if querying fails.
+    pub fn fact_evidence_id(&self, repo: &RepoKey, id: &str) -> Result<Option<i64>, StoreError> {
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT rowid FROM facts WHERE repo_key=?1 AND fact_id=?2",
+                params![repo.0, id],
+                |row| row.get(0),
+            )
+            .optional()?)
+    }
+
     /// Replace the stored template parameters of a fact (additive; used by the daemon fold).
     ///
     /// # Errors
@@ -192,7 +219,17 @@ impl Store {
     /// # Errors
     /// Returns an error if the operation fails.
     pub fn get_fact(&self, repo: &RepoKey, id: &str) -> Result<Option<FactRecord>, StoreError> {
-        Ok(self.conn.query_row("SELECT repo_key, fact_id, family, scope, text_params, state, score, confirmations, contradictions, fire_count, fire_sessions FROM facts WHERE repo_key = ?1 AND fact_id = ?2", params![repo.0, id], read_fact).optional()?)
+        Ok(self
+            .conn
+            .query_row(
+                &format!(
+                    "SELECT {} FROM facts WHERE repo_key = ?1 AND fact_id = ?2",
+                    self.fact_columns()
+                ),
+                params![repo.0, id],
+                read_fact,
+            )
+            .optional()?)
     }
     /// List facts.
     ///
@@ -203,7 +240,7 @@ impl Store {
         repo: &RepoKey,
         state: Option<FactState>,
     ) -> Result<Vec<FactRecord>, StoreError> {
-        let mut stmt = self.conn.prepare("SELECT repo_key, fact_id, family, scope, text_params, state, score, confirmations, contradictions, fire_count, fire_sessions FROM facts WHERE repo_key = ?1 AND (?2 IS NULL OR state = ?2) ORDER BY fact_id")?;
+        let mut stmt = self.conn.prepare(&format!("SELECT {} FROM facts WHERE repo_key = ?1 AND (?2 IS NULL OR state = ?2) ORDER BY fact_id",self.fact_columns()))?;
         let rows = stmt.query_map(params![repo.0, state.map(FactState::as_str)], read_fact)?;
         Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
     }
@@ -239,6 +276,28 @@ impl Store {
         id: &str,
         to: FactState,
     ) -> Result<(), StoreError> {
+        self.transition_fact_with_time(repo, id, to, None)
+    }
+    /// Transition a fact and record the supplied lifecycle timestamp.
+    ///
+    /// # Errors
+    /// Returns an error for an unknown fact, invalid transition or failed write.
+    pub fn transition_fact_at(
+        &self,
+        repo: &RepoKey,
+        id: &str,
+        to: FactState,
+        at: Timestamp,
+    ) -> Result<(), StoreError> {
+        self.transition_fact_with_time(repo, id, to, Some(at))
+    }
+    fn transition_fact_with_time(
+        &self,
+        repo: &RepoKey,
+        id: &str,
+        to: FactState,
+        at: Option<Timestamp>,
+    ) -> Result<(), StoreError> {
         let tx = Transaction::new_unchecked(&self.conn, TransactionBehavior::Immediate)?;
         let state: String = tx.query_row(
             "SELECT state FROM facts WHERE repo_key = ?1 AND fact_id = ?2",
@@ -255,8 +314,8 @@ impl Store {
             return Err(StoreError::InvalidTransition);
         }
         tx.execute(
-            "UPDATE facts SET state = ?3 WHERE repo_key = ?1 AND fact_id = ?2",
-            params![repo.0, id, to.as_str()],
+            "UPDATE facts SET state = ?3, state_changed_at = ?4 WHERE repo_key = ?1 AND fact_id = ?2",
+            params![repo.0, id, to.as_str(), at.map(|t| t.0)],
         )?;
         tx.commit()?;
         Ok(())
