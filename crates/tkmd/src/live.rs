@@ -383,6 +383,20 @@ mod tests {
     use super::*;
 
     #[test]
+    fn escalation_digest_redacts_session_token() {
+        let env = BTreeMap::from([(
+            "SUPERORCHESTRATOR_RUN_TOKEN".to_owned(),
+            "session-token-value".to_owned(),
+        )]);
+        let redactor = escalation_redactor(PathBuf::new(), PathBuf::new(), &[], &env);
+        assert!(
+            !redactor
+                .redact("output session-token-value")
+                .contains("session-token-value")
+        );
+    }
+
+    #[test]
     fn judge_questions_follow_the_spec_table() {
         let questions = judge_questions();
         assert_eq!(questions.len(), 3);
