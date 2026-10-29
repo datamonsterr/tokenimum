@@ -103,7 +103,7 @@ impl Default for StoreLedger {
             while let Ok(message) = rx.recv() {
                 match message {
                     SpendMessage::Record(sink, purpose, model, cost, run_id) => {
-                        sink.record(&purpose, &model, cost, run_id.as_deref())
+                        sink.record(&purpose, &model, cost, run_id.as_deref());
                     }
                     SpendMessage::Flush(sink, ack) => {
                         if let Some(sink) = sink {
