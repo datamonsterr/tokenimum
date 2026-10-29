@@ -23,9 +23,11 @@
 //! # }
 //! ```
 
+mod mechanisms;
 mod queries;
 mod sessions;
 
+pub use mechanisms::{DenylistEntry, ENVELOPE_RING, FactRecord, FactState, ToolEvidence};
 pub use queries::Repo;
 pub use sessions::{
     EventRecord, LedgerRecord, NewEvent, NewSession, SessionKey, SessionRecord, TurnRecord,
