@@ -110,7 +110,7 @@ fn init_then_live_session_logs_shadow_decisions() {
         action["explanation"]
             .as_str()
             .unwrap()
-            .contains("tokenimum:"),
+            .starts_with("tokenimum redirected the agent:"),
         "{report}"
     );
     assert!(why.status.success(), "{why:?}");
@@ -120,7 +120,7 @@ fn init_then_live_session_logs_shadow_decisions() {
         "{explanation}"
     );
     for expected in [
-        format!("Claude Code, repo {}", evidence.repo),
+        "Claude Code, repo dir:".into(),
         "What happened:".into(),
         "Why: the loop guard saw repeated failures in this turn".into(),
         format!("Model checks: {} (loop_guard)", support_shadow::MODEL),
