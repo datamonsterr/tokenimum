@@ -45,6 +45,7 @@ impl Fixture {
             .args(args)
             .env_clear()
             .env("HOME", self.home.path())
+            .env("OPENROUTER_API_KEY", "sk-or-v1-fixture-secret-123")
             .env("PATH", self.home.path().join("bin"))
             .env("XDG_DATA_HOME", self.home.path().join("data"))
             .env("XDG_CONFIG_HOME", self.home.path().join("config"))
