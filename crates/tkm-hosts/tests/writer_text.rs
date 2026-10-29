@@ -37,6 +37,8 @@ fn backup_of(path: &std::path::Path) -> PathBuf {
     PathBuf::from(name)
 }
 
+// Callback signature is fixed by the writer API, which allows edits to fail.
+#[allow(clippy::unnecessary_wraps)]
 fn add_line(current: Option<&str>) -> Result<String, AdapterError> {
     let current = current.unwrap_or("");
     if current.contains("# tkm\n") {
@@ -45,12 +47,15 @@ fn add_line(current: Option<&str>) -> Result<String, AdapterError> {
         Ok(format!("{current}# tkm\n"))
     }
 }
+#[allow(clippy::unnecessary_wraps)]
 fn strip_line(current: &str) -> Result<String, AdapterError> {
     Ok(current.replace("# tkm\n", ""))
 }
+#[allow(clippy::unnecessary_wraps)]
 fn text_same(edited: &str, backup: &str) -> Result<bool, AdapterError> {
     Ok(edited == backup)
 }
+#[allow(clippy::unnecessary_wraps)]
 fn text_empty(edited: &str) -> Result<bool, AdapterError> {
     Ok(edited.trim().is_empty())
 }
@@ -74,7 +79,7 @@ fn text_install_is_idempotent() {
     let path = temp.0.join("config.toml");
     writer::install_text_file(&temp.0, &path, false, &add_line).unwrap();
     let again = writer::install_text_file(&temp.0, &path, false, &add_line).unwrap();
-    assert!(again.changed_files.is_empty());
+    assert_eq!(again.changed_files, Vec::<PathBuf>::new());
     assert_eq!(fs::read_to_string(&path).unwrap(), "# tkm\n");
 }
 
@@ -132,7 +137,7 @@ fn text_uninstall_missing_file_is_empty_report() {
     let report =
         writer::uninstall_text_file(&temp.0, &path, false, &strip_line, &text_same, &text_empty)
             .unwrap();
-    assert!(report.changed_files.is_empty());
+    assert_eq!(report.changed_files, Vec::<PathBuf>::new());
 }
 
 #[cfg(unix)]
@@ -167,7 +172,7 @@ fn member_install_keeps_foreign_bytes_and_is_idempotent() {
     let parsed: Value = serde_json::from_str(&text).unwrap();
     assert_eq!(parsed["tokenimum"], value);
     let again = writer::install_member(&temp.0, &path, "tokenimum", &value, false).unwrap();
-    assert!(again.changed_files.is_empty());
+    assert_eq!(again.changed_files, Vec::<PathBuf>::new());
     assert_eq!(fs::read_to_string(&path).unwrap(), text);
 }
 
@@ -218,7 +223,7 @@ fn member_uninstall_keeps_foreign_edits_and_deletes_created_file() {
     assert!(!text.contains("tokenimum"));
     assert!(text.contains("\"x\": 6"));
     let again = writer::uninstall_member(&temp.0, &path, "tokenimum", false).unwrap();
-    assert!(again.changed_files.is_empty());
+    assert_eq!(again.changed_files, Vec::<PathBuf>::new());
 }
 
 #[test]
@@ -290,7 +295,7 @@ fn flat_install_keeps_foreign_handler_bytes_and_is_idempotent() {
     assert_eq!(parsed["hooks"]["stop"].as_array().unwrap().len(), 1);
     assert_eq!(text.matches("\"version\"").count(), 1);
     let again = install_flat(&temp.0, &path);
-    assert!(again.changed_files.is_empty());
+    assert_eq!(again.changed_files, Vec::<PathBuf>::new());
     assert_eq!(fs::read_to_string(&path).unwrap(), text);
 }
 

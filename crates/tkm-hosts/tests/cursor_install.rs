@@ -218,7 +218,7 @@ fn claude_double_registration_instruction_appears_when_claude_settings_holds_tok
     )
     .unwrap();
     let report_clean = adapter.install(&context).unwrap();
-    assert!(report_clean.instructions.is_empty());
+    assert_eq!(report_clean.instructions, Vec::<String>::new());
 
     // 2. With claude tokenimum handler: instruction appears
     let claude_with_tokenimum = json!({
@@ -279,5 +279,5 @@ fn claude_double_registration_instruction_appears_when_claude_settings_holds_tok
     // Malformed claude settings file yields no error and no instruction
     fs::write(&repo_claude_local, b"not valid json").unwrap();
     let malformed_report = adapter.install(&project_context).unwrap();
-    assert!(malformed_report.instructions.is_empty());
+    assert_eq!(malformed_report.instructions, Vec::<String>::new());
 }

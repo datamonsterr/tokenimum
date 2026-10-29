@@ -130,8 +130,9 @@ fn install_is_idempotent() {
 
     // Second install
     let report2 = adapter.install(&temp.context()).unwrap();
-    assert!(
-        report2.changed_files.is_empty(),
+    assert_eq!(
+        report2.changed_files,
+        Vec::<std::path::PathBuf>::new(),
         "second install should report no changes"
     );
     let after_second = fs::read(temp.config_path()).unwrap();
