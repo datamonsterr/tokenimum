@@ -28,5 +28,8 @@ Date: 2026-10-29. Status: accepted (epic E4.5).
 8. **Facts storage.** Facts map to `FactRecord` (`text_params = {params, contradiction_streak}`,
    `scope` = serde JSON). `tkm-store` gained `update_fact_params` (additive). Candidate evidence
    references are not stored.
+9. **Turn index memory.** Remembered turn bases are removed after a fold verifies that all turns
+   through that base are durable, unless the session has resumed. Resolution restores the next
+   index from the greatest persisted turn index.
 
 Sources (2026-10-29): <https://docs.rs/notify/8.2.1/notify/>.

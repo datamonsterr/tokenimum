@@ -366,7 +366,10 @@ impl Daemon {
                 session_id: seed.session_id.clone(),
             };
             if let Some(record) = store.find_session(&key)? {
-                resolved.turn_base = i64::try_from(store.list_turns(record.id)?.len()).unwrap_or(0);
+                resolved.turn_base = store
+                    .list_turns(record.id)?
+                    .last()
+                    .map_or(0, |turn| turn.turn_idx.saturating_add(1));
             }
             let now = i64::try_from(self.clock.now_ms()).unwrap_or(i64::MAX);
             let grace = i64::try_from(self.stale_after.as_millis()).unwrap_or(i64::MAX);
@@ -490,11 +493,32 @@ impl Daemon {
             let host = job.host;
             let joined = tokio::task::spawn_blocking(move || {
                 let adapter = worker.adapters.get(job.host);
-                run_fold(worker.backing.as_ref(), adapter.as_ref(), &job)
+                let report = run_fold(worker.backing.as_ref(), adapter.as_ref(), &job)?;
+                let store = worker.backing.open()?;
+                let durable = if let Some(record) = store.find_session(&job.key)? {
+                    store
+                        .list_turns(record.id)?
+                        .last()
+                        .map_or(0, |turn| turn.turn_idx.saturating_add(1))
+                } else {
+                    0
+                };
+                Ok::<_, HandlerError>((report, durable))
             })
             .await;
             match joined {
-                Ok(Ok(report)) => {
+                Ok(Ok((report, durable))) => {
+                    let tag = (host, session_id.clone());
+                    let mut state = lock(&me.state);
+                    if !state.sessions.contains_key(&tag)
+                        && state
+                            .turn_bases
+                            .get(&tag)
+                            .is_some_and(|base| *base <= durable)
+                    {
+                        state.turn_bases.remove(&tag);
+                    }
+                    drop(state);
                     for event in report.events {
                         me.publish(|| {
                             MonitorMessage::Fact(FactNotice {
