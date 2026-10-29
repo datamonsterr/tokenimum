@@ -7,7 +7,18 @@
 //!
 //! ```
 //! # fn main() -> Result<(), tkm_store::StoreError> {
-//! let _store = tkm_store::Store::open_in_memory()?;
+//! use tkm_core::model::{RepoKey, Timestamp};
+//! use tkm_store::Repo;
+//! let store = tkm_store::Store::open_in_memory()?;
+//! let repo = Repo {
+//!     repo_key: RepoKey("example/project".into()),
+//!     display_name: "project".into(),
+//!     first_seen: Timestamp(0),
+//!     last_seen: Timestamp(0),
+//!     delegated_runs: 0,
+//! };
+//! store.upsert_repo(&repo)?;
+//! assert_eq!(store.get_repo(&repo.repo_key)?, Some(repo));
 //! # Ok(())
 //! # }
 //! ```
@@ -140,9 +151,21 @@ impl Store {
         conn.busy_timeout(timeout)?;
         conn.pragma_update(None, "journal_mode", "WAL")?;
         conn.pragma_update(None, "foreign_keys", true)?;
-        // Each iteration rechecks the version under the writer reservation, so
-        // concurrent openers cannot apply the same migration twice.
+        // The common path does not contend with writers. Recheck under an
+        // immediate transaction only if a migration appears necessary.
         loop {
+            let observed: i64 = conn
+                .pragma_query_value(None, "user_version", |row| row.get(0))
+                .map_err(migration_error)?;
+            if observed > SCHEMA_VERSION {
+                return Err(StoreError::NewerSchema {
+                    found: observed,
+                    supported: SCHEMA_VERSION,
+                });
+            }
+            if observed == SCHEMA_VERSION {
+                break;
+            }
             let tx = conn
                 .transaction_with_behavior(TransactionBehavior::Immediate)
                 .map_err(migration_error)?;
