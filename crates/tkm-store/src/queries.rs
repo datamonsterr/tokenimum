@@ -35,7 +35,7 @@ impl Store {
     /// # Errors
     /// Returns an error if the write fails.
     pub fn upsert_repo(&self, repo: &Repo) -> Result<(), StoreError> {
-        self._conn.execute(
+        self.conn.execute(
             "INSERT INTO repos (repo_key, display_name, first_seen, last_seen, delegated_runs) VALUES (?1, ?2, ?3, ?4, ?5) ON CONFLICT(repo_key) DO UPDATE SET display_name = excluded.display_name, first_seen = excluded.first_seen, last_seen = excluded.last_seen, delegated_runs = excluded.delegated_runs",
             params![repo.repo_key.0, repo.display_name, repo.first_seen.0, repo.last_seen.0, repo.delegated_runs],
         )?;
@@ -46,14 +46,14 @@ impl Store {
     /// # Errors
     /// Returns an error if the query fails.
     pub fn get_repo(&self, key: &RepoKey) -> Result<Option<Repo>, StoreError> {
-        Ok(self._conn.query_row("SELECT repo_key, display_name, first_seen, last_seen, delegated_runs FROM repos WHERE repo_key = ?1", [&key.0], read_repo).optional()?)
+        Ok(self.conn.query_row("SELECT repo_key, display_name, first_seen, last_seen, delegated_runs FROM repos WHERE repo_key = ?1", [&key.0], read_repo).optional()?)
     }
     /// List repositories ordered by identity.
     ///
     /// # Errors
     /// Returns an error if the query fails.
     pub fn list_repos(&self) -> Result<Vec<Repo>, StoreError> {
-        let mut statement = self._conn.prepare("SELECT repo_key, display_name, first_seen, last_seen, delegated_runs FROM repos ORDER BY repo_key")?;
+        let mut statement = self.conn.prepare("SELECT repo_key, display_name, first_seen, last_seen, delegated_runs FROM repos ORDER BY repo_key")?;
         let rows = statement.query_map([], read_repo)?;
         Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
     }
@@ -62,7 +62,7 @@ impl Store {
     /// # Errors
     /// Returns an error if the write fails or the repository does not exist.
     pub fn increment_delegated_runs(&self, key: &RepoKey) -> Result<(), StoreError> {
-        let changed = self._conn.execute(
+        let changed = self.conn.execute(
             "UPDATE repos SET delegated_runs = delegated_runs + 1 WHERE repo_key = ?1",
             [&key.0],
         )?;

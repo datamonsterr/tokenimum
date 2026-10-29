@@ -24,8 +24,12 @@
 //! ```
 
 mod queries;
+mod sessions;
 
 pub use queries::Repo;
+pub use sessions::{
+    EventRecord, LedgerRecord, NewEvent, NewSession, SessionKey, SessionRecord, TurnRecord,
+};
 
 use std::path::Path;
 use std::time::Duration;
@@ -101,7 +105,7 @@ fn migration_error(error: rusqlite::Error) -> StoreError {
 
 /// A single SQLite connection to tokenimum's store.
 pub struct Store {
-    _conn: Connection,
+    conn: Connection,
 }
 
 impl Store {
@@ -193,7 +197,7 @@ impl Store {
                 .map_err(migration_error)?;
             tx.commit().map_err(migration_error)?;
         }
-        Ok(Self { _conn: conn })
+        Ok(Self { conn: conn })
     }
 }
 
