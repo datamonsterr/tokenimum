@@ -3072,8 +3072,10 @@ name = "tkm-hosts"
 version = "0.0.0"
 dependencies = [
  "ruzstd",
+ "rusqlite",
  "serde",
  "serde_json",
+ "sha2",
  "thiserror 2.0.21",
  "tkm-core",
  "tkm-proto",

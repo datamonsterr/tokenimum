@@ -18,3 +18,5 @@ serde_json = { workspace = true }
 toml_edit = { workspace = true }
 thiserror = { workspace = true }
 ruzstd = { workspace = true }
+rusqlite = { workspace = true }
+sha2 = { workspace = true }
