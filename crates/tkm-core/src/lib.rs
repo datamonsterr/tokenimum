@@ -3,6 +3,7 @@
 //! Pure tokenimum mechanisms.
 
 pub mod explain;
+pub mod facts;
 pub mod inject;
 pub mod ledger;
 pub mod loopguard;
