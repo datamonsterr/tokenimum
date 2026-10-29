@@ -187,6 +187,7 @@ fn instructions_file_claude_returns_claude_md() {
 #[test]
 fn instructions_file_others_return_agents_md() {
     for host in [
+        Host::Agy,
         Host::Codex,
         Host::Cursor,
         Host::Kimi,
@@ -200,11 +201,6 @@ fn instructions_file_others_return_agents_md() {
             "expected AGENTS.md for {host:?}"
         );
     }
-}
-
-#[test]
-fn instructions_file_none_for_unverified_harness() {
-    assert_eq!(instructions_file(Host::Agy), None);
 }
 
 #[test]
@@ -617,13 +613,16 @@ fn apply_refuses_symlink_out_of_repo() {
 }
 
 #[test]
-fn apply_unsupported_host_is_report_only() {
+fn apply_agy_writes_a_marked_instructions_block() {
     let scratch = Scratch::new("apply-agy");
     scratch.init_git();
     let report = apply(&scratch.0, Host::Agy, "fact", ApplyOptions::default()).unwrap();
-    assert!(report.changed_files.is_empty(), "unexpected report");
-    assert!(!report.instructions.is_empty(), "unexpected report");
-    assert!(!scratch.0.join("AGENTS.md").exists());
+    let path = scratch.0.join("AGENTS.md");
+    assert_eq!(report.changed_files, vec![path.clone()]);
+    let content = fs::read_to_string(path).unwrap();
+    assert!(content.contains("<!-- tokenimum:begin -->"));
+    assert!(content.contains("fact"));
+    assert!(content.contains("<!-- tokenimum:end -->"));
 }
 
 #[test]
