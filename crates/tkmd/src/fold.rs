@@ -721,3 +721,77 @@ mod tests {
         assert!(derived_log_path(Host::Codex, Path::new("/h"), Path::new("/a"), "s").is_none());
     }
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod replay_tests {
+    use super::*;
+    use tkm_hosts::claude::ClaudeAdapter;
+    #[test]
+    fn replay_matches_persisted_fixture_fold() {
+        let store = Store::open_in_memory().unwrap();
+        let repo = RepoKey("fixture".into());
+        store
+            .upsert_repo(&tkm_store::Repo {
+                repo_key: repo.clone(),
+                display_name: "fixture".into(),
+                first_seen: Timestamp(0),
+                last_seen: Timestamp(0),
+                delegated_runs: 0,
+            })
+            .unwrap();
+        let key = SessionKey {
+            host: Host::Claude,
+            agent_home: "/fake/agent".into(),
+            session_id: "fixture".into(),
+        };
+        let path = PathBuf::from(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../fixtures/claude/sessions/e928a2cf-e31b-4154-805b-919991d042ea.jsonl"
+        ));
+        let settings = Arc::new(Settings::default());
+        let job = FoldJob {
+            key: key.clone(),
+            host: Host::Claude,
+            repo: repo.clone(),
+            cwd: "/fake/repo".into(),
+            agent_home: "/fake/agent".into(),
+            log_path: Some(path.clone()),
+            settings: settings.clone(),
+            injected: BTreeSet::new(),
+            overhead: (0, 0.0),
+            ended_ms: 1,
+        };
+        let id = store
+            .upsert_session(&tkm_store::NewSession {
+                key: key.clone(),
+                repo_key: repo.clone(),
+                cwd: job.cwd.clone(),
+                started: Timestamp(0),
+                ended: Some(Timestamp(1)),
+                fold_status: "pending".into(),
+                shadow: false,
+                integration_level: "hooks".into(),
+            })
+            .unwrap();
+        let source = SessionSource {
+            agent_home: job.agent_home.clone(),
+            path,
+            session_id: key.session_id,
+            repo_key: repo.clone(),
+            cwd: job.cwd.clone(),
+        };
+        let session = ClaudeAdapter::new().read_session(&source).unwrap();
+        let expected = replay_fold(
+            &session,
+            FactsState::default(),
+            &BTreeSet::new(),
+            &settings.facts,
+        );
+        let record = store.get_session(id).unwrap().unwrap();
+        let actual = fold_inner(&store, &record, &ClaudeAdapter::new(), &job).unwrap();
+        assert_eq!(actual.events, expected.events);
+        let persisted = store.list_facts(&repo, None).unwrap();
+        assert_eq!(persisted.len(), expected.facts.facts.len());
+    }
+}
