@@ -103,6 +103,7 @@ fn apply_env(command: &mut Command, env: &Env) {
         .env("XDG_DATA_HOME", root.join("data"))
         .env("XDG_CONFIG_HOME", root.join("config"))
         .env("XDG_RUNTIME_DIR", root.join("run"))
+        .env("TKM_TKMD_BIN", tkmd_bin())
         .env("TKM_DECIDE_ENABLED", "false");
 }
 
