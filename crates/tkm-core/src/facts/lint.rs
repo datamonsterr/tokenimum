@@ -14,6 +14,9 @@ pub fn lint_ok(text: &str) -> bool {
         text,
     ) && !observe::matches(r#"(?:\A|[\s`'"(=])(?:/|~|[A-Za-z]:[/\\]|\\)"#, text)
         && !observe::matches(r#"(?:\A|[\s/\\`'"(=])\.\.(?:\z|[\s/\\`'"),])"#, text)
+        && !observe::matches(r"(?i)file:(?:[^:]|\z)", text)
+        && !observe::matches(r#"(?:\A|[\s`'"(=])[A-Za-z]:(?:[^:]|\z)"#, text)
+        && !text.contains('\\')
         && !text.contains('~')
 }
 fn label(value: &str) -> bool {
@@ -29,7 +32,7 @@ fn host(value: &str) -> bool {
             value,
         )
 }
-fn command(value: &str) -> bool {
+pub(super) fn command(value: &str) -> bool {
     if !observe::matches(
         r"\A[A-Za-z0-9_./+:-]+(?: [A-Za-z0-9_./+:-]+| && [A-Za-z0-9_./+:-]+)*\z",
         value,
@@ -69,6 +72,7 @@ pub fn validate(candidate: &Candidate) -> bool {
     match candidate.family {
         Family::FormRepair => {
             !p.bad_form.is_empty()
+                && !p.forms.is_empty()
                 && matches!(
                     p.intent,
                     Some(

@@ -6,6 +6,7 @@
 use crate::model::{Host, Session};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
+use std::path::PathBuf;
 
 pub mod extract;
 pub mod lifecycle;
@@ -145,8 +146,9 @@ pub struct Fact {
 pub struct FactsState {
     /// Facts indexed by deterministic candidate id.
     pub facts: BTreeMap<String, Fact>,
-    /// Session ids already folded; each session contributes once.
-    pub processed: BTreeSet<String>,
+    /// Folded identities: (host wire name, exact agent home, native session id).
+    /// Identical ids in different harnesses or account homes remain independent.
+    pub processed: BTreeSet<(String, PathBuf, String)>,
 }
 /// Decision scores supplied externally; thresholds are calibrated by the caller.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
@@ -213,20 +215,23 @@ pub fn update(
     input: &SessionEvidence,
     cfg: &FactsConfig,
 ) -> (FactsState, Vec<FactEvent>) {
-    if input.session.partial
-        || state.processed.contains(&input.session.session_id)
-        || !valid_config(cfg)
-    {
+    let key = session_key(&input.session);
+    if input.session.partial || state.processed.contains(&key) || !valid_config(cfg) {
         return (state, Vec::new());
     }
     let digest = observe::observe(&input.session);
+    let mut discovered = BTreeSet::new();
     for candidate in extract::extract(&digest) {
-        if !decision_allows(input, &candidate.id) {
+        if filter_verdict(input, &candidate.id) == FilterVerdict::Rejected {
             continue;
         }
         if let Some(existing) = state.facts.get_mut(&candidate.id) {
+            if matches!(existing.candidate.scope,Scope::Host(host) if host!=input.session.host) {
+                continue;
+            }
             extract::merge(&mut existing.candidate, candidate);
         } else {
+            discovered.insert(candidate.id.clone());
             state.facts.insert(
                 candidate.id.clone(),
                 Fact {
@@ -243,18 +248,28 @@ pub fn update(
         }
         let id = &fact.candidate.id;
         let score = input.decisions.as_ref().and_then(|d| d.scores.get(id));
-        let code_only = !score.is_some_and(|s| {
-            s.stable.is_some_and(f64::is_finite) && s.safe.is_some_and(f64::is_finite)
-        }) || !decision_allows(input, id)
-            || !input.decisions.as_ref().is_some_and(valid_thresholds);
+        let filter = filter_verdict(input, id);
+        let code_only = filter != FilterVerdict::Accepted;
         let model_contradiction = input.decisions.as_ref().is_some_and(|d| {
             valid_thresholds(d)
                 && score
                     .and_then(|s| s.contradicts)
-                    .is_some_and(|s| s.is_finite() && s > d.t_high)
+                    .is_some_and(|s| valid_probability(s) && s > d.t_high)
         });
         let injected = input.injected_ids.contains(&fact.candidate.id);
-        let evidence = extract::exercise(fact, &digest, injected);
+        let record_forms = filter != FilterVerdict::Rejected && !discovered.contains(id);
+        let mut evidence = extract::exercise(fact, &digest, injected, record_forms);
+        if filter == FilterVerdict::Rejected && evidence.verdict == Some(extract::Verdict::Confirm)
+        {
+            evidence.verdict = None;
+        }
+        if fact.candidate.scope == Scope::Neutral {
+            fact.candidate.scope = extract::scope_for(
+                &fact.candidate.params,
+                input.session.host,
+                &digest.tool_names,
+            );
+        }
         events.extend(lifecycle::fold(
             fact,
             evidence,
@@ -264,7 +279,7 @@ pub fn update(
             cfg,
         ));
     }
-    state.processed.insert(input.session.session_id.clone());
+    state.processed.insert(key);
     (state, events)
 }
 fn valid_config(cfg: &FactsConfig) -> bool {
@@ -283,14 +298,41 @@ fn valid_thresholds(d: &Decisions) -> bool {
         && (0.0..=1.0).contains(&d.t_low)
         && (d.t_low..=1.0).contains(&d.t_high)
 }
-fn decision_allows(input: &SessionEvidence, id: &str) -> bool {
-    input.decisions.as_ref().is_none_or(|d| {
-        !valid_thresholds(d)
-            || d.scores.get(id).is_none_or(|s| {
-                s.stable
-                    .is_none_or(|v| v.is_finite() && (d.t_low..=1.0).contains(&v))
-                    && s.safe
-                        .is_none_or(|v| v.is_finite() && (d.t_high..=1.0).contains(&v))
-            })
-    })
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FilterVerdict {
+    Accepted,
+    CodeOnly,
+    Rejected,
+}
+fn valid_probability(score: f64) -> bool {
+    score.is_finite() && (0.0..=1.0).contains(&score)
+}
+fn filter_verdict(input: &SessionEvidence, id: &str) -> FilterVerdict {
+    let Some(decisions) = input.decisions.as_ref().filter(|d| valid_thresholds(d)) else {
+        return FilterVerdict::CodeOnly;
+    };
+    let Some(scores) = decisions.scores.get(id) else {
+        return FilterVerdict::CodeOnly;
+    };
+    if scores
+        .stable
+        .is_some_and(|s| !valid_probability(s) || s < decisions.t_low)
+        || scores
+            .safe
+            .is_some_and(|s| !valid_probability(s) || s < decisions.t_high)
+    {
+        return FilterVerdict::Rejected;
+    }
+    if scores.stable.is_some() && scores.safe.is_some() {
+        FilterVerdict::Accepted
+    } else {
+        FilterVerdict::CodeOnly
+    }
+}
+fn session_key(session: &Session) -> (String, PathBuf, String) {
+    (
+        session.host.as_str().to_owned(),
+        session.agent_home.clone(),
+        session.session_id.clone(),
+    )
 }

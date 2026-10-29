@@ -341,20 +341,61 @@ pub fn segments(command: &str) -> Vec<String> {
     let elided = elide_heredocs(command);
     let mut chars = elided.chars().peekable();
     let (mut out, mut buf, mut quote) = (Vec::new(), String::new(), None);
+    let mut expansions: Vec<(char, Option<char>)> = Vec::new();
     while let Some(c) = chars.next() {
-        if let Some(q) = quote {
+        // Single quotes preserve backslashes. Everywhere else an escaped operator
+        // or quote belongs to the current segment rather than changing its syntax.
+        if quote != Some('\'') && c == '\\' {
             buf.push(c);
-            if c == q {
-                quote = None;
-            } else if c == '\\'
-                && let Some(next) = chars.next()
-            {
+            if let Some(next) = chars.next() {
                 buf.push(next);
             }
+            continue;
+        }
+        if quote == Some('\'') {
+            buf.push(c);
+            if c == '\'' {
+                quote = None;
+            }
+            continue;
+        }
+        if c == '$' && chars.peek().is_some_and(|next| matches!(next, '(' | '{')) {
+            buf.push(c);
+            if let Some(opener) = chars.next() {
+                buf.push(opener);
+                expansions.push((if opener == '(' { ')' } else { '}' }, quote.take()));
+            }
+            continue;
+        }
+        if c == '`' && quote == Some('"') {
+            buf.push(c);
+            expansions.push(('`', quote.take()));
+            continue;
+        }
+        if quote == Some('"') {
+            buf.push(c);
+            if c == '"' {
+                quote = None;
+            }
+            continue;
+        }
+        if expansions.last().is_some_and(|(closer, _)| *closer == c) {
+            buf.push(c);
+            if let Some((_, outer_quote)) = expansions.pop() {
+                quote = outer_quote;
+            }
+        } else if c == '`' {
+            buf.push(c);
+            expansions.push(('`', quote.take()));
+        } else if c == '(' && !expansions.is_empty() {
+            buf.push(c);
+            expansions.push((')', None));
         } else if c == '\'' || c == '"' {
             quote = Some(c);
             buf.push(c);
-        } else if matches!(c, '\n' | ';' | '|') || (c == '&' && chars.peek() == Some(&'&')) {
+        } else if expansions.is_empty()
+            && (matches!(c, '\n' | ';' | '|') || (c == '&' && chars.peek() == Some(&'&')))
+        {
             out.push(std::mem::take(&mut buf));
             if (c == '&' || c == '|') && chars.peek() == Some(&c) {
                 chars.next();
@@ -369,14 +410,81 @@ pub fn segments(command: &str) -> Vec<String> {
         .filter(|s| !s.is_empty())
         .collect()
 }
+struct ShellWord<'a> {
+    raw: &'a str,
+    literal: String,
+    end: usize,
+}
+fn shell_words(command: &str) -> Vec<ShellWord<'_>> {
+    let (mut out, mut start, mut literal, mut quote) = (Vec::new(), None, String::new(), None);
+    let mut chars = command.char_indices().peekable();
+    while let Some((index, c)) = chars.next() {
+        if quote != Some('\'') && c == '\\' {
+            start.get_or_insert(index);
+            if let Some((_, next)) = chars.next() {
+                if quote == Some('"') && !['$', '`', '"', '\\', '\n'].contains(&next) {
+                    literal.push('\\');
+                }
+                if next != '\n' {
+                    literal.push(next);
+                }
+            } else {
+                literal.push(c);
+            }
+        } else if let Some(q) = quote {
+            if c == q {
+                quote = None;
+            } else {
+                literal.push(c);
+            }
+        } else if c == '\'' || c == '"' {
+            start.get_or_insert(index);
+            quote = Some(c);
+        } else if c.is_whitespace() || matches!(c, ';' | '|' | '&' | '(' | ')') {
+            if let Some(begin) = start.take() {
+                out.push(ShellWord {
+                    raw: &command[begin..index],
+                    literal: std::mem::take(&mut literal),
+                    end: index,
+                });
+            }
+        } else {
+            start.get_or_insert(index);
+            literal.push(c);
+        }
+    }
+    if quote.is_some() {
+        return Vec::new();
+    }
+    if let Some(begin) = start {
+        out.push(ShellWord {
+            raw: &command[begin..],
+            literal,
+            end: command.len(),
+        });
+    }
+    out
+}
+fn has_expansion(text: &str) -> bool {
+    text.contains("$(") || text.contains('`') || text.contains("${")
+}
+fn assignment_word(word: &ShellWord<'_>) -> Option<(String, String)> {
+    let (name, _) = word.raw.split_once('=')?;
+    if !matches(r"\A[A-Za-z_][A-Za-z0-9_]*\z", name) {
+        return None;
+    }
+    let value = word.literal.strip_prefix(&format!("{name}="))?;
+    Some((name.into(), value.into()))
+}
 fn assignments(command: &str) -> (String, bool) {
-    let Ok(rx) = regex::Regex::new(r#"^(?:[A-Za-z_][A-Za-z0-9_]*=(?:"[^"]*"|'[^']*'|\S+)\s+)+"#)
-    else {
-        return (command.to_owned(), false);
-    };
-    let body = rx.replace(command, "").into_owned();
-    let assigned = body != command;
-    (body, assigned)
+    let mut end = 0;
+    for word in shell_words(command) {
+        if assignment_word(&word).is_none() {
+            break;
+        }
+        end = word.end;
+    }
+    (command[end..].trim_start().to_owned(), end > 0)
 }
 fn normalized(command: &str) -> (String, bool) {
     let (mut body, mut assigned) = assignments(command);
@@ -458,6 +566,10 @@ pub fn classify_command_at(
         format!("cd {cwd} &&")
     };
     for segment in segments(&unwrap(command)) {
+        // Expansions are opaque evidence: their commands/values are never evaluated.
+        if has_expansion(&segment) {
+            continue;
+        }
         let (seg, mut assigned) = normalized(&segment);
         if let Some(target) = capture(r#"^cd\s+['"]?([^\s;&|'\"]+)['"]?\s*$"#, &seg, 1) {
             here = here.as_ref().and_then(|h| cd_target(h, &target, root, top));
@@ -487,7 +599,8 @@ pub fn classify_command_at(
             .collect::<Vec<_>>()
             .join(" ");
         let body = unwrap_tool(&seg, &mut prefix);
-        let mut tokens: Vec<&str> = body.split_whitespace().collect();
+        let words = shell_words(&body);
+        let mut tokens: Vec<&str> = words.iter().map(|word| word.literal.as_str()).collect();
         while let Some(first) = tokens.first().copied() {
             if matches(r"^[A-Za-z_][A-Za-z0-9_]*=", first) {
                 assigned = true;
@@ -589,12 +702,9 @@ fn classify(head: &str, base: &str, rest: &[&str]) -> Option<(Intent, String, Op
                 .runner_scripts
                 .iter()
                 .any(|suffix| s.ends_with(suffix))
-        }) && (*script != "manage.py" || rest.contains(&"test"))
+        }) && (script.rsplit('/').next() != Some("manage.py") || rest.contains(&"test"))
         {
-            return result(
-                Intent::RunTests,
-                format!("{head} {}", script.trim_start_matches("./")),
-            );
+            return result(Intent::RunTests, runner_script_form(head, script));
         }
         return result(Intent::RunInterpreter, head.into());
     }
@@ -609,11 +719,7 @@ fn classify(head: &str, base: &str, rest: &[&str]) -> Option<(Intent, String, Op
     {
         return result(
             Intent::RunTests,
-            format!(
-                "{} {}",
-                GENERIC.canonical_interpreter,
-                head.trim_start_matches("./")
-            ),
+            runner_script_form(GENERIC.canonical_interpreter, head),
         );
     }
     if GENERIC.task_heads.contains(&base) && rest.first() == Some(&"test") {
@@ -660,6 +766,17 @@ fn classify(head: &str, base: &str, rest: &[&str]) -> Option<(Intent, String, Op
     }
     None
 }
+fn runner_script_form(head: &str, script: &str) -> String {
+    format!(
+        "{head} {}{}",
+        script.trim_start_matches("./"),
+        if script.rsplit('/').next() == Some("manage.py") {
+            " test"
+        } else {
+            ""
+        }
+    )
+}
 fn classify_git(rest: &[&str]) -> Option<(Intent, String, Option<Probe>)> {
     let result = |intent, form: String| Some((intent, form, None));
 
@@ -686,7 +803,8 @@ fn classify_git(rest: &[&str]) -> Option<(Intent, String, Option<Probe>)> {
     probe.map(|p| (Intent::ProbeVcsRefs, format!("git {sub}"), Some(p)))
 }
 fn test_labels(segment: &str, form: &str) -> Vec<String> {
-    let tokens: Vec<&str> = segment.split_whitespace().collect();
+    let words = shell_words(segment);
+    let tokens: Vec<&str> = words.iter().map(|word| word.literal.as_str()).collect();
     let last = form.split_whitespace().last().unwrap_or("");
     let start = tokens
         .iter()
@@ -802,29 +920,43 @@ fn probe_hit(probe: Probe, output: &str) -> bool {
         output,
     )
 }
+fn shell_sets(command: &str) -> BTreeMap<String, String> {
+    let mut sets = BTreeMap::new();
+    for segment in segments(&unwrap(command)) {
+        if has_expansion(&segment) {
+            continue;
+        }
+        for word in shell_words(&segment) {
+            if let Some((name, value)) = assignment_word(&word) {
+                if matches(r"\A[A-Z_][A-Z0-9_]*\z", &name) && !has_expansion(&value) {
+                    sets.insert(name, value);
+                }
+            } else if ![
+                "env", "export", "sudo", "time", "exec", "nice", "nohup", "rtk", "proxy",
+            ]
+            .contains(&word.literal.as_str())
+            {
+                break;
+            }
+        }
+    }
+    sets
+}
 fn env_call(command: &str, output: &str, ok: bool, call: usize) -> EnvCall {
     let needed = captures(
         r#"environment variable\s+['"`]?([A-Z_][A-Z0-9_]*)"#,
         output,
         1,
     );
-    let mut sets = BTreeMap::new();
-    // Capture the entire literal, then validate it at candidate construction.
-    // Matching only a safe prefix would teach a value the command never set.
-    if let Ok(rx) = regex::Regex::new(
-        r#"(?:^|[\s;&(])(?:export\s+)?([A-Z_][A-Z0-9_]*)=(?:"([^"]*)"|'([^']*)'|([^\s;&)]+))"#,
-    ) {
-        for c in rx.captures_iter(command) {
-            if let (Some(var), Some(value)) =
-                (c.get(1), c.get(2).or_else(|| c.get(3)).or_else(|| c.get(4)))
-            {
-                sets.insert(var.as_str().into(), value.as_str().into());
-            }
-        }
-    }
+    let mut sets = shell_sets(command);
+    let in_code = !has_expansion(command)
+        && classify_command(command)
+            .iter()
+            .any(|o| o.intent == Intent::RunInterpreter);
     if let Ok(rx) = regex::Regex::new(
         r#"os\.environ(?:\.setdefault\(\s*|\[\s*)['"]([A-Z_][A-Z0-9_]*)['"]\s*(?:,|\]\s*=)\s*['"]([^'"]*)['"]"#,
-    ) {
+    ) && in_code
+    {
         for c in rx.captures_iter(command) {
             if let (Some(var), Some(value)) = (c.get(1), c.get(2)) {
                 sets.insert(var.as_str().into(), value.as_str().into());

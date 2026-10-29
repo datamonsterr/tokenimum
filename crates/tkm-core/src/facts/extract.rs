@@ -83,6 +83,7 @@ fn discover_forms(input: &Observations, out: &mut Vec<Candidate>) {
                     && b.call > a.call
                     && typed_ok(b)
                     && repairs(&b.form, &a.form, a.intent)
+                    && super::lint::command(&b.form)
             })
             .collect();
         if later.is_empty() {
@@ -91,6 +92,17 @@ fn discover_forms(input: &Observations, out: &mut Vec<Candidate>) {
         let mut params = Params {
             intent: Some(a.intent),
             bad_form: a.form.clone(),
+            forms: input
+                .observations
+                .iter()
+                .filter(|b| {
+                    b.intent == a.intent
+                        && typed_ok(b)
+                        && repairs(&b.form, &a.form, a.intent)
+                        && super::lint::command(&b.form)
+                })
+                .map(|b| (b.form.clone(), 1))
+                .collect(),
             ..Params::default()
         };
         if let Outcome::Error(error) = a.outcome {
@@ -256,6 +268,9 @@ fn merge_counts(a: &mut BTreeMap<String, u32>, b: BTreeMap<String, u32>) {
     }
 }
 pub(super) fn merge(a: &mut Candidate, b: Candidate) {
+    if a.scope == Scope::Neutral {
+        a.scope = b.scope;
+    }
     merge_counts(&mut a.params.good, b.params.good);
     merge_counts(&mut a.params.bad, b.params.bad);
     merge_counts(&mut a.params.hosts, b.params.hosts);
@@ -323,17 +338,27 @@ pub(super) struct Exercise {
     pub fired: bool,
     pub exercised: bool,
 }
-pub(super) fn exercise(fact: &mut Fact, input: &Observations, injected: bool) -> Exercise {
+pub(super) fn exercise(
+    fact: &mut Fact,
+    input: &Observations,
+    injected: bool,
+    record_forms: bool,
+) -> Exercise {
     let p = &mut fact.candidate.params;
     match fact.candidate.family {
-        Family::FormRepair => exercise_form(p, input, injected),
+        Family::FormRepair => exercise_form(p, input, injected, record_forms),
         Family::ArgumentRepair => exercise_argument(p, input, injected),
         Family::EnvValue => exercise_env(p, input, injected),
         Family::Boundary => exercise_boundary(p, input),
         Family::EmptyProbe => exercise_probe(p, input),
     }
 }
-fn exercise_form(p: &mut Params, input: &Observations, injected: bool) -> Exercise {
+fn exercise_form(
+    p: &mut Params,
+    input: &Observations,
+    injected: bool,
+    record_forms: bool,
+) -> Exercise {
     let recommended = working_from(p).map(str::to_owned);
     let seq: Vec<_> = input
         .observations
@@ -353,9 +378,9 @@ fn exercise_form(p: &mut Params, input: &Observations, injected: bool) -> Exerci
     let recommended_failed = recommended
         .as_deref()
         .is_some_and(|form| failed.contains(form));
-    if let Some(intent) = p.intent {
+    if record_forms && let Some(intent) = p.intent {
         for form in ok {
-            if repairs(form, &p.bad_form, intent) {
+            if repairs(form, &p.bad_form, intent) && super::lint::command(form) {
                 add(&mut p.forms, form);
             }
         }

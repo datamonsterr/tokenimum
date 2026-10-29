@@ -2,7 +2,7 @@
 
 Reference: microsoft/TokenEconomizer commit `d0675a3385948d330a793863794a432f3490b1ac` (Apache-2.0).
 
-Fixtures are synthetic Rust Session/Call builders in `crates/tkm-core/tests/facts_te.rs` and `facts_safety.rs`; no user data or reference scripts are executed.
+Fixtures are synthetic Rust Session/Call builders in `crates/tkm-core/tests/facts_te.rs` `facts_safety.rs`, and `facts_review.rs`; no user data or reference scripts are executed.
 
 ## TE acceptance cases
 
@@ -88,10 +88,13 @@ Fixtures are synthetic Rust Session/Call builders in `crates/tkm-core/tests/fact
 - Fetch reachability is stricter than TE for unrelated `echo`, `printf`, or `cat` segments: their output cannot prove a fetch succeeded. The pass-through probe rule is retained.
 - Exact template wording is retained from TE. Generic header is used; header, bullets and final newline all count under the four-characters-per-token cap. Relative cd forms render as subshells.
 - Environment setting values must match the test-label grammar; arbitrary strings, paths outside the repo and shell expressions are rejected. Errors render through a closed enum, never raw output.
+- Shell words retain complete quoted/unquoted concatenations before validation; substitutions (`$(`, backticks, `${`) are opaque and cannot supply values. Escaped operators and quotes do not create command segments; assignment-looking prose does not set a variable. Django `manage.py test` retains its subcommand in the canonical form.
+- Working forms are regex-validated before candidate filtering and host scope derivation. Candidate parameters carry complete successful forms with one session of evidence; lifecycle accounting does not count discovery twice.
+- Lint rejects file URIs, drive-relative Windows paths, absolute Windows paths and UNC paths while preserving test-label double colons.
 - `args_digest` must be normalized shell command text. No JSON decoding is introduced (serde_json remains a dev dependency). Explicit exit_code plus TE digest hints supply outcomes.
 - `classify_command_at` accepts cwd relative to a supplied root and optional known repository top. `observe` uses session cwd and explicit cds; it cannot infer persistent per-call cwd from the frozen model.
-- Partial sessions and replayed session ids do not train facts. Environment facts deliberately do not require different edited files (TE drift=false).
-- Config/threshold validation fails open. Decisions are caller-provided calibrated scores; unavailable/invalid threshold batches require the extra code-only confirmation.
+- Partial sessions and replayed (host, exact agent_home, native session_id) identities do not train facts. Environment facts deliberately do not require different edited files (TE drift=false).
+- Config/threshold validation fails open. Decisions are caller-provided calibrated scores; unavailable/invalid threshold batches require the extra code-only confirmation. Explicitly rejected stable/safe verdicts never add confirmations or successful-form counts; code contradictions still count. Contradiction probabilities outside [0,1] or non-finite values are ignored.
 - Native transcript schemas, filesystem discovery/persistence, plugin detection, Python experiment vocabulary/proposer logic, model calls, daemon wiring and ledger accounting are outside this pure module. E2.9 owns event explanation prose. Controller owns NOTICE.
 
 ## Every Rust test mapped to DoD
@@ -164,6 +167,16 @@ Fixtures are synthetic Rust Session/Call builders in `crates/tkm-core/tests/fact
 | `facts_safety.rs::boundary_success_with_failure_in_same_session_never_promotes` | E2.5 lifecycle / decisions / firing / scope / persistence |
 | `facts_safety.rs::code_contradictions_apply_configured_recency_weight_despite_low_model_score` | E2.5 lifecycle / decisions / firing / scope / persistence |
 | `facts_safety.rs::failure_of_the_recommended_form_is_always_a_code_contradiction` | E2.5 SPEC code contradiction precedence / retirement |
+| `facts_review.rs::review_rejected_scores_never_confirm_an_existing_candidate` | Review 1: rejection does not become a code-only confirmation or successful-form count |
+| `facts_review.rs::review_rejected_filter_scores_still_allow_code_contradictions` | Review 1: rejecting filter cannot erase code contradictions |
+| `facts_review.rs::review_segments_respect_unquoted_escapes_and_shell_quote_rules` | Review 2: escaped operators and shell quoting preserve segment boundaries |
+| `facts_review.rs::review_assignment_parser_preserves_complete_concatenated_words` | Review 3: complete assignment words are parsed before validation |
+| `facts_review.rs::review_assignment_substitutions_and_quoted_prose_cannot_teach_values` | Review 3: substitutions and quoted prose do not teach env values |
+| `facts_review.rs::review_working_forms_are_validated_and_scoped_before_candidate_filtering` | Review 4: complete working forms are validated and scoped before decisions |
+| `facts_review.rs::review_lint_and_command_validation_reject_file_uris_and_windows_paths` | Review 5: file URIs and Windows/UNC path restrictions in lint and command grammar |
+| `facts_review.rs::review_django_manage_test_forms_are_canonical_and_renderable` | Review 6: Django test subcommand remains canonical and renderable |
+| `facts_review.rs::review_replay_identity_includes_host_and_exact_agent_home` | Review 7: host/account-scoped replay protection and serde roundtrip |
+| `facts_review.rs::review_malformed_contradiction_scores_are_ignored` | Review 8: malformed contradiction scores are ignored |
 
 ## API documentation checked
 
