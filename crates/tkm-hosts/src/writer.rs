@@ -742,6 +742,37 @@ mod review_tests {
     }
 
     #[test]
+    fn atomic_update_rechecks_disk_after_backup_preparation() {
+        let scratch = Scratch::new();
+        let path = scratch.0.join("settings.json");
+        fs::write(&path, "{}").unwrap();
+        let update = atomic_update(&path, Some("{}"), Some("ours"), || {
+            fs::write(&path, "{\"editor\":true}").unwrap();
+            Ok(())
+        })
+        .unwrap();
+        let Update::Retry(current) = update else {
+            panic!("expected conflict");
+        };
+        assert_eq!(current.as_deref(), Some("{\"editor\":true}"));
+        assert_eq!(fs::read_to_string(&path).unwrap(), "{\"editor\":true}");
+        assert_eq!(fs::read_dir(&scratch.0).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn atomic_update_rechecks_absent_target_after_backup_preparation() {
+        let scratch = Scratch::new();
+        let path = scratch.0.join("settings.json");
+        let update = atomic_update(&path, None, Some("ours"), || {
+            fs::write(&path, "{\"editor\":true}").unwrap();
+            Ok(())
+        })
+        .unwrap();
+        assert!(matches!(update, Update::Retry(Some(_))));
+        assert_eq!(fs::read_to_string(&path).unwrap(), "{\"editor\":true}");
+    }
+
+    #[test]
     fn atomic_update_retries_preserve_foreign_bytes_and_abort_on_second_change() {
         let scratch = Scratch::new();
         let path = scratch.0.join("settings.json");

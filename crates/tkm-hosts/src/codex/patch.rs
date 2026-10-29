@@ -154,7 +154,34 @@ mod tests {
         let reader = from_items(items.as_object().unwrap(), cwd);
         assert_eq!(args_digest(&live), args_digest(&reader));
         assert!(args_digest(&live).contains("first\\n\\nthird\\n"));
-        assert!(args_digest(&live).contains("-old\\n+new\\n"));
+    }
+
+    #[test]
+    fn update_digest_ignores_hunk_syntax_between_live_and_rollout() {
+        let cwd = Some(Path::new("/repo"));
+        let live = from_text(
+            "*** Begin Patch\n*** Update File: a.txt\n-old\n+new\n*** End Patch\n",
+            cwd,
+        );
+        let items = json!({
+            "/repo/a.txt":{"type":"update","unified_diff":"--- a/a.txt\n+++ b/a.txt\n@@ -1 +1 @@\n-old\n+new\n"}
+        });
+        let rollout = from_items(items.as_object().unwrap(), cwd);
+        assert_eq!(args_digest(&live), args_digest(&rollout));
+    }
+
+    #[test]
+    fn update_digest_ignores_interleaved_versus_grouped_hunks() {
+        let cwd = Some(Path::new("/repo"));
+        let live = from_text(
+            "*** Update File: a.txt\n@@\n-one\n+uno\n-two\n+dos\n*** End Patch\n",
+            cwd,
+        );
+        let items = json!({
+            "/repo/a.txt":{"type":"update","unified_diff":"--- a/a.txt\n+++ b/a.txt\n@@ -1,2 +1,2 @@\n-one\n-two\n+uno\n+dos\n"}
+        });
+        let rollout = from_items(items.as_object().unwrap(), cwd);
+        assert_eq!(args_digest(&live), args_digest(&rollout));
     }
 
     #[test]
