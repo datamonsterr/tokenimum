@@ -233,3 +233,56 @@ impl WebServer {
         drop(self.file);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tkm_core::model::Timestamp;
+    use tkm_store::DenylistEntry;
+
+    #[test]
+    fn restore_does_not_readd_manually_removed_owned_rule() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(
+            std::process::Command::new("git")
+                .args(["init", "-q"])
+                .current_dir(dir.path())
+                .status()
+                .unwrap()
+                .success()
+        );
+        let paths = Paths::from_dirs(
+            dir.path(),
+            Some(dir.path()),
+            Some(dir.path()),
+            Some(dir.path()),
+        );
+        paths.ensure_runtime_dir().unwrap();
+        let store = tkm_store::Store::open(&paths.db).unwrap();
+        for tool in ["A", "B"] {
+            store
+                .record_denylist_write(&DenylistEntry {
+                    checkout_path: dir.path().into(),
+                    host: Host::Claude,
+                    tool: tool.into(),
+                    written_at: Timestamp(1),
+                    restored: false,
+                })
+                .unwrap();
+        }
+        std::fs::create_dir_all(dir.path().join(".claude")).unwrap();
+        let file = dir.path().join(".claude/settings.local.json");
+        std::fs::write(&file, r#"{"permissions":{"deny":["A"]}}"#).unwrap();
+        let actions = DaemonActions {
+            db: paths.db.clone(),
+            daemon: Daemon::new(crate::daemon::DaemonOptions::new(paths)),
+            deny_lock: Mutex::new(()),
+        };
+        actions
+            .restore_tool(dir.path().to_str().unwrap(), "claude", "A")
+            .unwrap();
+        let value: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(file).unwrap()).unwrap();
+        assert_eq!(value["permissions"]["deny"], serde_json::json!([]));
+    }
+}
