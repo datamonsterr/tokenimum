@@ -171,3 +171,125 @@ fn status_spend_is_global_and_uses_the_utc_day() {
     );
     assert_eq!(report["repositories"][0]["spend"]["scope"], "global");
 }
+
+#[cfg(unix)]
+#[test]
+fn status_uses_daemon_metadata_and_legacy_unknown() {
+    use std::io::Write;
+    use std::os::unix::net::UnixListener;
+    use tkm_proto::monitor::{MONITOR_MAX_FRAME, MONITOR_SOCKET_NAME, MonitorMessage};
+    let f = Fixture::new();
+    let socket = f
+        .home
+        .path()
+        .join("run/tokenimum")
+        .join(MONITOR_SOCKET_NAME);
+    std::fs::create_dir_all(socket.parent().unwrap()).unwrap();
+    let now = 1_793_715_780_000;
+    for modern in [true, false] {
+        if socket.exists() {
+            std::fs::remove_file(&socket).unwrap();
+        }
+        let listener = UnixListener::bind(&socket).unwrap();
+        let peer = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let hello = MonitorMessage::Hello {
+                version: tkm_proto::PROTOCOL_VERSION,
+                daemon_version: modern.then(|| "0.2.0".into()),
+                started_at_ms: modern.then_some(now - 30_000),
+            };
+            stream
+                .write_all(&tkm_proto::encode_frame(&hello, MONITOR_MAX_FRAME).unwrap())
+                .unwrap();
+        });
+        let report = report_at(&f, now);
+        peer.join().unwrap();
+        assert_eq!(report["daemon"]["state"], "running");
+        assert_eq!(
+            report["daemon"]["version"],
+            if modern { "0.2.0" } else { "unknown" }
+        );
+        assert_eq!(
+            report["daemon"]["uptime"],
+            if modern { "30s" } else { "unknown" }
+        );
+    }
+}
+
+#[test]
+fn status_reports_envelope_pending_tools_and_savings_samples() {
+    use tkm_core::model::{Host, Usage};
+    use tkm_store::{LedgerRecord, NewEvent, NewSession, SessionKey};
+    let f = Fixture::new();
+    let store = f.store();
+    let mut action_session = 0;
+    for (index, cost) in [10.0, 12.0, 6.0, 8.0].into_iter().enumerate() {
+        let sid = store
+            .upsert_session(&NewSession {
+                key: SessionKey {
+                    host: Host::Claude,
+                    agent_home: "/fixture".into(),
+                    session_id: format!("s-{index}"),
+                },
+                repo_key: f.repo.clone(),
+                cwd: f.home.path().into(),
+                started: Timestamp(i64::try_from(index + 1).unwrap() * 1000),
+                ended: Some(Timestamp(5000)),
+                fold_status: "folded".into(),
+                shadow: index < 2,
+                integration_level: "hooks".into(),
+            })
+            .unwrap();
+        if index == 2 {
+            action_session = sid;
+        }
+        store
+            .upsert_ledger(&LedgerRecord {
+                session_id: sid,
+                usage: Usage::default(),
+                priced_cost: cost,
+                overhead_tokens: 0,
+                overhead_cost: 0.0,
+            })
+            .unwrap();
+    }
+    store
+        .insert_event_at(
+            &NewEvent {
+                kind: "loop.redirect".into(),
+                session_id: action_session,
+                inputs: serde_json::json!({"shadow":false}),
+                evidence_ids: vec![],
+                explanation_template_id: "redirect".into(),
+                params: serde_json::json!({}),
+            },
+            Timestamp(3000),
+        )
+        .unwrap();
+    for _ in 0..5 {
+        store
+            .push_envelope_sample(&f.repo, Host::Claude, 4)
+            .unwrap();
+    }
+    for tool in ["unused_plugin", "Read"] {
+        for _ in 0..10 {
+            store
+                .record_tool_unused_prompt(&f.repo, Host::Claude, tool)
+                .unwrap();
+        }
+        for _ in 0..2 {
+            store
+                .record_tool_unused_session(&f.repo, Host::Claude, tool)
+                .unwrap();
+        }
+    }
+    let json = report_at(&f, 6000);
+    let repo = &json["repositories"][0];
+    assert_eq!(repo["loop_guard"]["envelopes"][0]["calls"], 5.0);
+    assert_eq!(repo["pruning"]["pending_proposals"], 1);
+    let savings = &repo["savings"][0]["estimate"];
+    assert_eq!(savings["baseline_count"], 2);
+    assert_eq!(savings["treatment_count"], 2);
+    assert_eq!(savings["difference"], 4.0);
+    assert!(savings["band"].is_object());
+}

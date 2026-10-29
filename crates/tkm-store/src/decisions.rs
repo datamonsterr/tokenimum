@@ -4,7 +4,7 @@ use rusqlite::{OptionalExtension, params, types::Type};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use tkm_core::model::Host;
+use tkm_core::model::{Host, RepoKey, Timestamp};
 
 /// Decision data for insertion.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -46,6 +46,18 @@ pub struct DecisionRecord {
     pub shadow: bool,
     /// Observed outcome, if labeled.
     pub outcome_label: Option<String>,
+    /// Decision time in Unix milliseconds, absent for historical writes.
+    #[serde(default)]
+    pub created_at: Option<Timestamp>,
+    /// Repository known when the request was sent.
+    #[serde(default)]
+    pub repo_key: Option<RepoKey>,
+    /// Local owning session, when known.
+    #[serde(default)]
+    pub session_id: Option<i64>,
+    /// Redacted request state exactly as sent, never raw logs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub digest: Option<String>,
 }
 
 /// Thresholds and fit metrics for a model and purpose.
@@ -82,8 +94,7 @@ pub struct InstallRecord {
     pub shim_hashes: BTreeMap<String, String>,
 }
 
-const DECISION_COLUMNS: &str =
-    "id, model, purpose, questions, answers, cost, latency_ms, shadow, outcome_label";
+const DECISION_COLUMNS: &str = "id, model, purpose, questions, answers, cost, latency_ms, shadow, outcome_label, created_at, repo_key, session_id, digest";
 const CALIBRATION_COLUMNS: &str =
     "model_version, purpose, thresholds, sample_count, precision, recall";
 const INSTALL_COLUMNS: &str =
@@ -109,6 +120,10 @@ fn read_decision(row: &rusqlite::Row<'_>) -> rusqlite::Result<DecisionRecord> {
         latency_ms: row.get(6)?,
         shadow: row.get(7)?,
         outcome_label: row.get(8)?,
+        created_at: row.get::<_, Option<i64>>(9)?.map(Timestamp),
+        repo_key: row.get::<_, Option<String>>(10)?.map(RepoKey),
+        session_id: row.get(11)?,
+        digest: row.get(12)?,
     })
 }
 fn read_calibration(row: &rusqlite::Row<'_>) -> rusqlite::Result<CalibrationRecord> {
@@ -145,14 +160,37 @@ fn path_text(path: &Path) -> Result<&str, StoreError> {
 }
 
 impl Store {
+    fn decision_columns(&self) -> &'static str {
+        if self.schema_version < 2 {
+            "id, model, purpose, questions, answers, cost, latency_ms, shadow, outcome_label, NULL AS created_at, NULL AS repo_key, NULL AS session_id, NULL AS digest"
+        } else {
+            DECISION_COLUMNS
+        }
+    }
+
     /// Insert a decision and return its identifier.
     ///
     /// # Errors
     /// Returns an error if encoding or writing fails.
     pub fn insert_decision(&self, decision: &NewDecision) -> Result<i64, StoreError> {
+        self.insert_decision_with_context(decision, None, None, None, None)
+    }
+    /// Insert a decision with optional reporting context.
+    /// `digest` must already be the redacted state sent to the decision client.
+    ///
+    /// # Errors
+    /// Returns an error if encoding or writing fails.
+    pub fn insert_decision_with_context(
+        &self,
+        decision: &NewDecision,
+        created_at: Option<Timestamp>,
+        repo: Option<&RepoKey>,
+        session_id: Option<i64>,
+        digest: Option<&str>,
+    ) -> Result<i64, StoreError> {
         let questions = serde_json::to_string(&decision.questions)?;
         let answers = serde_json::to_string(&decision.answers)?;
-        Ok(self.conn.query_row("INSERT INTO decisions (model, purpose, questions, answers, cost, latency_ms, shadow) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7) RETURNING id", params![decision.model, decision.purpose, questions, answers, decision.cost_usd, i64::from(decision.latency_ms), decision.shadow], |row| row.get(0))?)
+        Ok(self.conn.query_row("INSERT INTO decisions (model, purpose, questions, answers, cost, latency_ms, shadow, created_at, repo_key, session_id, digest) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11) RETURNING id", params![decision.model, decision.purpose, questions, answers, decision.cost_usd, i64::from(decision.latency_ms), decision.shadow, created_at.map(|t| t.0), repo.map(|r| &r.0), session_id, digest], |row| row.get(0))?)
     }
     /// Set an observed outcome label.
     ///
@@ -176,7 +214,10 @@ impl Store {
         Ok(self
             .conn
             .query_row(
-                &format!("SELECT {DECISION_COLUMNS} FROM decisions WHERE id=?1"),
+                &format!(
+                    "SELECT {} FROM decisions WHERE id=?1",
+                    self.decision_columns()
+                ),
                 [id],
                 read_decision,
             )
@@ -188,7 +229,8 @@ impl Store {
     /// Returns an error if querying or decoding fails.
     pub fn list_recent_decisions(&self, limit: i64) -> Result<Vec<DecisionRecord>, StoreError> {
         let mut statement = self.conn.prepare(&format!(
-            "SELECT {DECISION_COLUMNS} FROM decisions ORDER BY id DESC LIMIT ?1"
+            "SELECT {} FROM decisions ORDER BY id DESC LIMIT ?1",
+            self.decision_columns()
         ))?;
         let rows = statement.query_map([limit], read_decision)?;
         Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
@@ -203,7 +245,10 @@ impl Store {
         purpose: &str,
         limit: i64,
     ) -> Result<Vec<DecisionRecord>, StoreError> {
-        let mut statement = self.conn.prepare(&format!("SELECT {DECISION_COLUMNS} FROM decisions WHERE model=?1 AND purpose=?2 ORDER BY id DESC LIMIT ?3"))?;
+        let mut statement = self.conn.prepare(&format!(
+            "SELECT {} FROM decisions WHERE model=?1 AND purpose=?2 ORDER BY id DESC LIMIT ?3",
+            self.decision_columns()
+        ))?;
         let rows = statement.query_map(params![model, purpose, limit], read_decision)?;
         Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
     }

@@ -31,6 +31,7 @@ fn fact(key: &RepoKey) -> FactRecord {
         contradictions: 2,
         fire_count: 3,
         fire_sessions: 4,
+        state_changed_at: None,
     }
 }
 #[test]

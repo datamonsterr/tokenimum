@@ -5,6 +5,10 @@
 //! rest in the outbox, so a locked database delays rows but never loses them.
 
 use std::collections::{HashMap, VecDeque};
+use std::sync::{
+    Arc,
+    atomic::{AtomicI64, Ordering},
+};
 
 use tkm_core::model::{Host, RepoKey, Timestamp};
 use tkm_store::{
@@ -64,6 +68,29 @@ pub struct EventInsert {
     pub template: String,
     /// Explanation parameters as JSON.
     pub params: serde_json::Value,
+    /// Daemon-clock action time, Unix milliseconds.
+    pub created_at: Timestamp,
+    /// Persisted decision identifiers supplied by the action producer.
+    pub evidence_ids: Vec<i64>,
+    /// Exact decision row ID, filled by the flusher after that decision is persisted.
+    pub decision_id: Option<Arc<AtomicI64>>,
+}
+
+/// Decision plus the request context captured before sending it.
+#[derive(Debug, Clone)]
+pub struct DecisionInsert {
+    /// Shared evidence link; zero until this row has been persisted.
+    pub evidence_id: Arc<AtomicI64>,
+    /// Priced model answers.
+    pub decision: NewDecision,
+    /// Daemon-clock completion time.
+    pub created_at: Timestamp,
+    /// Repository when known.
+    pub repo: Option<RepoKey>,
+    /// Natural session key when known.
+    pub key: Option<SessionKey>,
+    /// Redacted request state exactly as sent.
+    pub digest: Option<String>,
 }
 
 /// One good-turn length for the envelope ring.
@@ -89,7 +116,7 @@ pub struct FlushBatch {
     /// Event rows.
     pub events: VecDeque<EventInsert>,
     /// Decision rows.
-    pub decisions: VecDeque<NewDecision>,
+    pub decisions: VecDeque<DecisionInsert>,
     /// Envelope samples.
     pub envelope: VecDeque<EnvelopeSample>,
     /// Calibration rows.
@@ -216,27 +243,74 @@ pub fn apply(store: &Store, batch: &mut FlushBatch) -> Result<(), StoreError> {
             batch.turns.push_back(turn);
         }
     }
+    for _ in 0..batch.decisions.len() {
+        let Some(item) = batch.decisions.front() else {
+            break;
+        };
+        let session = match &item.key {
+            Some(key) => session_id(store, &mut ids, key)?,
+            None => None,
+        };
+        if item.key.is_some() && session.is_none() {
+            if let Some(item) = batch.decisions.pop_front() {
+                batch.decisions.push_back(item);
+            }
+            continue;
+        }
+        let id = store.insert_decision_with_context(
+            &item.decision,
+            Some(item.created_at),
+            item.repo.as_ref(),
+            session,
+            item.digest.as_deref(),
+        )?;
+        item.evidence_id.store(id, Ordering::Release);
+        batch.decisions.pop_front();
+    }
     for _ in 0..batch.events.len() {
         let Some(event) = batch.events.front() else {
             break;
         };
         if let Some(id) = session_id(store, &mut ids, &event.key)? {
-            store.insert_event(&NewEvent {
-                kind: event.kind.clone(),
-                session_id: id,
-                inputs: event.inputs.clone(),
-                evidence_ids: Vec::new(),
-                explanation_template_id: event.template.clone(),
-                params: event.params.clone(),
-            })?;
+            let mut evidence_ids = event.evidence_ids.clone();
+            if let Some(link) = &event.decision_id {
+                let id = link.load(Ordering::Acquire);
+                if id > 0 && !evidence_ids.contains(&id) {
+                    evidence_ids.push(id);
+                }
+            }
+            let mut inputs = event.inputs.clone();
+            if !inputs.is_object() {
+                inputs = serde_json::json!({"action_inputs":inputs});
+            }
+            inputs["decision_ids"] = serde_json::json!(evidence_ids);
+            if let Some(facts) = event
+                .inputs
+                .get("fact_ids")
+                .and_then(serde_json::Value::as_array)
+                && let Some(session) = store.get_session(id)?
+            {
+                for fact in facts.iter().filter_map(serde_json::Value::as_str) {
+                    if let Some(rowid) = store.fact_evidence_id(&session.repo_key, fact)? {
+                        evidence_ids.push(rowid);
+                    }
+                }
+            }
+            store.insert_event_at(
+                &NewEvent {
+                    kind: event.kind.clone(),
+                    session_id: id,
+                    inputs,
+                    evidence_ids,
+                    explanation_template_id: event.template.clone(),
+                    params: event.params.clone(),
+                },
+                event.created_at,
+            )?;
             batch.events.pop_front();
         } else if let Some(event) = batch.events.pop_front() {
             batch.events.push_back(event);
         }
-    }
-    while let Some(decision) = batch.decisions.front() {
-        store.insert_decision(decision)?;
-        batch.decisions.pop_front();
     }
     while let Some(sample) = batch.envelope.front() {
         store.push_envelope_sample(&sample.repo, sample.host, sample.calls)?;
@@ -245,6 +319,36 @@ pub fn apply(store: &Store, batch: &mut FlushBatch) -> Result<(), StoreError> {
     while let Some(record) = batch.calibration.front() {
         store.upsert_calibration(record)?;
         batch.calibration.pop_front();
+    }
+    Ok(())
+}
+
+/// Persist the promotable/retired fact actions emitted by a complete fold.
+pub(crate) fn fact_actions(
+    store: &Store,
+    repo: &RepoKey,
+    session_id: i64,
+    at: Timestamp,
+    events: &[tkm_core::facts::FactEvent],
+) -> Result<(), StoreError> {
+    for event in events {
+        let template = match event.kind {
+            tkm_core::facts::FactEventKind::Promoted => "fact_promoted",
+            tkm_core::facts::FactEventKind::Retired => "fact_retired",
+            _ => continue,
+        };
+        let Some(rowid) = store.fact_evidence_id(repo, &event.fact_id)? else {
+            continue;
+        };
+        let fact = store.get_fact(repo, &event.fact_id)?;
+        let detail = fact
+            .as_ref()
+            .and_then(crate::fold::fact_from_record)
+            .map_or_else(
+                || event.fact_id.clone(),
+                |f| tkm_core::facts::render::claim(&f.candidate),
+            );
+        store.insert_event_at(&NewEvent {kind:template.replace('_',"."),session_id,inputs:serde_json::json!({"fact_ids":[event.fact_id],"decision_ids":[]}),evidence_ids:vec![rowid],explanation_template_id:template.into(),params:serde_json::json!({"detail":detail,"cost":"$0","undo":if template=="fact_promoted" {format!("tkm facts forget {}",event.fact_id)} else {"no undo action is available".into()}})},at)?;
     }
     Ok(())
 }
@@ -286,7 +390,9 @@ mod tests {
             delegated_runs: 0,
         });
         batch.push_session(session("a", "open"));
+        let evidence = Arc::new(AtomicI64::new(0));
         batch.decisions.push_back(DecisionInsert {
+            evidence_id: evidence.clone(),
             decision: NewDecision {
                 model: "fixture".into(),
                 purpose: "loop_guard".into(),
@@ -301,6 +407,11 @@ mod tests {
             key: Some(key("a")),
             digest: Some("redacted digest".into()),
         });
+        let mut unrelated = batch.decisions.front().unwrap().clone();
+        unrelated.evidence_id = Arc::new(AtomicI64::new(0));
+        unrelated.decision.model = "unrelated-later-decision".into();
+        apply(&store, &mut batch).unwrap(); // The action arrives in a later flush.
+        batch.decisions.push_back(unrelated);
         batch.events.push_back(EventInsert {
             key: key("a"),
             kind: "loop.redirect".into(),
@@ -309,7 +420,7 @@ mod tests {
             params: serde_json::json!({}),
             created_at: Timestamp(43),
             evidence_ids: vec![],
-            decision_purpose: Some("loop_guard".into()),
+            decision_id: Some(evidence),
         });
         apply(&store, &mut batch).unwrap();
         let event = store.list_recent_events(1).unwrap().remove(0);
@@ -317,9 +428,70 @@ mod tests {
         assert_eq!(event.evidence_ids.len(), 1);
         let decision = store.get_decision(event.evidence_ids[0]).unwrap().unwrap();
         assert_eq!(decision.created_at, Some(Timestamp(42)));
+        assert_eq!(decision.model, "fixture");
         assert_eq!(decision.repo_key, Some(RepoKey("r".into())));
         assert_eq!(decision.session_id, Some(event.session_id));
         assert_eq!(decision.digest.as_deref(), Some("redacted digest"));
+    }
+
+    #[test]
+    fn fold_fact_actions_have_real_fact_evidence_and_time() {
+        let store = Store::open_in_memory().unwrap();
+        store
+            .upsert_repo(&Repo {
+                repo_key: RepoKey("r".into()),
+                display_name: "r".into(),
+                first_seen: Timestamp(1),
+                last_seen: Timestamp(1),
+                delegated_runs: 0,
+            })
+            .unwrap();
+        let id = store
+            .upsert_session(&NewSession {
+                key: key("a"),
+                repo_key: RepoKey("r".into()),
+                cwd: "/c".into(),
+                started: Timestamp(1),
+                ended: None,
+                fold_status: "open".into(),
+                shadow: false,
+                integration_level: "hooks".into(),
+            })
+            .unwrap();
+        store
+            .insert_candidate_fact(&tkm_store::FactRecord {
+                repo_key: RepoKey("r".into()),
+                fact_id: "f-17".into(),
+                family: "empty_probe".into(),
+                scope: "neutral".into(),
+                text_params: serde_json::json!({}),
+                state: tkm_store::FactState::Candidate,
+                score: 1.0,
+                confirmations: 3,
+                contradictions: 0,
+                fire_count: 4,
+                fire_sessions: 5,
+                state_changed_at: None,
+            })
+            .unwrap();
+        let events = [tkm_core::facts::FactEvent {
+            fact_id: "f-17".into(),
+            session_id: "a".into(),
+            kind: tkm_core::facts::FactEventKind::Promoted,
+        }];
+        fact_actions(&store, &RepoKey("r".into()), id, Timestamp(42), &events).unwrap();
+        let row = store.list_recent_events(1).unwrap().remove(0);
+        assert_eq!(row.created_at, Some(Timestamp(42)));
+        assert_eq!(
+            row.evidence_ids,
+            vec![
+                store
+                    .fact_evidence_id(&RepoKey("r".into()), "f-17")
+                    .unwrap()
+                    .unwrap()
+            ]
+        );
+        assert_eq!(row.inputs["fact_ids"], serde_json::json!(["f-17"]));
     }
 
     #[test]
@@ -356,6 +528,9 @@ mod tests {
             inputs: serde_json::json!({}),
             template: "redirect".into(),
             params: serde_json::json!({}),
+            created_at: Timestamp(1),
+            evidence_ids: Vec::new(),
+            decision_id: None,
         });
         batch.envelope.push_back(EnvelopeSample {
             repo: RepoKey("r".into()),
@@ -386,6 +561,9 @@ mod tests {
             inputs: serde_json::json!({}),
             template: "redirect".into(),
             params: serde_json::json!({}),
+            created_at: Timestamp(1),
+            evidence_ids: Vec::new(),
+            decision_id: None,
         });
         apply(&store, &mut batch).unwrap();
         assert_eq!(batch.turns.len(), 1);

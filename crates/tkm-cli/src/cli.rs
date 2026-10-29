@@ -127,7 +127,7 @@ pub struct WhyArgs {
 /// Fact listing and retirement options.
 #[derive(Debug, Args)]
 pub struct FactsArgs {
-    /// Include facts from every repository.
+    /// Include candidate and retired facts for this repository.
     #[arg(long, conflicts_with = "brief")]
     pub all: bool,
     /// Print a compact fact list suitable for harness context.

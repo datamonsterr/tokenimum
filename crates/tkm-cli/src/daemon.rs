@@ -26,6 +26,10 @@ pub enum DaemonState {
     Running {
         /// Wire protocol version advertised by Hello, not the daemon package version.
         version: u16,
+        /// Daemon package version, if supplied by the monitor.
+        daemon_version: Option<String>,
+        /// Daemon start time in Unix milliseconds, if supplied by the monitor.
+        started_at_ms: Option<i64>,
     },
     /// The monitor cannot supply live data; read commands can still open the database.
     Down {
@@ -78,7 +82,7 @@ fn probe_socket(socket: &Path) -> DaemonState {
     let outcome =
         runtime.block_on(async { tokio::time::timeout(PROBE_TIMEOUT, read_hello(socket)).await });
     match outcome {
-        Ok(Ok(version)) => DaemonState::Running { version },
+        Ok(Ok(state)) => state,
         Ok(Err(reason)) => DaemonState::Down { reason },
         Err(_) => DaemonState::Down {
             reason: "monitor connect/Hello timed out after 250 ms".into(),
@@ -96,7 +100,7 @@ pub fn probe(_paths: &Paths) -> DaemonState {
 }
 
 #[cfg(unix)]
-async fn read_hello(socket: &Path) -> Result<u16, String> {
+async fn read_hello(socket: &Path) -> Result<DaemonState, String> {
     let mut stream = tokio::net::UnixStream::connect(socket)
         .await
         .map_err(|error| format!("monitor {}: {error}", socket.display()))?;
@@ -115,8 +119,17 @@ async fn read_hello(socket: &Path) -> Result<u16, String> {
     match decode_body::<MonitorMessage>(&body)
         .map_err(|error| format!("monitor Hello body: {error}"))?
     {
-        MonitorMessage::Hello { version } if version == PROTOCOL_VERSION => Ok(version),
-        MonitorMessage::Hello { version } => Err(format!(
+        MonitorMessage::Hello {
+            version,
+            daemon_version,
+            started_at_ms,
+            ..
+        } if version == PROTOCOL_VERSION => Ok(DaemonState::Running {
+            version,
+            daemon_version,
+            started_at_ms,
+        }),
+        MonitorMessage::Hello { version, .. } => Err(format!(
             "monitor protocol version {version} is incompatible with {PROTOCOL_VERSION}"
         )),
         _ => Err("monitor's first frame was not Hello".into()),
@@ -189,6 +202,8 @@ mod tests {
             let frame = encode_frame(
                 &MonitorMessage::Hello {
                     version: PROTOCOL_VERSION,
+                    daemon_version: None,
+                    started_at_ms: None,
                 },
                 MONITOR_MAX_FRAME,
             )
@@ -200,7 +215,9 @@ mod tests {
         assert_eq!(
             state,
             DaemonState::Running {
-                version: PROTOCOL_VERSION
+                version: PROTOCOL_VERSION,
+                daemon_version: None,
+                started_at_ms: None,
             }
         );
     }
@@ -211,6 +228,8 @@ mod tests {
             &encode_frame(
                 &MonitorMessage::Hello {
                     version: PROTOCOL_VERSION + 1,
+                    daemon_version: None,
+                    started_at_ms: None,
                 },
                 MONITOR_MAX_FRAME,
             )

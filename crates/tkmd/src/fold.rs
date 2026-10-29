@@ -134,6 +134,7 @@ fn record_from_fact(repo: &RepoKey, fact: &Fact) -> Option<FactRecord> {
         contradictions: fact.life.contradictions,
         fire_count: fact.life.fire_num,
         fire_sessions: fact.life.fire_den,
+        state_changed_at: None,
     })
 }
 
@@ -149,6 +150,7 @@ fn persist_facts(
     repo: &RepoKey,
     before: &[FactRecord],
     after: &FactsState,
+    at: Timestamp,
 ) -> HResult<()> {
     for fact in after.facts.values() {
         let Some(record) = record_from_fact(repo, fact) else {
@@ -170,14 +172,14 @@ fn persist_facts(
                     record.fire_sessions,
                 )?;
                 if old.state != record.state && old.state != FactState::Retired {
-                    store.transition_fact(repo, &record.fact_id, record.state)?;
+                    store.transition_fact_at(repo, &record.fact_id, record.state, at)?;
                 }
             }
         } else {
             {
                 store.insert_candidate_fact(&record)?;
                 if record.state != FactState::Candidate {
-                    store.transition_fact(repo, &record.fact_id, record.state)?;
+                    store.transition_fact_at(repo, &record.fact_id, record.state, at)?;
                 }
             }
         }
@@ -269,8 +271,15 @@ fn fold_inner(
             decisions: None,
         };
         let (after, fact_events) = facts::update(state, &evidence, &job.settings.facts);
-        persist_facts(store, &job.repo, &before, &after)?;
+        persist_facts(store, &job.repo, &before, &after, Timestamp(job.ended_ms))?;
         events = fact_events;
+        crate::persist::fact_actions(
+            store,
+            &job.repo,
+            record.id,
+            Timestamp(job.ended_ms),
+            &events,
+        )?;
         fold_prune(store, &session, Timestamp(job.ended_ms))?;
     }
     store.set_session_fold_status(record.id, "folded")?;

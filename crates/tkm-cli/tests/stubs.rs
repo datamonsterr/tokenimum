@@ -31,10 +31,6 @@ fn other_commands_dispatch_to_stubs() {
     for (args, name) in [
         (vec!["init", "--yes", "--dry-run"], "init"),
         (vec!["uninstall", "--dry-run"], "uninstall"),
-        (vec!["status", "--json"], "status"),
-        (vec!["why", "last"], "why"),
-        (vec!["facts"], "facts"),
-        (vec!["facts", "forget", "f-1"], "facts"),
         (vec!["prune"], "prune"),
         (vec!["prune", "apply"], "prune"),
         (vec!["prune", "restore", "shell"], "prune"),
@@ -44,7 +40,6 @@ fn other_commands_dispatch_to_stubs() {
         (vec!["calibrate"], "calibrate"),
         (vec!["replay", "fixture.json"], "replay"),
         (vec!["doctor", "--probe"], "doctor"),
-        (vec!["export", "--show-digests"], "export"),
     ] {
         assert_unavailable(&args, name);
     }

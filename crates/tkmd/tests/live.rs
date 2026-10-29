@@ -110,6 +110,25 @@ async fn stuck_sequence_opens_gate_judges_once_and_redirects_on_a_later_call() {
         )
         .unwrap();
     assert_eq!(redirects, 1);
+    let (at, ids): (Option<i64>, String) = store
+        .query_row(
+            "SELECT created_at, evidence_ids FROM events WHERE kind='loop.redirect'",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .unwrap();
+    assert!(at.is_some());
+    let ids: Vec<i64> = serde_json::from_str(&ids).unwrap();
+    assert!(!ids.is_empty());
+    let (repo, session, digest): (Option<String>, Option<i64>, Option<String>) = store
+        .query_row(
+            "SELECT repo_key, session_id, digest FROM decisions WHERE id=?1",
+            [ids[0]],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
+        .unwrap();
+    assert_eq!(repo.as_deref(), Some(FIXTURE_REPO));
+    assert!(session.is_some() && digest.is_some());
 }
 
 #[tokio::test]

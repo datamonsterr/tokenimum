@@ -135,6 +135,7 @@ pub struct Daemon {
     pub(crate) backing: Arc<dyn Backing>,
     pub(crate) decider: Arc<dyn Decider>,
     pub(crate) clock: Arc<dyn Clock>,
+    pub(crate) started_at_ms: i64,
     pub(crate) settings_source: Arc<dyn SettingsSource>,
     pub(crate) default_settings: Arc<Settings>,
     pub(crate) skills: Arc<dyn SkillSource>,
@@ -237,6 +238,7 @@ impl Daemon {
             adapters: options.adapters,
             backing: options.backing,
             decider: options.decider,
+            started_at_ms: i64::try_from(options.clock.now_ms()).unwrap_or(i64::MAX),
             clock: options.clock,
             settings_source: options.settings,
             default_settings,
@@ -399,7 +401,14 @@ impl Daemon {
         let Some(event) = adapter.map_event(request)? else {
             return Ok(noop_reply(request.host));
         };
-        match event.kind {
+        let observed = (event.host, event.session_id.clone(), event.kind);
+        let recorded = self.record_hook_seen(
+            observed.0,
+            &observed.1,
+            observed.2,
+            request.host_event.as_deref(),
+        );
+        let result = match event.kind {
             EventKind::ToolDone => self.tool_done(request, adapter.as_ref(), event),
             EventKind::ToolBefore => Ok(self.deliver_pending(request, adapter.as_ref(), &event)),
             EventKind::SessionStart => self.session_start(request, adapter.as_ref(), event).await,
@@ -407,7 +416,16 @@ impl Daemon {
             EventKind::TurnEnd => Ok(self.turn_end(request, &event)),
             EventKind::SessionEnd => self.session_end(request, event).await,
             _ => Ok(noop_reply(request.host)),
+        };
+        if !recorded {
+            self.record_hook_seen(
+                observed.0,
+                &observed.1,
+                observed.2,
+                request.host_event.as_deref(),
+            );
         }
+        result
     }
 
     /// Synchronous `tool_done` entry point: the hot path. Mutates memory and pushes to queues
@@ -420,7 +438,15 @@ impl Daemon {
         let adapter = self.adapters.get(host);
         let result = match adapter.map_event(request) {
             Ok(Some(event)) if event.kind == EventKind::ToolDone => {
-                self.tool_done(request, adapter.as_ref(), event)
+                let observed = (event.host, event.session_id.clone(), event.kind);
+                let result = self.tool_done(request, adapter.as_ref(), event);
+                self.record_hook_seen(
+                    observed.0,
+                    &observed.1,
+                    observed.2,
+                    request.host_event.as_deref(),
+                );
+                result
             }
             Ok(_) => Ok(noop_reply(host)),
             Err(error) => Err(error.into()),
@@ -552,6 +578,7 @@ impl Daemon {
             shadow: false,
             envelope: None,
             loop_state: "watching",
+            loop_evidence: None,
         }
     }
 
@@ -568,6 +595,7 @@ impl Daemon {
     }
 
     pub(crate) fn begin_turn(&self, session: &mut SessionState, seq: u64, prompt: String) {
+        session.loop_evidence = None;
         let guard = (session.settings.loop_mode != LoopMode::Off)
             .then(|| TurnGuard::new(self.escalation_mode(session)));
         session.turn = Some(TurnState {
@@ -711,6 +739,8 @@ impl Daemon {
                         let queued = if settings.decide.enabled {
                             let job = JudgeJob {
                                 tag: tag.clone(),
+                                repo: session.repo.clone(),
+                                key: session.key.clone(),
                                 seq: turn_seq_now,
                                 request: judge,
                                 prompt: turn.prompt.clone(),
@@ -876,6 +906,34 @@ impl Daemon {
         }
     }
 
+    fn record_hook_seen(
+        &self,
+        host: Host,
+        session_id: &str,
+        kind: EventKind,
+        native: Option<&str>,
+    ) -> bool {
+        let key = lock(&self.state)
+            .sessions
+            .get(&(host, session_id.to_owned()))
+            .map(|s| s.key.clone());
+        if let Some(key) = key {
+            lock(&self.outbox).events.push_back(EventInsert {
+                key,
+                kind: "hook.seen".into(),
+                inputs: serde_json::json!({"event":kind.as_str(),"native":native}),
+                template: "observation".into(),
+                params: serde_json::json!({}),
+                created_at: timestamp(self.clock.now_ms()),
+                evidence_ids: Vec::new(),
+                decision_id: None,
+            });
+            true
+        } else {
+            false
+        }
+    }
+
     /// Queues a `loop.*` event row and publishes the redirect notice.
     pub(crate) fn record_loop_event(
         &self,
@@ -895,6 +953,9 @@ impl Daemon {
             kind: kind.to_owned(),
             inputs: serde_json::json!({"redirect": detail, "shadow": shadow}),
             template: template.to_owned(),
+            created_at: timestamp(self.clock.now_ms()),
+            evidence_ids: Vec::new(),
+            decision_id: session.loop_evidence.clone(),
             params: serde_json::json!({
                 "event": kind,
                 "detail": text,
