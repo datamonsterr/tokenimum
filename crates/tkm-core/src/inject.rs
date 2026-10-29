@@ -123,6 +123,8 @@ pub(crate) fn sanitize_line(text: &str) -> String {
         .join(" ")
 }
 const HEADER: &str = "# Context\n";
+const MIN_SCORE: f64 = 1.5;
+const FIRE_GATE_SCORE: f64 = 1.0;
 /// Select after filtering disabled sources and deduplication. Facts obey SPEC 4.3
 /// caps in both modes. Scored candidates use SPEC 7.2 thresholds and order;
 /// items exceeding fact caps are skipped, and the first exceeding the overall
@@ -152,9 +154,9 @@ pub fn select(
                     && (0.0..=3.0).contains(score)
                     && *score
                         >= if item.source == Source::Facts && item.fire_gate_prevents {
-                            1.0
+                            FIRE_GATE_SCORE
                         } else {
-                            1.5
+                            MIN_SCORE
                         }
             })
         });
@@ -191,7 +193,7 @@ pub fn select(
         }
         if item.source == Source::Facts {
             facts += 1;
-            fact_tokens += tokens;
+            fact_tokens = fact_tokens.saturating_add(tokens);
         }
         text_tokens = next_text;
         selected.push(item);
@@ -231,7 +233,7 @@ pub fn cache_key(prompt: &str, items: &[InjectCandidate], config: Config) -> Cac
     }
     bytes.push(u8::from(config.memory));
     // Fixed relevance thresholds are part of the key's selection policy.
-    for threshold in [1.5_f64, 1.0_f64] {
+    for threshold in [MIN_SCORE, FIRE_GATE_SCORE] {
         bytes.extend_from_slice(&threshold.to_bits().to_le_bytes());
     }
     for item in items {
