@@ -101,7 +101,7 @@ fn init_no_shims_uses_fold_only() {
     assert!(output.status.success(), "{output:?}");
     assert!(stdout(&output).contains("fold-only"));
     assert!(stdout(&output).contains("instructions block: added per repository"));
-    assert!(stdout(&output).contains("No verified skill directory for pi"));
+    assert!(!stdout(&output).contains("No verified skill directory"));
     for home in [".config/opencode", ".pi/agent"] {
         assert!(!fixture.home.join(home).join("AGENTS.md").exists());
     }
@@ -121,6 +121,12 @@ fn init_no_shims_uses_fold_only() {
         fixture
             .home
             .join(".config/opencode/skills/tokenimum/SKILL.md")
+            .exists()
+    );
+    assert!(
+        fixture
+            .home
+            .join(".pi/agent/skills/tokenimum/SKILL.md")
             .exists()
     );
 }

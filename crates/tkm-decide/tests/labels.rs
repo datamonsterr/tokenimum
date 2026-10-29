@@ -86,7 +86,7 @@ fn batch_labels_preserve_item_identity_and_contradiction_polarity() {
         "rel_a",
         "rel_c",
     ];
-    let labels = question_labels(questions.into_iter(), &observations);
+    let labels = question_labels(questions, &observations);
     assert_eq!(
         labels,
         BTreeMap::from([
