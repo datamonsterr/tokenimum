@@ -23,10 +23,12 @@
 //! # }
 //! ```
 
+mod decisions;
 mod mechanisms;
 mod queries;
 mod sessions;
 
+pub use decisions::{CalibrationRecord, DecisionRecord, InstallRecord, NewDecision};
 pub use mechanisms::{DenylistEntry, ENVELOPE_RING, FactRecord, FactState, ToolEvidence};
 pub use queries::Repo;
 pub use sessions::{
