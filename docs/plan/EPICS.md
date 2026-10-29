@@ -382,6 +382,12 @@ Tasks:
   `cargo-geiger` report attached, install docs.
 - E10.5 Spec conformance audit: walk SPEC.md section by section, map each requirement to a test or
   document a deferral; write `docs/spec-conformance.md`.
+- E10.6 Replay benchmark over the taphoa-mini Claude Code history, per
+  `docs/plan/replay-benchmark.md`:
+  - clone A at latest `main` gives the recorded baseline;
+  - clone B starts at the oldest intact session's start state, has tokenimum installed, and
+    replays every session's prompts in anchored mode with a matched AI configuration;
+  - a no-tokenimum control arm measures replay variance.
 
 DoD:
 
@@ -390,3 +396,9 @@ DoD:
 - [ ] Release workflow builds static binaries on a tag (dry-run tag acceptable) and the
       reproducibility check passes.
 - [ ] `docs/spec-conformance.md` maps every SPEC requirement to evidence; no unmapped item.
+- [ ] Replay benchmark:
+      - extraction, anchoring, config-diff and accounting code is unit-tested on synthetic
+        transcripts in CI;
+      - the `workflow_dispatch` job ran the `sample` subset (at least 20 sessions);
+      - `docs/reports/replay-benchmark.md` reports baseline against tokenimum tokens per token
+        class, with the outcome check and the control-arm variance; it holds no prompt text.
