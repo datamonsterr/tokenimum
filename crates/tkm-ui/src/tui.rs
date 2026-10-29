@@ -180,10 +180,12 @@ fn rows(state: &MonitorState, pane: Pane) -> Vec<String> {
             .iter()
             .map(|s| {
                 format!(
-                    "{}  {}  {}  calls {} / {}  {}",
+                    "{}  {}  {}  turn {}  calls {} / {}  {}",
                     s.host.as_str(),
                     s.session_id,
                     s.repo.as_deref().unwrap_or("-"),
+                    s.turn_id
+                        .map_or_else(|| "-".into(), |turn| turn.to_string()),
                     s.turn_calls,
                     s.envelope.map_or_else(|| "-".into(), |e| format!("{e:.1}")),
                     s.loop_state
@@ -205,25 +207,7 @@ fn rows(state: &MonitorState, pane: Pane) -> Vec<String> {
                 )
             })
             .collect(),
-        Pane::Spend => vec![state.spend.as_ref().map_or_else(
-            || "Today: n/a (no timestamps); model share and 7-day trend unavailable".into(),
-            |s| {
-                let trend = if state.spend_days.is_empty() {
-                    "n/a (no timestamps)".to_owned()
-                } else {
-                    state
-                        .spend_days
-                        .iter()
-                        .map(|(day, cost)| format!("{day}:${cost:.2}"))
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                };
-                format!(
-                    "Today: ${:.6} / ${:.2}  session cap ${:.2}; 7-day trend {trend}",
-                    s.today_usd, s.daily_cap_usd, s.session_cap_usd
-                )
-            },
-        )],
+        Pane::Spend => spend_rows(state),
         Pane::Savings => savings_rows(state),
         Pane::Facts => state
             .facts
@@ -245,16 +229,49 @@ fn rows(state: &MonitorState, pane: Pane) -> Vec<String> {
             .iter()
             .map(|r| {
                 format!(
-                    "{}  {}  {}  {}  {}",
+                    "{}  {}  {}  {}  {}  calls [{}]",
                     r.host.as_str(),
                     r.session_id,
                     r.kind,
                     if r.shadow { "shadow" } else { "acted" },
-                    r.text
+                    r.text,
+                    r.triggering_calls.join(", ")
                 )
             })
             .collect(),
     }
+}
+fn spend_rows(state: &MonitorState) -> Vec<String> {
+    let mut rows = vec![state.spend.as_ref().map_or_else(
+        || "Today: unknown (no timestamps)".into(),
+        |spend| {
+            format!(
+                "Today: ${:.6} / ${:.2} daily cap; session cap ${:.2}",
+                spend.today_usd, spend.daily_cap_usd, spend.session_cap_usd
+            )
+        },
+    )];
+    if state.unknown_decision_costs > 0 {
+        rows.push(format!(
+            "Decision cost unknown: {} attempts",
+            state.unknown_decision_costs
+        ));
+    } else {
+        rows.push("Decision cost unknown: 0 attempts".into());
+    }
+    let mut models = std::collections::BTreeMap::<&str, f64>::new();
+    for decision in &state.decisions {
+        *models.entry(&decision.model).or_default() += decision.cost_usd;
+    }
+    let total: f64 = models.values().sum();
+    rows.extend(models.into_iter().map(|(model, cost)| {
+        format!(
+            "{model}: ${cost:.6} ({:.1}% of observed decisions)",
+            cost * 100.0 / total.max(f64::EPSILON)
+        )
+    }));
+    rows.push("7-day spend".into());
+    rows
 }
 fn savings_rows(state: &MonitorState) -> Vec<String> {
     let mut groups = std::collections::BTreeMap::<(&str, &str), (Vec<f64>, Vec<f64>)>::new();
@@ -307,16 +324,20 @@ pub fn render(state: &MonitorState, view: &ViewState, frame: &mut Frame<'_>) {
         Tabs::new(Pane::ALL.map(Pane::name)).select(view.pane.index()),
         areas[0],
     );
-    let list = List::new(rows(state, view.pane))
-        .block(Block::bordered().title(view.pane.name()))
-        .highlight_symbol("> ");
-    let mut selection = ListState::default();
-    if len(state, view.pane) > 0 {
-        selection.select(Some(
-            view.selection[view.pane.index()].min(len(state, view.pane) - 1),
-        ));
+    if view.pane == Pane::Spend {
+        render_spend(state, areas[1], frame);
+    } else {
+        let list = List::new(rows(state, view.pane))
+            .block(Block::bordered().title(view.pane.name()))
+            .highlight_symbol("> ");
+        let mut selection = ListState::default();
+        if len(state, view.pane) > 0 {
+            selection.select(Some(
+                view.selection[view.pane.index()].min(len(state, view.pane) - 1),
+            ));
+        }
+        frame.render_stateful_widget(list, areas[1], &mut selection);
     }
-    frame.render_stateful_widget(list, areas[1], &mut selection);
     let status = match view.mode {
         Mode::Live => "live",
         Mode::ReadOnly => "daemon down: read-only, no live feed",
@@ -346,6 +367,31 @@ pub fn render(state: &MonitorState, view: &ViewState, frame: &mut Frame<'_>) {
             areas[1],
         );
     }
+}
+fn render_spend(state: &MonitorState, area: ratatui::layout::Rect, frame: &mut Frame<'_>) {
+    use ratatui::{
+        layout::Constraint,
+        widgets::{Paragraph, Sparkline},
+    };
+    let inner = Block::bordered().title("Spend").inner(area);
+    frame.render_widget(Block::bordered().title("Spend"), area);
+    let split = Layout::vertical([Constraint::Length(3), Constraint::Min(1)]).split(inner);
+    let labels = spend_rows(state);
+    frame.render_widget(
+        Paragraph::new(labels.into_iter().take(3).collect::<Vec<_>>().join("\n")),
+        split[0],
+    );
+    let mut data = vec![0; 7usize.saturating_sub(state.spend_days.len().min(7))];
+    data.extend(
+        state
+            .spend_days
+            .iter()
+            .rev()
+            .take(7)
+            .rev()
+            .map(|(_, cost)| (cost.max(0.0) * 1_000.0).round() as u64),
+    );
+    frame.render_widget(Sparkline::default().data(&data), split[1]);
 }
 /// Provides the explanation for a selected row.
 pub trait WhySource {
@@ -547,6 +593,7 @@ mod ordering_tests {
         tkm_proto::monitor::MonitorMessage::Session(tkm_proto::monitor::SessionUpdate {
             host: tkm_proto::Host::Claude,
             session_id: "new".into(),
+            turn_id: None,
             repo: None,
             phase: "active".into(),
             turn_calls: 1,
@@ -673,6 +720,7 @@ mod ordering_tests {
                 tkm_proto::monitor::MonitorMessage::Session(tkm_proto::monitor::SessionUpdate {
                     host: tkm_proto::Host::Claude,
                     session_id: "ended".into(),
+                    turn_id: None,
                     repo: None,
                     phase: "active".into(),
                     turn_calls: 1,
@@ -695,6 +743,7 @@ mod ordering_tests {
                         tkm_proto::monitor::SessionUpdate {
                             host: tkm_proto::Host::Claude,
                             session_id: "new".into(),
+                            turn_id: None,
                             repo: None,
                             phase: "active".into(),
                             turn_calls: 1,
@@ -725,6 +774,7 @@ mod ordering_tests {
                     tkm_proto::monitor::SessionUpdate {
                         host: tkm_proto::Host::Claude,
                         session_id: "session".into(),
+                        turn_id: None,
                         repo: None,
                         phase: "active".into(),
                         turn_calls: 2,

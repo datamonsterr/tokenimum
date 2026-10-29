@@ -50,6 +50,7 @@ fn apply_updates_each_kind_and_bounds_history() {
     state.apply(MonitorMessage::Session(SessionUpdate {
         host: Host::Claude,
         session_id: "s".into(),
+        turn_id: None,
         repo: Some("repo".into()),
         phase: "active".into(),
         turn_calls: 5,
@@ -73,6 +74,7 @@ fn apply_updates_each_kind_and_bounds_history() {
         state.apply(MonitorMessage::Redirect(RedirectNotice {
             host: Host::Claude,
             session_id: "s".into(),
+            triggering_calls: Vec::new(),
             kind: "redirect".into(),
             text: n.to_string(),
             shadow: false,
@@ -119,6 +121,7 @@ fn populated_panes_match_whole_buffer_snapshots() {
     state.apply(MonitorMessage::Session(SessionUpdate {
         host: Host::Claude,
         session_id: "s".into(),
+        turn_id: None,
         repo: Some("repo".into()),
         phase: "active".into(),
         turn_calls: 5,
@@ -139,6 +142,7 @@ fn populated_panes_match_whole_buffer_snapshots() {
     state.apply(MonitorMessage::Redirect(RedirectNotice {
         host: Host::Claude,
         session_id: "s".into(),
+        triggering_calls: Vec::new(),
         kind: "redirect".into(),
         text: "try again".into(),
         shadow: false,
@@ -156,30 +160,21 @@ fn populated_panes_match_whole_buffer_snapshots() {
         shadow: true,
     });
     let mut view = ViewState::default();
-    let names = [
-        "Sessions",
-        "Decisions",
-        "Spend",
-        "Savings",
-        "Facts",
-        "Redirects",
-    ];
+    let names = ["Sessions", "Decisions", "Savings", "Facts", "Redirects"];
     let content = [
-        "claude  s  repo  calls 5 / 9.0  watching",
+        "claude  s  repo  turn -  calls 5 / 9.0  watching",
         r#"p0  model  {"ok":true}  4 ms  $0.010000  shadow"#,
-        "Today: $0.100000 / $2.00  session cap $1.00; 7-day trend n/a (no timestamps)",
         "repo  claude  recent [1.25] n=1  baseline 2.50 n=1",
         "repo  f  active  score -  confirmations -",
-        "claude  s  redirect  acted  try again",
+        "claude  s  redirect  acted  try again  calls []",
     ];
-    for (((pane, title), row), tab) in Pane::ALL.into_iter().zip(names).zip(content).zip([
-        (1, 8),
-        (12, 9),
-        (24, 5),
-        (32, 7),
-        (42, 5),
-        (50, 9),
-    ]) {
+    for (((pane, title), row), tab) in Pane::ALL
+        .into_iter()
+        .filter(|pane| *pane != Pane::Spend)
+        .zip(names)
+        .zip(content)
+        .zip([(1, 8), (12, 9), (32, 7), (42, 5), (50, 9)])
+    {
         view.pane = pane;
         let mut terminal = Terminal::new(TestBackend::new(120, 5)).unwrap();
         terminal
@@ -266,6 +261,7 @@ fn spec_113_gap_panes_show_turn_call_context_cost_share_and_sparkline() {
     let mut session = serde_json::to_value(SessionUpdate {
         host: Host::Claude,
         session_id: "s".into(),
+        turn_id: None,
         repo: Some("repo".into()),
         phase: "active".into(),
         turn_calls: 4,
@@ -280,6 +276,7 @@ fn spec_113_gap_panes_show_turn_call_context_cost_share_and_sparkline() {
     let mut redirect = serde_json::to_value(RedirectNotice {
         host: Host::Claude,
         session_id: "s".into(),
+        triggering_calls: Vec::new(),
         kind: "redirect".into(),
         text: "retry".into(),
         shadow: false,
@@ -312,13 +309,16 @@ fn spec_113_gap_panes_show_turn_call_context_cost_share_and_sparkline() {
         terminal
             .draw(|frame| tui::render(&state, &view, frame))
             .unwrap();
-        let rendered = terminal
-            .backend()
-            .buffer()
-            .content
-            .iter()
-            .map(|cell| cell.symbol())
-            .collect::<String>();
+        let rendered =
+            terminal
+                .backend()
+                .buffer()
+                .content
+                .iter()
+                .fold(String::new(), |mut text, cell| {
+                    text.push_str(cell.symbol());
+                    text
+                });
         assert!(
             rendered.contains(expected),
             "missing {expected:?} in {rendered:?}"
@@ -329,13 +329,16 @@ fn spec_113_gap_panes_show_turn_call_context_cost_share_and_sparkline() {
     terminal
         .draw(|frame| tui::render(&state, &view, frame))
         .unwrap();
-    let rendered = terminal
-        .backend()
-        .buffer()
-        .content
-        .iter()
-        .map(|cell| cell.symbol())
-        .collect::<String>();
+    let rendered =
+        terminal
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .fold(String::new(), |mut text, cell| {
+                text.push_str(cell.symbol());
+                text
+            });
     assert!(
         rendered
             .chars()
@@ -613,6 +616,7 @@ fn folded_session_refreshes_savings_with_fake_loader() {
     let folded = MonitorMessage::Session(SessionUpdate {
         host: Host::Claude,
         session_id: "s".into(),
+        turn_id: None,
         repo: Some("repo".into()),
         phase: "folded".into(),
         turn_calls: 0,
