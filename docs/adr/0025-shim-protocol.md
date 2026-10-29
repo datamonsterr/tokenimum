@@ -17,7 +17,10 @@ its reply. This ADR fixes the wire contract between shim, `tkm-hook` (epic E4) a
    stdin option, so Pi passes it as one argument `--payload <json>`. The Pi shim truncates every
    string longer than 8,000 characters (a `JSON.stringify` replacer) and fails open when the
    UTF-8 payload exceeds 100,000 bytes (Linux limits one argument to 128 KiB). E4 implements
-   `--host-event` and `--payload`; E6 does not edit `crates/tkm-hook`.
+   `--host-event` and `--payload`; E6 does not edit `crates/tkm-hook`. Semantics agreed with E4
+   (2026-10-29): `--host-event` overrides payload `hook_event_name`; `--payload` replaces stdin and
+   stdin is then not read; invalid `--payload` JSON becomes payload `null` (logged, request still
+   sent, fail open); `Reply.stdout` is printed verbatim and is empty for a no-op.
 2. **Payloads.**
    - opencode: `{"hook":"<hook>","input":..,"output":..}` for `chat.message` and
      `tool.execute.after` (the `output` of `chat.message` is `{message, parts}`, sent as is);
