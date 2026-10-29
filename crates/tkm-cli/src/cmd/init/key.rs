@@ -30,11 +30,21 @@ pub(crate) fn key_path(ctx: &Ctx<'_>, config: &EffectiveConfig) -> Result<PathBu
 
 pub(crate) fn load(ctx: &Ctx<'_>, config: &EffectiveConfig) -> Result<ApiKey, KeyError> {
     let path = key_path(ctx, config).map_err(|_| KeyError::Missing)?;
-    load_key(
-        state::env(ctx, "OPENROUTER_API_KEY").map(str::to_owned),
-        &path,
-        None,
-    )
+    let value = state::env(ctx, "OPENROUTER_API_KEY")
+        .filter(|value| !value.trim().is_empty())
+        .map(str::to_owned)
+        .or_else(|| {
+            (config.get_bool("integrations.otherskill_key_reuse") == Some(true)
+                && fs::symlink_metadata(&path)
+                    .is_err_and(|error| error.kind() == std::io::ErrorKind::NotFound))
+            .then(|| {
+                state::home(ctx)
+                    .ok()
+                    .and_then(|home| tkm_integrations::otherskill::read_key(&home))
+            })
+            .flatten()
+        });
+    load_key(value, &path, None)
 }
 
 pub(crate) fn automatic(ctx: &Ctx<'_>, config: &EffectiveConfig) -> Result<Choice, CliError> {

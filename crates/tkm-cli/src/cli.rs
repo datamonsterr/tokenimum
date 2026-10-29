@@ -111,7 +111,11 @@ pub struct TopArgs {}
 
 /// Local web dashboard options.
 #[derive(Debug, Default, Args)]
-pub struct DashboardArgs {}
+pub struct DashboardArgs {
+    /// Print the local dashboard URL without opening a browser.
+    #[arg(long)]
+    pub no_open: bool,
+}
 
 /// Action explanation options.
 #[derive(Debug, Args)]

@@ -90,6 +90,14 @@ pub fn run(ctx: &mut Ctx<'_>, args: &DoctorArgs) -> Result<ExitCode, CliError> {
     }
     match ctx.load_config() {
         Ok(config) => {
+            for adapter in super::init_integrations::adapter_reports(ctx, &config) {
+                line(
+                    ctx,
+                    if adapter.enabled { "ok" } else { "warn" },
+                    &format!("{} adapter", adapter.name),
+                    &adapter.reason,
+                )?;
+            }
             failed |= !check_key(ctx, &config, args.probe)?;
         }
         Err(error) => {

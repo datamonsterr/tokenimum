@@ -32,6 +32,7 @@ struct Target {
     report: InstallReport,
     repo: Option<PathBuf>,
     adapter_changed: bool,
+    account: bool,
 }
 
 /// Execute `tkm init`.
@@ -41,7 +42,20 @@ struct Target {
 /// are reported and do not prevent installation of the other selected homes.
 #[allow(clippy::too_many_lines)] // Keep the plan/approval/apply sequence visible at one entry point.
 pub fn run(ctx: &mut Ctx<'_>, args: &InitArgs) -> Result<ExitCode, CliError> {
-    let homes = select(ctx, args)?;
+    let mut homes: Vec<_> = select(ctx, args)?
+        .into_iter()
+        .map(|(host, home)| (host, home, false))
+        .collect();
+    let accounts = super::init_integrations::account_homes(ctx, args)?;
+    for account in &accounts {
+        if let Some(host) = account.host
+            && !homes
+                .iter()
+                .any(|(existing, home, _)| *existing == host && *home == account.home)
+        {
+            homes.push((host, account.home.clone(), true));
+        }
+    }
     let config = ctx.load_config()?;
     let mut global = ConfigFile::load(ctx.paths.global_config.clone(), Layer::Global)?;
     if let Some(preset) = &args.preset {
@@ -55,9 +69,10 @@ pub fn run(ctx: &mut Ctx<'_>, args: &InitArgs) -> Result<ExitCode, CliError> {
     let mut failed = false;
     let mut targets = Vec::new();
     writeln!(ctx.stdout, "Installation plan:")?;
-    for (host, home) in homes {
+    for (host, home, account) in homes {
         match target(ctx, &registry, host, home, args.no_shims) {
-            Ok(target) => {
+            Ok(mut target) => {
+                target.account = account;
                 writeln!(
                     ctx.stdout,
                     "{}: {} ({})",
@@ -83,18 +98,12 @@ pub fn run(ctx: &mut Ctx<'_>, args: &InitArgs) -> Result<ExitCode, CliError> {
             }
         }
     }
-    let integrations = super::init_integrations::detect(ctx);
+    let integrations = super::init_integrations::detect(ctx)?;
     writeln!(
         ctx.stdout,
         "{}\n{}",
         integrations.superorchestrator, integrations.otherskill
     )?;
-    if args.superorchestrator {
-        writeln!(
-            ctx.stdout,
-            "superorchestrator account homes: detection deferred to the integration adapter"
-        )?;
-    }
     let service = system::plan(ctx)?;
     writeln!(ctx.stdout, "service: {}", service.path.display())?;
     writeln!(ctx.stdout, "key: {}", key::describe(&choice))?;
@@ -121,30 +130,37 @@ pub fn run(ctx: &mut Ctx<'_>, args: &InitArgs) -> Result<ExitCode, CliError> {
     } else {
         key::interactive(ctx, choice)?
     };
+    let key_reuse = super::init_integrations::consent(ctx, &config, args.yes)?;
     let store = daemon::open_db_for_write(&ctx.paths)?;
     key::apply(ctx, &choice, &mut global)?;
+    if key_reuse {
+        global.set("integrations.otherskill_key_reuse", "true")?;
+        if matches!(choice, key::Choice::Offline)
+            && tkm_integrations::otherskill::read_key(&state::home(ctx)?).is_some()
+        {
+            global.set("decide.enabled", "true")?;
+        }
+    }
     if args.preset.as_deref().or_else(|| config.get_str("preset")) == Some("offline") {
         global.set("decide.enabled", "false")?;
     }
     global.save()?;
     let mut installed = Vec::new();
-    for target in &targets {
-        match apply(&store, &registry, target) {
-            Ok(record) => {
-                writeln!(
-                    ctx.stdout,
-                    "ok {} install: {}",
-                    target.host.as_str(),
-                    target.home.display()
-                )?;
-                installed.push(record);
-            }
-            Err(error) => {
-                writeln!(ctx.stderr, "fail {} install: {error}", target.host.as_str())?;
-                failed = true;
-            }
-        }
+    for target in targets.iter().filter(|target| !target.account) {
+        failed |= install_target(ctx, &store, &registry, target, &mut installed).is_err();
     }
+    let account_report =
+        tkm_integrations::superorchestrator::install_account_homes(&accounts, |host, home| {
+            // A normal-home target may already cover an account at the same path.
+            let Some(target) = targets
+                .iter()
+                .find(|target| target.account && target.host == host && target.home == home)
+            else {
+                return Ok(tkm_integrations::superorchestrator::InstallOutcome::AlreadyPresent);
+            };
+            install_target(ctx, &store, &registry, target, &mut installed)
+        });
+    failed |= account_report.failed > 0;
     if !installed.is_empty() {
         // Shared service metadata is copied to every home so --host removal cannot lose it.
         let existing = store.list_installs().map_err(state::failure)?;
@@ -308,12 +324,42 @@ fn target(
         report,
         repo,
         adapter_changed,
+        account: false,
     })
 }
 
 fn merge(target: &mut InstallReport, report: InstallReport) {
     state::extend_paths(&mut target.changed_files, report.changed_files);
     target.instructions.extend(report.instructions);
+}
+
+fn install_target(
+    ctx: &mut Ctx<'_>,
+    store: &tkm_store::Store,
+    registry: &AdapterRegistry,
+    target: &Target,
+    installed: &mut Vec<InstallRecord>,
+) -> Result<tkm_integrations::superorchestrator::InstallOutcome, CliError> {
+    match apply(store, registry, target) {
+        Ok(record) => {
+            writeln!(
+                ctx.stdout,
+                "ok {} install: {}",
+                target.host.as_str(),
+                target.home.display()
+            )?;
+            installed.push(record);
+            Ok(if target.report.changed_files.is_empty() {
+                tkm_integrations::superorchestrator::InstallOutcome::AlreadyPresent
+            } else {
+                tkm_integrations::superorchestrator::InstallOutcome::Installed
+            })
+        }
+        Err(error) => {
+            writeln!(ctx.stderr, "fail {} install: {error}", target.host.as_str())?;
+            Err(error)
+        }
+    }
 }
 
 #[allow(clippy::too_many_lines)] // Persist recovery metadata before each group of adapter effects.

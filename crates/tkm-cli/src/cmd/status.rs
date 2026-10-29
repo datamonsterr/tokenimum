@@ -151,21 +151,12 @@ pub fn run_at(ctx: &mut Ctx<'_>, args: &StatusArgs, now_ms: i64) -> Result<ExitC
             uptime: "unknown".into(),
         },
     };
-    let adapters = ["superorchestrator", "otherskill"]
+    let adapters = super::init_integrations::adapter_reports(ctx, &config)
         .into_iter()
-        .map(|name| {
-            let mode = config
-                .get_str(&format!("integrations.{name}"))
-                .unwrap_or("auto");
-            AdapterReport {
-                name: name.into(),
-                enabled: false,
-                reason: if mode == "off" {
-                    "disabled in configuration".into()
-                } else {
-                    format!("adapter unavailable; configured {mode}")
-                },
-            }
+        .map(|report| AdapterReport {
+            name: report.name,
+            enabled: report.enabled,
+            reason: report.reason,
         })
         .collect();
     let keys = if args.all {
