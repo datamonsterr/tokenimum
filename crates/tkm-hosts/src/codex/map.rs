@@ -6,9 +6,9 @@ use serde_json::{Map, Value};
 use tkm_core::model::{Call, EditKind, EditVia, FileEdit, HookEvent, StopReason};
 use tkm_proto::{EventKind, Host, PROTOCOL_VERSION, Request};
 
-use super::digest_shim::{args_digest, output_digest};
-use super::{output_text, repo_relative};
+use super::repo_relative;
 use crate::AdapterError;
+use crate::digest::{args_digest, output_digest};
 
 const SHELL_TOOL: &str = "Bash";
 const PATCH_TOOL: &str = "apply_patch";
@@ -118,8 +118,8 @@ fn build_call(payload: &Map<String, Value>, cwd: Option<&Path>) -> Result<Call, 
         Vec::new()
     };
     Ok(Call {
-        args_digest: args_digest(shell, input),
-        output_digest: output_digest(&output_text(&response)),
+        args_digest: args_digest(&tool, input),
+        output_digest: output_digest(&response),
         exit_code,
         is_error: reported_error || exit_code.is_some_and(|code| code != 0),
         duration_ms: None,

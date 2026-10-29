@@ -15,12 +15,14 @@ use tkm_core::model::{
 };
 use tkm_proto::Host;
 
-use super::digest_shim::{args_digest, command_digest, output_digest};
-use super::{output_text, repo_relative};
+use super::repo_relative;
+use crate::digest::{args_digest, output_digest, truncate};
 use crate::{AdapterError, SessionSource};
 
 /// Largest rollout accepted, compressed or not, once decompressed.
 const MAX_ROLLOUT_BYTES: usize = 256 * 1024 * 1024;
+/// Digest length cap from ADR 0011.
+const MAX_DIGEST_CHARS: usize = 512;
 const UNKNOWN_MODEL: &str = "unknown";
 const SHELL_FLAGS: [&str; 3] = ["-c", "-lc", "-ic"];
 const IGNORED_RECORDS: [&str; 5] = [
@@ -346,12 +348,8 @@ fn command_call(item: &Map<String, Value>) -> Call {
         .and_then(|code| i32::try_from(code).ok());
     Call {
         tool: "Bash".into(),
-        args_digest: command_digest(&command_text(item)),
-        output_digest: output_digest(
-            item.get("aggregated_output")
-                .and_then(Value::as_str)
-                .unwrap_or_default(),
-        ),
+        args_digest: truncate(&command_text(item), MAX_DIGEST_CHARS),
+        output_digest: output_digest(item.get("aggregated_output").unwrap_or(&Value::Null)),
         exit_code,
         is_error: failed(item) || exit_code.is_some_and(|code| code != 0),
         duration_ms: duration_ms(item),
@@ -384,12 +382,8 @@ fn patch_call(item: &Map<String, Value>, event: &Map<String, Value>, cwd: &Path)
     let completed = event.get("completed_at_ms").and_then(Value::as_u64);
     Call {
         tool: "apply_patch".into(),
-        args_digest: command_digest(&lines.join("\n")),
-        output_digest: output_digest(
-            item.get("stdout")
-                .and_then(Value::as_str)
-                .unwrap_or_default(),
-        ),
+        args_digest: truncate(&lines.join("\n"), MAX_DIGEST_CHARS),
+        output_digest: output_digest(item.get("stdout").unwrap_or(&Value::Null)),
         exit_code: None,
         is_error: failed(item),
         duration_ms: completed
@@ -410,10 +404,11 @@ fn mcp_call(item: &Map<String, Value>) -> Call {
     let result = item.get("result").unwrap_or(&Value::Null);
     let result_error = result.get("isError").and_then(Value::as_bool) == Some(true);
     let has_error = item.get("error").is_some_and(|error| !error.is_null());
+    let args = args_digest(&tool, item.get("arguments").unwrap_or(&Value::Null));
     Call {
         tool,
-        args_digest: args_digest(false, item.get("arguments").unwrap_or(&Value::Null)),
-        output_digest: output_digest(&output_text(result)),
+        args_digest: args,
+        output_digest: output_digest(result),
         exit_code: None,
         is_error: failed(item) || result_error || has_error,
         duration_ms: duration_ms(item),
