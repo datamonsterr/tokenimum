@@ -182,9 +182,10 @@ fn planned(transcript: &Transcript) -> Result<PlannedSession, BenchError> {
         prompts,
     })
 }
-fn corpus(
-    path: &Path,
-) -> Result<(Manifest, Vec<Transcript>, BTreeMap<String, String>), BenchError> {
+/// Manifest, loadable transcripts, and the reason each skipped session was left out.
+type Corpus = (Manifest, Vec<Transcript>, BTreeMap<String, String>);
+
+fn corpus(path: &Path) -> Result<Corpus, BenchError> {
     let mut manifest: Manifest = serde_json::from_slice(&fs::read(path)?)?;
     let root = path
         .parent()

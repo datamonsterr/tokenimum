@@ -395,10 +395,13 @@ fn fold_status(env: &Env) -> Option<String> {
 #[tokio::test]
 async fn fold_prices_session_with_configured_model_rates() {
     let env = Env::new();
-    let mut settings = Settings::default();
-    settings.pricing =
-        tkm_core::ledger::PriceTable::parse(include_str!("../../../fixtures/pricing/pricing.toml"))
-            .unwrap();
+    let mut settings = Settings {
+        pricing: tkm_core::ledger::PriceTable::parse(include_str!(
+            "../../../fixtures/pricing/pricing.toml"
+        ))
+        .unwrap(),
+        ..Settings::default()
+    };
     let text = std::fs::read_to_string(transcript()).unwrap();
     let model = "example-model";
     let replaced = text

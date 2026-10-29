@@ -48,8 +48,8 @@ fn fold_session(c: &mut Criterion) {
                     FactsState::default(),
                     &BTreeSet::new(),
                     &FactsConfig::default(),
-                ))
-            })
+                ));
+            });
         });
     }
 }

@@ -131,7 +131,7 @@ fn prompt(c: &mut Criterion) {
             || setup("cached prompt"),
             |req| black_box(runtime.block_on(daemon.handle(black_box(req)))),
             BatchSize::PerIteration,
-        )
+        );
     });
     let mut prompt_id = 0_u64;
     group.bench_function("scored", |b| {
@@ -142,7 +142,7 @@ fn prompt(c: &mut Criterion) {
             },
             |req| black_box(runtime.block_on(daemon.handle(black_box(req)))),
             BatchSize::PerIteration,
-        )
+        );
     });
     group.finish();
     assert!(

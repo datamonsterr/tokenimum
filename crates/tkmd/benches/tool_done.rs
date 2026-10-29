@@ -249,10 +249,11 @@ fn tool_done(c: &mut Criterion) {
     blind.store(true, Ordering::Relaxed);
     assert_eq!(daemon.handle_tool_done(&failing).stdout, "");
     blind.store(false, Ordering::Relaxed);
-    assert!(matches!(
-        daemon.handle_tool_done(&failing).action,
-        tkm_proto::ReplyAction::Inject { .. }
-    ));
+    let delivered = daemon.handle_tool_done(&failing);
+    assert!(
+        matches!(delivered.action, tkm_proto::ReplyAction::Inject { .. }),
+        "redirect must be delivered once the host can show it: {delivered:?}"
+    );
     bench_gate_open(c, &runtime, &daemon, &failing);
     bench_pending_redirect(c, &runtime, &daemon, &failing, &blind);
 }
