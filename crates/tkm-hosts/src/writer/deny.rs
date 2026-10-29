@@ -223,9 +223,61 @@ fn token(host: Host, name: &str) -> String {
                 || name.to_owned(),
                 |(server, tool)| format!("Mcp({server}:{tool})"),
             ),
+        Host::Opencode => name
+            .strip_prefix("mcp__")
+            .and_then(|name| name.split_once("__"))
+            .map_or_else(
+                || name.to_owned(),
+                |(server, tool)| format!("{server}_{tool}"),
+            ),
         Host::Pi => format!("-{name}"),
         _ => name.to_owned(),
     }
+}
+
+// Restore only empty containers that were absent before tokenimum's first write.
+// In particular, Pi's absent defaultTools inherits tools, but [] disables them.
+fn restore_containers(
+    mut text: String,
+    backup: &str,
+    surface: Surface,
+) -> Result<String, AdapterError> {
+    let baseline: Value = serde_json::from_str(if backup.is_empty() { "{}" } else { backup })?;
+    let value: Value = serde_json::from_str(&text)?;
+    match surface {
+        Surface::Permissions => {
+            if value
+                .pointer("/permissions/deny")
+                .and_then(Value::as_array)
+                .is_some_and(Vec::is_empty)
+                && baseline.pointer("/permissions/deny").is_none()
+            {
+                let root = span::parse(&text)?;
+                if let Some(permissions) = root.member("permissions") {
+                    text = span::remove_member(&text, permissions, "deny");
+                }
+            }
+            let root = span::parse(&text)?;
+            if let Some(permissions) = root.member("permissions")
+                && permissions.members.is_empty()
+                && baseline.get("permissions").is_none()
+            {
+                text = span::remove_member(&text, &root, "permissions");
+            }
+        }
+        Surface::Opencode | Surface::Pi => {
+            let key = surface.keys()[0];
+            let empty = value.get(key).is_some_and(|value| {
+                value.as_array().is_some_and(Vec::is_empty)
+                    || value.as_object().is_some_and(serde_json::Map::is_empty)
+            });
+            if empty && baseline.get(key).is_none() {
+                let root = span::parse(&text)?;
+                text = span::remove_member(&text, &root, key);
+            }
+        }
+    }
+    Ok(text)
 }
 
 /// Reconciles a verified host's project deny settings, preserving foreign entries.
@@ -302,13 +354,26 @@ fn update_surface(
     refuse_tracked(repo, &path)?;
     refuse_tracked(repo, &target)?;
     let (backup, backup_target) = checked_backup(repo, &path, &target)?;
+    refuse_tracked(repo, &backup)?;
+    refuse_tracked(repo, &backup_target)?;
     let mut exclude_changed = false;
     retry_update(read_optional(&target)?, |original| {
         // Recheck the index too when retrying a concurrently changed document.
         refuse_tracked(repo, &path)?;
         refuse_tracked(repo, &target)?;
-        let (changed, new_owned) = reconcile(original.unwrap_or("{}"), owned, desired, surface)?;
-        let settings_changed = original.unwrap_or("{}") != changed;
+        let (mut changed, new_owned) =
+            reconcile(original.unwrap_or("{}"), owned, desired, surface)?;
+        let mut delete = false;
+        if new_owned.is_empty()
+            && !owned.is_empty()
+            && original.is_some_and(|original| original != changed)
+        {
+            let backup_text = read_optional(&backup_target)?
+                .ok_or_else(|| invalid("deny backup missing; cannot safely restore settings"))?;
+            changed = restore_containers(changed, &backup_text, surface)?;
+            delete = backup_text.is_empty() && span::parse(&changed)?.members.is_empty();
+        }
+        let settings_changed = delete || original.unwrap_or("{}") != changed;
         let mut report = DenyReport {
             owned: new_owned,
             changed_files: Vec::new(),
@@ -333,7 +398,12 @@ fn update_surface(
         }
         if settings_changed && !dry_run {
             let backup_path = needs_backup.then_some(backup_target.as_path());
-            match update_with_backup(&target, original, &changed, backup_path, || {})? {
+            let update = if delete {
+                atomic_update(&target, original, None, || Ok(()))?
+            } else {
+                update_with_backup(&target, original, &changed, backup_path, || {})?
+            };
+            match update {
                 Update::Done(()) => {}
                 Update::Retry(current) => return Ok(Update::Retry(current)),
             }

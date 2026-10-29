@@ -132,14 +132,12 @@ fn apply(
     config: &PruneConfig,
     current: Timestamp,
 ) -> Result<(), CliError> {
-    use rusqlite::OptionalExtension;
     let repo: Option<i64> = db
         .query_row(
-            "SELECT last_seen FROM repos WHERE repo_key = ?1",
+            "SELECT MAX(activity) FROM (SELECT last_seen AS activity FROM repos WHERE repo_key = ?1 UNION ALL SELECT started_at FROM sessions WHERE repo_key = ?1 UNION ALL SELECT ended_at FROM sessions WHERE repo_key = ?1 UNION ALL SELECT e.created_at FROM events e JOIN sessions s ON s.id = e.session_id WHERE s.repo_key = ?1)",
             [&ctx.repo.key.0],
             |row| row.get(0),
         )
-        .optional()
         .map_err(db_error)?;
     let Some(last_seen) = repo else {
         return Err(CliError::Usage(
@@ -179,10 +177,12 @@ fn apply(
             .map_err(store_error)?;
         let mut ready = BTreeSet::new();
         for tool in desired {
-            let since = store
+            let Some(since) = store
                 .prune_ready_since(&ctx.repo.key, kind, tool)
                 .map_err(store_error)?
-                .unwrap_or(current);
+            else {
+                continue;
+            };
             if prune::write_allowed(Timestamp(last_seen), since, current, config) {
                 ready.insert(tool.clone());
             }
