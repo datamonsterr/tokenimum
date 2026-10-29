@@ -283,4 +283,57 @@ mod tests {
         assert_eq!(value["permissions"]["deny"], serde_json::json!([]));
         Ok(())
     }
+    #[test]
+    fn forgetting_fact_publishes_retirement() -> Result<(), Box<dyn std::error::Error>> {
+        use tkm_store::{FactRecord, FactState, Repo};
+        let dir = tempfile::tempdir()?;
+        let paths = Paths::from_dirs(
+            dir.path(),
+            Some(dir.path()),
+            Some(dir.path()),
+            Some(dir.path()),
+        );
+        paths.ensure_runtime_dir()?;
+        let store = tkm_store::Store::open(&paths.db)?;
+        let repo = RepoKey("repo".into());
+        store.upsert_repo(&Repo {
+            repo_key: repo.clone(),
+            display_name: "repo".into(),
+            first_seen: Timestamp(1),
+            last_seen: Timestamp(1),
+            delegated_runs: 0,
+        })?;
+        store.insert_candidate_fact(&FactRecord {
+            repo_key: repo,
+            fact_id: "fact".into(),
+            family: "boundary".into(),
+            scope: "neutral".into(),
+            text_params: serde_json::json!({}),
+            state: FactState::Candidate,
+            score: 1.0,
+            confirmations: 1,
+            contradictions: 0,
+            fire_count: 0,
+            fire_sessions: 0,
+        })?;
+        let daemon = Daemon::new(crate::daemon::DaemonOptions::new(paths.clone()));
+        let mut receiver = daemon.subscribe();
+        let actions = DaemonActions {
+            db: paths.db,
+            daemon,
+            deny_lock: Mutex::new(()),
+        };
+        actions
+            .forget_fact("repo", "fact")
+            .map_err(std::io::Error::other)?;
+        assert_eq!(
+            receiver.try_recv()?,
+            tkm_proto::monitor::MonitorMessage::Fact(tkm_proto::monitor::FactNotice {
+                repo: "repo".into(),
+                fact_id: "fact".into(),
+                kind: "retired".into()
+            })
+        );
+        Ok(())
+    }
 }
