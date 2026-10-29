@@ -6,7 +6,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use tkm_hosts::AdapterError;
-use tkm_hosts::fold_only::skill::{install, render, skill_path, uninstall};
+use tkm_hosts::fold_only::skill::{SkillOptions, install, render, skill_path, uninstall};
 use tkm_proto::Host;
 
 struct Scratch(PathBuf);
@@ -26,6 +26,15 @@ impl Drop for Scratch {
     fn drop(&mut self) {
         let _ = fs::remove_dir_all(&self.0);
     }
+}
+
+fn git(dir: &Path, args: &[&str]) {
+    let status = std::process::Command::new("git")
+        .args(args)
+        .current_dir(dir)
+        .status()
+        .unwrap();
+    assert!(status.success(), "git {args:?}");
 }
 
 #[test]
@@ -112,18 +121,18 @@ fn skill_path_project_scope_per_harness() {
 #[test]
 fn install_writes_file_and_is_idempotent() {
     let scratch = Scratch::new();
-    let report = install(Host::Claude, &scratch.0, None, false).unwrap();
+    let report = install(Host::Claude, &scratch.0, None, SkillOptions::default()).unwrap();
     let path = scratch.0.join("skills/tokenimum/SKILL.md");
     assert_eq!(report.changed_files, vec![path.clone()]);
     assert_eq!(fs::read_to_string(&path).unwrap(), render(Host::Claude));
-    let again = install(Host::Claude, &scratch.0, None, false).unwrap();
+    let again = install(Host::Claude, &scratch.0, None, SkillOptions::default()).unwrap();
     assert!(again.changed_files.is_empty(), "unexpected report");
 }
 
 #[test]
 fn install_dry_run_writes_nothing() {
     let scratch = Scratch::new();
-    let report = install(Host::Opencode, &scratch.0, None, true).unwrap();
+    let report = install(Host::Opencode, &scratch.0, None, SkillOptions { dry_run: true, ..SkillOptions::default() }).unwrap();
     assert!(report.dry_run);
     assert_eq!(report.changed_files.len(), 1);
     assert!(!scratch.0.join("skills").exists());
@@ -135,7 +144,8 @@ fn install_project_scope_uses_repo_root() {
     let home = scratch.0.join("home");
     let repo = scratch.0.join("repo");
     fs::create_dir_all(&repo).unwrap();
-    install(Host::Pi, &home, Some(&repo), false).unwrap();
+    git(&repo, &["init", "-q"]);
+    install(Host::Pi, &home, Some(&repo), SkillOptions::default()).unwrap();
     assert!(repo.join(".agents/skills/tokenimum/SKILL.md").is_file());
     assert!(!home.exists());
 }
@@ -143,7 +153,7 @@ fn install_project_scope_uses_repo_root() {
 #[test]
 fn install_unverified_harness_is_report_only() {
     let scratch = Scratch::new();
-    let report = install(Host::Cursor, &scratch.0, None, false).unwrap();
+    let report = install(Host::Cursor, &scratch.0, None, SkillOptions::default()).unwrap();
     assert!(report.changed_files.is_empty(), "unexpected report");
     assert!(!report.instructions.is_empty(), "unexpected report");
     assert_eq!(fs::read_dir(&scratch.0).unwrap().count(), 0);
@@ -155,7 +165,7 @@ fn install_refuses_to_overwrite_a_foreign_skill() {
     let path = scratch.0.join("skills/tokenimum/SKILL.md");
     fs::create_dir_all(path.parent().unwrap()).unwrap();
     fs::write(&path, "---\nname: tokenimum\n---\nmine\n").unwrap();
-    let err = install(Host::Claude, &scratch.0, None, false).unwrap_err();
+    let err = install(Host::Claude, &scratch.0, None, SkillOptions::default()).unwrap_err();
     assert!(matches!(err, AdapterError::UnsafeTarget { .. }), "{err:?}");
     assert_eq!(
         fs::read_to_string(&path).unwrap(),
@@ -171,7 +181,7 @@ fn install_refuses_symlink_out_of_agent_home() {
     let home = scratch.0.join("home");
     fs::create_dir_all(home.join("skills")).unwrap();
     std::os::unix::fs::symlink(&outside.0, home.join("skills/tokenimum")).unwrap();
-    let err = install(Host::Claude, &home, None, false).unwrap_err();
+    let err = install(Host::Claude, &home, None, SkillOptions::default()).unwrap_err();
     assert!(matches!(err, AdapterError::UnsafeTarget { .. }), "{err:?}");
     assert_eq!(fs::read_dir(&outside.0).unwrap().count(), 0);
 }
@@ -179,8 +189,8 @@ fn install_refuses_symlink_out_of_agent_home() {
 #[test]
 fn uninstall_removes_owned_file_and_empty_directory() {
     let scratch = Scratch::new();
-    install(Host::Claude, &scratch.0, None, false).unwrap();
-    let report = uninstall(Host::Claude, &scratch.0, None, false).unwrap();
+    install(Host::Claude, &scratch.0, None, SkillOptions::default()).unwrap();
+    let report = uninstall(Host::Claude, &scratch.0, None, SkillOptions::default()).unwrap();
     assert_eq!(
         report.changed_files,
         vec![scratch.0.join("skills/tokenimum/SKILL.md")]
@@ -191,8 +201,8 @@ fn uninstall_removes_owned_file_and_empty_directory() {
 #[test]
 fn uninstall_dry_run_keeps_file() {
     let scratch = Scratch::new();
-    install(Host::Claude, &scratch.0, None, false).unwrap();
-    let report = uninstall(Host::Claude, &scratch.0, None, true).unwrap();
+    install(Host::Claude, &scratch.0, None, SkillOptions::default()).unwrap();
+    let report = uninstall(Host::Claude, &scratch.0, None, SkillOptions { dry_run: true, ..SkillOptions::default() }).unwrap();
     assert!(report.dry_run);
     assert_eq!(report.changed_files.len(), 1);
     assert!(scratch.0.join("skills/tokenimum/SKILL.md").is_file());
@@ -204,7 +214,7 @@ fn uninstall_leaves_file_without_marker() {
     let path = scratch.0.join("skills/tokenimum/SKILL.md");
     fs::create_dir_all(path.parent().unwrap()).unwrap();
     fs::write(&path, "---\nname: tokenimum\n---\nhand written\n").unwrap();
-    let report = uninstall(Host::Claude, &scratch.0, None, false).unwrap();
+    let report = uninstall(Host::Claude, &scratch.0, None, SkillOptions::default()).unwrap();
     assert!(report.changed_files.is_empty(), "unexpected report");
     assert!(path.is_file());
 }
@@ -213,7 +223,62 @@ fn uninstall_leaves_file_without_marker() {
 fn uninstall_absent_and_unsupported_are_noops() {
     let scratch = Scratch::new();
     for host in [Host::Claude, Host::Codex] {
-        let report = uninstall(host, &scratch.0, None, false).unwrap();
+        let report = uninstall(host, &scratch.0, None, SkillOptions::default()).unwrap();
         assert_eq!(report.changed_files, Vec::<PathBuf>::new());
     }
+}
+
+#[test]
+fn install_project_scope_refuses_tracked_skill_without_opt_in() {
+    let scratch = Scratch::new();
+    let home = scratch.0.join("home");
+    let repo = scratch.0.join("repo");
+    let path = repo.join(".claude/skills/tokenimum/SKILL.md");
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    git(&repo, &["init", "-q"]);
+    fs::write(&path, render(Host::Claude)).unwrap();
+    git(&repo, &["add", "."]);
+    git(
+        &repo,
+        &["-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-qm", "x"],
+    );
+    let stale = fs::read_to_string(&path).unwrap().replace("host=claude", "host=old");
+    fs::write(&path, &stale).unwrap();
+    let err = install(Host::Claude, &home, Some(&repo), SkillOptions::default()).unwrap_err();
+    assert!(matches!(err, AdapterError::UnsafeTarget { .. }), "{err:?}");
+    assert_eq!(fs::read_to_string(&path).unwrap(), stale);
+    let err = uninstall(Host::Claude, &home, Some(&repo), SkillOptions::default()).unwrap_err();
+    assert!(matches!(err, AdapterError::UnsafeTarget { .. }), "{err:?}");
+    let allow = SkillOptions { allow_tracked: true, ..SkillOptions::default() };
+    install(Host::Claude, &home, Some(&repo), allow).unwrap();
+    assert_eq!(fs::read_to_string(&path).unwrap(), render(Host::Claude));
+}
+
+#[cfg(unix)]
+#[test]
+fn symlinked_skill_file_is_refused_by_install_and_uninstall() {
+    let scratch = Scratch::new();
+    let dir = scratch.0.join("skills/tokenimum");
+    fs::create_dir_all(&dir).unwrap();
+    let real = scratch.0.join("skills/real.md");
+    fs::write(&real, render(Host::Claude)).unwrap();
+    std::os::unix::fs::symlink(&real, dir.join("SKILL.md")).unwrap();
+    let err = install(Host::Claude, &scratch.0, None, SkillOptions::default()).unwrap_err();
+    assert!(matches!(err, AdapterError::UnsafeTarget { .. }), "{err:?}");
+    let err = uninstall(Host::Claude, &scratch.0, None, SkillOptions::default()).unwrap_err();
+    assert!(matches!(err, AdapterError::UnsafeTarget { .. }), "{err:?}");
+    assert!(real.is_file());
+    assert!(dir.join("SKILL.md").symlink_metadata().unwrap().file_type().is_symlink());
+}
+
+#[test]
+fn uninstall_keeps_directory_that_holds_other_files() {
+    let scratch = Scratch::new();
+    install(Host::Claude, &scratch.0, None, SkillOptions::default()).unwrap();
+    let dir = scratch.0.join("skills/tokenimum");
+    fs::write(dir.join("notes.md"), "mine").unwrap();
+    uninstall(Host::Claude, &scratch.0, None, SkillOptions::default()).unwrap();
+    assert!(!dir.join("SKILL.md").exists());
+    assert!(dir.join("notes.md").is_file());
+    assert!(scratch.0.join("skills").is_dir());
 }

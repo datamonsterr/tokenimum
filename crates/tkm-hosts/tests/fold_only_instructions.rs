@@ -498,15 +498,56 @@ fn apply_twice_different_bodies_bytes_outside_block_unchanged() {
 // ─── additional refusal and edge paths ────────────────────────────────────────
 
 #[test]
-fn apply_existing_file_gets_no_backup_and_no_exclude_entry() {
-    let scratch = Scratch::new("apply-existing");
+fn apply_existing_file_backs_up_original_bytes_and_excludes_only_backup() {
+    let scratch = Scratch::new();
     scratch.init_git();
-    fs::write(scratch.0.join("AGENTS.md"), "# mine\n").unwrap();
+    fs::write(scratch.0.join("AGENTS.md"), "# mine\r\nkeep\n").unwrap();
     let report = apply(&scratch.0, Host::Codex, "fact", ApplyOptions::default()).unwrap();
-    assert_eq!(report.changed_files, vec![scratch.0.join("AGENTS.md")]);
-    assert!(!scratch.0.join("AGENTS.md.tkm-bak").exists());
+    let bak = scratch.0.join("AGENTS.md.tkm-bak");
+    assert_eq!(fs::read(&bak).unwrap(), b"# mine\r\nkeep\n");
+    assert!(report.changed_files.contains(&bak));
     let exclude = fs::read_to_string(scratch.0.join(".git/info/exclude")).unwrap_or_default();
-    assert!(!exclude.contains("AGENTS.md"), "{exclude:?}");
+    assert!(exclude.lines().any(|l| l == "/AGENTS.md.tkm-bak"), "{exclude:?}");
+    assert!(!exclude.lines().any(|l| l == "/AGENTS.md"), "{exclude:?}");
+}
+
+#[test]
+fn backup_is_written_once_and_never_overwritten() {
+    let scratch = Scratch::new();
+    scratch.init_git();
+    fs::write(scratch.0.join("AGENTS.md"), "original\n").unwrap();
+    apply(&scratch.0, Host::Codex, "one", ApplyOptions::default()).unwrap();
+    apply(&scratch.0, Host::Codex, "two", ApplyOptions::default()).unwrap();
+    assert_eq!(fs::read(scratch.0.join("AGENTS.md.tkm-bak")).unwrap(), b"original\n");
+}
+
+#[test]
+fn remove_from_restores_original_bytes_and_deletes_backup() {
+    let scratch = Scratch::new();
+    scratch.init_git();
+    let path = scratch.0.join("AGENTS.md");
+    fs::write(&path, "# mine\n\nkeep\n").unwrap();
+    apply(&scratch.0, Host::Codex, "fact", ApplyOptions::default()).unwrap();
+    let report = remove_from(&scratch.0, Host::Codex, ApplyOptions::default()).unwrap();
+    assert_eq!(fs::read(&path).unwrap(), b"# mine\n\nkeep\n");
+    assert!(!scratch.0.join("AGENTS.md.tkm-bak").exists());
+    assert!(report.changed_files.contains(&scratch.0.join("AGENTS.md.tkm-bak")));
+}
+
+#[test]
+fn remove_from_keeps_file_and_backup_when_person_edited_elsewhere() {
+    let scratch = Scratch::new();
+    scratch.init_git();
+    let path = scratch.0.join("AGENTS.md");
+    fs::write(&path, "# mine\n").unwrap();
+    apply(&scratch.0, Host::Codex, "fact", ApplyOptions::default()).unwrap();
+    let edited = format!("{}\nadded later\n", fs::read_to_string(&path).unwrap());
+    fs::write(&path, edited).unwrap();
+    remove_from(&scratch.0, Host::Codex, ApplyOptions::default()).unwrap();
+    let after = fs::read_to_string(&path).unwrap();
+    assert!(after.contains("# mine") && after.contains("added later"), "{after:?}");
+    assert!(!after.contains("tokenimum:begin"));
+    assert!(scratch.0.join("AGENTS.md.tkm-bak").exists());
 }
 
 #[test]
@@ -520,7 +561,9 @@ fn apply_dry_run_on_existing_file_leaves_bytes() {
         ..Default::default()
     };
     let report = apply(&scratch.0, Host::Codex, "fact", opts).unwrap();
-    assert_eq!(report.changed_files, vec![path.clone()]);
+    assert!(report.changed_files.contains(&path));
+    assert!(report.changed_files.contains(&scratch.0.join("AGENTS.md.tkm-bak")));
+    assert!(!scratch.0.join("AGENTS.md.tkm-bak").exists());
     assert_eq!(fs::read_to_string(&path).unwrap(), "# mine\n");
 }
 
@@ -610,4 +653,171 @@ fn remove_from_deletes_marker_with_created_file() {
             .contains(&scratch.0.join("CLAUDE.md.tkm-bak"))
     );
     assert!(!scratch.0.join("CLAUDE.md.tkm-bak").exists());
+}
+
+// ─── marker recognition (findings 1 and 2) ────────────────────────────────────
+
+const PROSE_AND_FENCE: &str = "# Notes\n\nWrite `<!-- tokenimum:begin -->` and <!-- tokenimum:end --> in prose.\n\n```md\n<!-- tokenimum:begin -->\nexample only\n<!-- tokenimum:end -->\n```\n\n~~~\n<!-- tokenimum:begin -->\n~~~\n";
+
+#[test]
+fn markers_in_prose_and_code_fences_are_not_blocks() {
+    assert_eq!(remove(PROSE_AND_FENCE), PROSE_AND_FENCE);
+    let spliced = splice(PROSE_AND_FENCE, "real");
+    assert!(spliced.starts_with(PROSE_AND_FENCE), "{spliced:?}");
+    assert!(spliced.ends_with("real\n<!-- tokenimum:end -->\n"), "{spliced:?}");
+    assert_eq!(remove(&spliced), PROSE_AND_FENCE);
+}
+
+#[test]
+fn apply_leaves_prose_and_fenced_markers_byte_identical() {
+    let scratch = Scratch::new();
+    scratch.init_git();
+    let path = scratch.0.join("AGENTS.md");
+    fs::write(&path, PROSE_AND_FENCE).unwrap();
+    apply(&scratch.0, Host::Codex, "one", ApplyOptions::default()).unwrap();
+    apply(&scratch.0, Host::Codex, "two", ApplyOptions::default()).unwrap();
+    let text = fs::read_to_string(&path).unwrap();
+    assert!(text.starts_with(PROSE_AND_FENCE));
+    assert!(text.contains("two") && !text.contains("one\n"));
+}
+
+#[test]
+fn real_block_after_a_fence_is_found() {
+    let text = format!("{PROSE_AND_FENCE}\n<!-- tokenimum:begin -->\nold\n<!-- tokenimum:end -->\n");
+    let out = splice(&text, "new");
+    assert!(out.starts_with(PROSE_AND_FENCE));
+    assert!(out.contains("new") && !out.contains("old"));
+}
+
+#[test]
+fn marker_with_trailing_whitespace_and_cr_counts() {
+    let text = "a\r\n<!-- tokenimum:begin -->  \r\nold\r\n<!-- tokenimum:end -->\r\n";
+    assert!(!splice(text, "new").contains("old"));
+}
+
+#[test]
+fn marker_with_leading_text_does_not_count() {
+    let text = "x <!-- tokenimum:begin -->\nold\n<!-- tokenimum:end -->\n";
+    assert!(splice(text, "new").starts_with(text));
+}
+
+#[test]
+fn apply_refuses_two_begin_markers() {
+    let scratch = Scratch::new();
+    scratch.init_git();
+    let path = scratch.0.join("AGENTS.md");
+    let text = "<!-- tokenimum:begin -->\na\n<!-- tokenimum:end -->\n\n<!-- tokenimum:begin -->\nb\n<!-- tokenimum:end -->\n";
+    fs::write(&path, text).unwrap();
+    let err = apply(&scratch.0, Host::Codex, "x", ApplyOptions::default()).unwrap_err();
+    assert!(matches!(err, tkm_hosts::AdapterError::InvalidPayload { .. }), "{err:?}");
+    assert_eq!(fs::read_to_string(&path).unwrap(), text);
+    assert!(!scratch.0.join("AGENTS.md.tkm-bak").exists());
+}
+
+#[test]
+fn remove_from_refuses_two_begin_markers() {
+    let scratch = Scratch::new();
+    scratch.init_git();
+    let text = "<!-- tokenimum:begin -->\na\n<!-- tokenimum:begin -->\nb\n<!-- tokenimum:end -->\n";
+    fs::write(scratch.0.join("AGENTS.md"), text).unwrap();
+    let err = remove_from(&scratch.0, Host::Codex, ApplyOptions::default()).unwrap_err();
+    assert!(matches!(err, tkm_hosts::AdapterError::InvalidPayload { .. }), "{err:?}");
+}
+
+#[test]
+fn begin_in_fence_does_not_count_as_second_begin() {
+    let scratch = Scratch::new();
+    scratch.init_git();
+    let text = format!("{PROSE_AND_FENCE}\n<!-- tokenimum:begin -->\nold\n<!-- tokenimum:end -->\n");
+    fs::write(scratch.0.join("AGENTS.md"), &text).unwrap();
+    apply(&scratch.0, Host::Codex, "new", ApplyOptions::default()).unwrap();
+}
+
+// ─── line endings and exact inversion (finding 4) ─────────────────────────────
+
+#[test]
+fn splice_then_remove_restores_original_bytes() {
+    for original in [
+        "",
+        "A\n",
+        "A",
+        "A\n\n",
+        "# T\n\nbody\n",
+        "A\r\n",
+        "A\r\nB",
+        "# T\r\n\r\nbody\r\n",
+        "A\r\n\r\n",
+    ] {
+        let spliced = splice(original, "fact\nline two");
+        assert_ne!(spliced, original);
+        assert_eq!(remove(&spliced), original, "spliced={spliced:?}");
+    }
+}
+
+#[test]
+fn crlf_file_gets_crlf_block() {
+    let out = splice("A\r\nB\r\n", "one\ntwo\n");
+    assert!(!out.replace("\r\n", "").contains('\n'), "bare LF in {out:?}");
+    assert!(out.contains("one\r\ntwo\r\n"));
+}
+
+#[test]
+fn lf_file_gets_lf_block() {
+    assert!(!splice("A\nB\n", "one\ntwo\n").contains('\r'));
+}
+
+#[test]
+fn new_file_without_trailing_newline_keeps_that_property() {
+    let out = splice("A", "fact");
+    assert!(out.ends_with("<!-- tokenimum:end -->"), "{out:?}");
+}
+
+#[test]
+fn replacing_a_block_is_idempotent_for_crlf() {
+    let once = splice("A\r\n", "fact");
+    assert_eq!(splice(&once, "fact"), once);
+}
+
+#[test]
+fn apply_then_remove_from_round_trips_crlf_file() {
+    let scratch = Scratch::new();
+    scratch.init_git();
+    let path = scratch.0.join("AGENTS.md");
+    fs::write(&path, "A\r\nB").unwrap();
+    apply(&scratch.0, Host::Codex, "fact", ApplyOptions::default()).unwrap();
+    remove_from(&scratch.0, Host::Codex, ApplyOptions::default()).unwrap();
+    assert_eq!(fs::read(&path).unwrap(), b"A\r\nB");
+}
+
+// ─── exclude only after creation is confirmed (finding 5) ─────────────────────
+
+#[cfg(unix)]
+#[test]
+fn failed_creation_leaves_exclude_untouched() {
+    use std::os::unix::fs::PermissionsExt;
+    let scratch = Scratch::new();
+    scratch.init_git();
+    fs::set_permissions(&scratch.0, fs::Permissions::from_mode(0o555)).unwrap();
+    let probe = scratch.0.join("probe");
+    let writable = fs::write(&probe, "x").is_ok(); // root ignores the mode
+    let result = apply(&scratch.0, Host::Codex, "fact", ApplyOptions::default());
+    fs::set_permissions(&scratch.0, fs::Permissions::from_mode(0o755)).unwrap();
+    if writable {
+        return;
+    }
+    assert!(result.is_err());
+    let exclude = fs::read_to_string(scratch.0.join(".git/info/exclude")).unwrap_or_default();
+    assert!(!exclude.contains("AGENTS.md"), "{exclude:?}");
+}
+
+#[test]
+fn dry_run_reports_exclude_without_writing_it() {
+    let scratch = Scratch::new();
+    scratch.init_git();
+    let before = fs::read_to_string(scratch.0.join(".git/info/exclude")).unwrap_or_default();
+    let opts = ApplyOptions { dry_run: true, ..Default::default() };
+    let report = apply(&scratch.0, Host::Codex, "fact", opts).unwrap();
+    assert!(report.changed_files.iter().any(|p| p.ends_with("info/exclude")));
+    let after = fs::read_to_string(scratch.0.join(".git/info/exclude")).unwrap_or_default();
+    assert_eq!(before, after);
 }

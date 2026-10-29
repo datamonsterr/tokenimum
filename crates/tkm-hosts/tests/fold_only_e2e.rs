@@ -13,6 +13,8 @@ use tkm_core::inject::{Config, InjectCandidate, Source, estimate_tokens, render,
 use tkm_core::model::{Call, RepoKey, Session, Turn};
 use tkm_hosts::claude::ClaudeAdapter;
 use tkm_hosts::codex::CodexAdapter;
+use tkm_hosts::opencode::OpencodeAdapter;
+use tkm_hosts::pi::PiAdapter;
 use tkm_hosts::fold_only::instructions::{ApplyOptions, apply};
 use tkm_hosts::fold_only::{IntegrationMode, mode_for};
 use tkm_hosts::{HostAdapter, SessionSource};
@@ -204,4 +206,94 @@ fn created_instructions_file_is_excluded_exactly_once() {
             .unwrap()
             .contains("- two")
     );
+}
+
+// ─── opencode and Pi in fold-only mode (finding 8) ────────────────────────────
+
+fn claims(state: &FactsState) -> Vec<String> {
+    state
+        .facts
+        .values()
+        .map(|fact| claim(&fact.candidate))
+        .filter(|text| !text.is_empty())
+        .collect()
+}
+
+/// Folds one fixture session, writes the regenerated block, returns file text.
+fn fold_and_inject(host: Host, session: Session) -> (Vec<String>, String) {
+    assert_eq!(mode_for(host, false), IntegrationMode::FoldOnly);
+    assert_eq!(session.host, host, "reader reports the matching host");
+    let state = fold(vec![session]);
+    assert_eq!(state.processed.len(), 1, "fixture session folds");
+    let claims = claims(&state);
+    assert!(!claims.is_empty(), "fixture session yields a fact claim");
+    let body = body_for(&state);
+    let repo = scratch_repo();
+    apply(&repo.0, host, &body, ApplyOptions::default()).unwrap();
+    let text = fs::read_to_string(repo.0.join("AGENTS.md")).unwrap();
+    (claims, text)
+}
+
+fn inside_markers(text: &str) -> &str {
+    let start = text.find(BEGIN).unwrap();
+    let end = text.find(END).unwrap();
+    &text[start..end]
+}
+
+#[test]
+fn opencode_fixture_claim_lands_inside_markers() {
+    let dir = repo_scratch_dir();
+    let db = dir.join("opencode.db");
+    let sql = fs::read_to_string(
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/fold_only/opencode-repair.sql"),
+    )
+    .unwrap();
+    let conn = rusqlite::Connection::open(&db).unwrap();
+    conn.execute_batch("PRAGMA foreign_keys = OFF;").unwrap();
+    conn.execute_batch(&sql).unwrap();
+    drop(conn);
+    let session = OpencodeAdapter::new()
+        .read_session(&SessionSource {
+            agent_home: "/synthetic/agent".into(),
+            path: db,
+            session_id: "ses_example1".into(),
+            repo_key: RepoKey("synthetic-origin".into()),
+            cwd: "/home/user/project".into(),
+        })
+        .unwrap();
+    let (claims, text) = fold_and_inject(Host::Opencode, session);
+    let block = inside_markers(&text);
+    for claim in &claims {
+        assert!(block.contains(claim.as_str()), "{claim:?} missing from {block:?}");
+    }
+    let _ = fs::remove_dir_all(dir);
+}
+
+#[test]
+fn pi_fixture_claim_lands_inside_markers() {
+    let session = PiAdapter::new()
+        .read_session(&SessionSource {
+            agent_home: "/synthetic/agent".into(),
+            path: PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/fold_only/pi-repair.jsonl"),
+            session_id: "00000000-0000-4000-8000-000000000001".into(),
+            repo_key: RepoKey("synthetic-origin".into()),
+            cwd: "/home/user/project".into(),
+        })
+        .unwrap();
+    let (claims, text) = fold_and_inject(Host::Pi, session);
+    let block = inside_markers(&text);
+    for claim in &claims {
+        assert!(block.contains(claim.as_str()), "{claim:?} missing from {block:?}");
+    }
+}
+
+fn repo_scratch_dir() -> PathBuf {
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    let path = std::env::temp_dir().join(format!(
+        "tkm-fold-e2e-db-{}-{}",
+        std::process::id(),
+        NEXT.fetch_add(1, Ordering::Relaxed)
+    ));
+    fs::create_dir_all(&path).unwrap();
+    path
 }
