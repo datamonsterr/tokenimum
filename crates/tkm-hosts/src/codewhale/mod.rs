@@ -54,6 +54,7 @@ pub const EXPECTED_EVENTS: &[ExpectedEvent] = &[
 
 /// Environment variables forwarded from Codewhale to `tkm-hook`.
 pub const ENV_MARKERS: &[&str] = &[
+    "CODEWHALE_HOME",
     "DEEPSEEK_SESSION_ID",
     "CODEWHALE_SESSION_ID",
     "DEEPSEEK_WORKSPACE",

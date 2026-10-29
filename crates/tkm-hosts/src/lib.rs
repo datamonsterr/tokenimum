@@ -37,6 +37,8 @@ pub fn env_markers(host: Host) -> &'static [&'static str] {
         Host::Cursor => cursor::ENV_MARKERS,
         Host::Kimi => kimi::ENV_MARKERS,
         Host::Deepseek => codewhale::ENV_MARKERS,
+        Host::Pi => &["PI_CODING_AGENT_DIR"],
+        Host::Opencode => &["OPENCODE_DB", "XDG_DATA_HOME"],
         _ => &[],
     }
 }

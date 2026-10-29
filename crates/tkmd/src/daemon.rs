@@ -577,15 +577,44 @@ impl Daemon {
             .clone()
             .or_else(|| request.cwd.as_ref().map(PathBuf::from))
             .unwrap_or_default();
-        let log_path = ["transcript_path", "rollout_path", "session_path"]
-            .iter()
-            .find_map(|field| {
-                request
-                    .payload
-                    .get(field)
-                    .and_then(serde_json::Value::as_str)
+        let log_path = [
+            "transcript_path",
+            "transcriptPath",
+            "rollout_path",
+            "session_path",
+        ]
+        .iter()
+        .find_map(|field| {
+            request
+                .payload
+                .get(field)
+                .and_then(serde_json::Value::as_str)
+        })
+        .map(|text| self.expand_home(text))
+        .or_else(|| {
+            request
+                .env
+                .get("CURSOR_TRANSCRIPT_PATH")
+                .filter(|_| event.host == Host::Cursor)
+                .map(|text| self.expand_home(text))
+        })
+        .or_else(|| {
+            if event.host != Host::Opencode {
+                return None;
+            }
+            let var = |key: &str| {
+                request.env.get(key).cloned().or_else(|| {
+                    self.env
+                        .iter()
+                        .rev()
+                        .find(|(name, _)| name == key)
+                        .map(|(_, value)| value.clone())
+                })
+            };
+            var("OPENCODE_DB").map(PathBuf::from).or_else(|| {
+                var("XDG_DATA_HOME").map(|path| PathBuf::from(path).join("opencode/opencode.db"))
             })
-            .map(|text| self.expand_home(text));
+        });
         SessionSeed {
             host: event.host,
             session_id: event.session_id.clone(),

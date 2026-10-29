@@ -454,7 +454,11 @@ const fn host_env_markers(host: Host) -> &'static [&'static str] {
             "CURSOR_VERSION",
             "CURSOR_TRANSCRIPT_PATH",
         ],
+        Host::Kimi => &["KIMI_SHARE_DIR"],
+        Host::Pi => &["PI_CODING_AGENT_DIR"],
+        Host::Opencode => &["OPENCODE_DB", "XDG_DATA_HOME"],
         Host::Deepseek => &[
+            "CODEWHALE_HOME",
             "DEEPSEEK_SESSION_ID",
             "CODEWHALE_SESSION_ID",
             "DEEPSEEK_WORKSPACE",
