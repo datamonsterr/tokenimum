@@ -563,6 +563,10 @@
     "version": "0.3.1",
     "used_unsafe": 0
   },
+  "ruzstd": {
+    "version": "0.9.1",
+    "used_unsafe": 342
+  },
   "ryu": {
     "version": "1.0.23",
     "used_unsafe": 569
