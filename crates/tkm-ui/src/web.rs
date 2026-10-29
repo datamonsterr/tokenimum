@@ -17,7 +17,10 @@ use std::{
     io::{self, Read},
     net::{IpAddr, Ipv4Addr, SocketAddr},
     path::PathBuf,
-    sync::{Arc, Mutex, RwLock},
+    sync::{
+        Arc, Mutex, RwLock,
+        atomic::{AtomicBool, Ordering},
+    },
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -101,6 +104,8 @@ pub struct WebState {
     /// Monitor snapshot updated by the daemon feed.
     pub monitor: Arc<RwLock<MonitorState>>,
     actions: Arc<dyn Actions>,
+    closing: Arc<AtomicBool>,
+    action_gate: Arc<Mutex<()>>,
     db: PathBuf,
     pending: Arc<Mutex<HashMap<String, Pending>>>,
     blocking: Arc<tokio::sync::Semaphore>,
@@ -119,6 +124,8 @@ impl WebState {
             config,
             monitor: Arc::new(RwLock::new(monitor)),
             actions,
+            closing: Arc::new(AtomicBool::new(false)),
+            action_gate: Arc::new(Mutex::new(())),
             db,
             pending: Arc::new(Mutex::new(HashMap::new())),
             blocking: Arc::new(tokio::sync::Semaphore::new(4)),
@@ -142,6 +149,12 @@ impl WebState {
         })
         .await
     }
+    /// Prevent new actions and wait for any action already executing to finish.
+    pub async fn close(&self) {
+        self.closing.store(true, Ordering::Release);
+        let gate = Arc::clone(&self.action_gate);
+        let _ = tokio::task::spawn_blocking(move || drop(gate.lock())).await;
+    }
     /// Replace the clock, for deterministic expiry tests.
     pub fn set_clock(&mut self, clock: Arc<dyn Fn() -> u64 + Send + Sync>) {
         self.clock = clock;
@@ -153,6 +166,9 @@ fn equal_token(a: &[u8], b: &[u8]) -> bool {
         diff |= usize::from(a.get(i).copied().unwrap_or(0) ^ b.get(i).copied().unwrap_or(0));
     }
     diff == 0
+}
+fn s_is_closing(state: &WebState) -> bool {
+    state.closing.load(Ordering::Acquire)
 }
 async fn guard(State(state): State<WebState>, request: Request, next: Next) -> Response {
     let expected = state.config.bind.port();
@@ -169,7 +185,9 @@ async fn guard(State(state): State<WebState>, request: Request, next: Next) -> R
         .and_then(|h| h.to_str().ok())
         .and_then(|s| s.strip_prefix("Bearer "))
         .is_some_and(|token| equal_token(token.as_bytes(), state.config.token.as_bytes()));
-    let mut response = if !valid_host {
+    let mut response = if s_is_closing(&state) {
+        StatusCode::SERVICE_UNAVAILABLE.into_response()
+    } else if !valid_host {
         StatusCode::MISDIRECTED_REQUEST.into_response()
     } else if request.uri().path().starts_with("/api/") && !authorized {
         StatusCode::UNAUTHORIZED.into_response()
@@ -294,6 +312,9 @@ async fn prepare(
     Path(kind): Path<String>,
     Json(input): Json<ActionInput>,
 ) -> Result<Json<Value>, StatusCode> {
+    if s_is_closing(&s) {
+        return Err(StatusCode::SERVICE_UNAVAILABLE);
+    }
     if [
         input.repo.as_deref(),
         input.fact_id.as_deref(),
@@ -364,6 +385,9 @@ async fn prepare(
         _ => return Err(StatusCode::NOT_FOUND),
     };
     let id = blocking(&s, || generate_token().map_err(|e| e.to_string())).await?;
+    if s_is_closing(&s) {
+        return Err(StatusCode::SERVICE_UNAVAILABLE);
+    }
     let now = (s.clock)();
     let mut pending = s
         .pending
@@ -399,12 +423,18 @@ async fn confirm(
             .ok_or((StatusCode::NOT_FOUND, "confirmation not found".into()))?
     };
     let actions = Arc::clone(&s.actions);
+    let closing = Arc::clone(&s.closing);
+    let gate = Arc::clone(&s.action_gate);
     let permit = Arc::clone(&s.blocking)
         .acquire_owned()
         .await
         .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "semaphore closed".into()))?;
     let result = tokio::task::spawn_blocking(move || {
         let _permit = permit;
+        let _guard = gate.lock().map_err(|_| "action lock failed".to_owned())?;
+        if closing.load(Ordering::Acquire) {
+            return Err("server is shutting down".to_owned());
+        }
         let i = entry.input;
         match entry.kind.as_str() {
             "forget_fact" => actions.forget_fact(

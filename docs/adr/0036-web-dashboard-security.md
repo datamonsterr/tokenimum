@@ -31,3 +31,7 @@ Date: 2026-10-29. Status: accepted (epic E8.2).
    and outstanding confirmations to 32. Expired confirmations are removed on state, prepare,
    and confirm requests. Presets must be one of the config presets, and restore checkouts must
    be absolute and recorded in the deny-list table.
+
+8. **Shutdown.** The server rejects actions once closing starts and waits for any executing
+   action before returning. Graceful connection shutdown is bounded; a stalled body cannot
+   prepare or execute an action after shutdown.

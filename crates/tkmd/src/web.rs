@@ -128,6 +128,7 @@ pub struct WebServer {
     stop: tokio::sync::oneshot::Sender<()>,
     task: tokio::task::JoinHandle<()>,
     feed: tokio::task::JoinHandle<()>,
+    state: WebState,
     file: DiscoveryFile,
 }
 impl WebServer {
@@ -214,7 +215,7 @@ impl WebServer {
             }
         });
         let (stop, shutdown) = tokio::sync::oneshot::channel();
-        let app = tkm_ui::web::router(state);
+        let app = tkm_ui::web::router(state.clone());
         let task = tokio::spawn(async move {
             if let Err(error) = tkm_ui::web::serve(listener, app, async {
                 let _ = shutdown.await;
@@ -228,11 +229,13 @@ impl WebServer {
             stop,
             task,
             feed,
+            state,
             file: DiscoveryFile(file),
         })
     }
     /// Stop the server and remove the discovery file.
     pub async fn shutdown(self) {
+        self.state.close().await;
         let _ = self.stop.send(());
         let mut task = self.task;
         if tokio::time::timeout(std::time::Duration::from_secs(2), &mut task)
