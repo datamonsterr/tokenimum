@@ -198,7 +198,18 @@ pub(super) fn tokens(text: &str) -> Option<Vec<Token>> {
             }
             continue;
         }
-        if matches!(c, '\'' | '"') {
+        if c == '#' && !active {
+            // A comment ends at the next newline, which still separates commands.
+            for ch in chars.by_ref() {
+                if ch == '\n' {
+                    out.push(Token {
+                        text: "\n".into(),
+                        operator: true,
+                    });
+                    break;
+                }
+            }
+        } else if matches!(c, '\'' | '"') {
             quote = Some(c);
             active = true;
         } else if c == '\\' {

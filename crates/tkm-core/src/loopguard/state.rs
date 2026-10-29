@@ -40,7 +40,14 @@ impl SpiralState {
             .map(str::to_owned)
             .collect();
         if verification::is_shell(call) {
-            names.extend(shell_edit_targets(&call.args_digest));
+            let known_paths = !names.is_empty();
+            names.extend(
+                shell_edit_targets(&call.args_digest)
+                    .into_iter()
+                    .filter(|name| {
+                        !known_paths || !matches!(name.as_str(), "(patch)" | "(script)")
+                    }),
+            );
             if verification::counts_test_run(&call.args_digest) {
                 self.test_runs = self.test_runs.saturating_add(1);
             }

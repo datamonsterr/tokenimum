@@ -806,7 +806,7 @@ fn judge_ladder_respects_budget_and_fresh_segments_without_backstop() {
                     );
                 }
                 LoopAction::Redirect { .. } | LoopAction::Escalate { .. } => {
-                    deliveries.push((index, action))
+                    deliveries.push((index, action));
                 }
             }
         }
