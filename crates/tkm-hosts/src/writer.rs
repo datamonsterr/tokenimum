@@ -41,7 +41,7 @@ fn unsafe_target(path: &Path, reason: &str) -> AdapterError {
     }
 }
 
-fn absolute(path: &Path) -> Result<PathBuf, AdapterError> {
+pub(crate) fn absolute(path: &Path) -> Result<PathBuf, AdapterError> {
     let path = if path.is_absolute() {
         path.to_path_buf()
     } else {
@@ -129,7 +129,7 @@ fn backup_path(path: &Path) -> PathBuf {
     PathBuf::from(name)
 }
 
-pub(super) fn checked_backup(
+pub(crate) fn checked_backup(
     root: &Path,
     path: &Path,
     target: &Path,
@@ -142,7 +142,7 @@ pub(super) fn checked_backup(
     Ok((backup, resolved))
 }
 
-pub(super) fn read_optional(path: &Path) -> Result<Option<String>, AdapterError> {
+pub(crate) fn read_optional(path: &Path) -> Result<Option<String>, AdapterError> {
     match fs::read_to_string(path) {
         Ok(text) => Ok(Some(text)),
         Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
@@ -172,12 +172,12 @@ fn temporary_file(parent: &Path) -> Result<(PathBuf, fs::File), AdapterError> {
 }
 
 /// A changed snapshot triggers one recomputation before any target is replaced.
-pub(super) enum Update<T> {
+pub(crate) enum Update<T> {
     Done(T),
     Retry(Option<String>),
 }
 
-pub(super) fn retry_update<T>(
+pub(crate) fn retry_update<T>(
     mut snapshot: Option<String>,
     mut update: impl FnMut(Option<&str>) -> Result<Update<T>, AdapterError>,
 ) -> Result<T, AdapterError> {
@@ -197,7 +197,7 @@ pub(super) fn retry_update<T>(
 /// Stage bytes, then compare before and after the callback, immediately before
 /// publishing or deleting. The callback publishes the first-write backup only
 /// after the first check; the second check catches edits made while it ran.
-pub(super) fn atomic_update(
+pub(crate) fn atomic_update(
     path: &Path,
     snapshot: Option<&str>,
     replacement: Option<&str>,
@@ -249,7 +249,7 @@ pub(super) fn atomic_update(
 }
 
 /// Returns whether this call created the backup.
-pub(super) fn save_backup(
+pub(crate) fn save_backup(
     path: &Path,
     original: &[u8],
     source: &Path,
@@ -288,7 +288,7 @@ pub(super) fn save_backup(
 /// A backup (or empty creation marker) made by this attempt is removed again
 /// when the settings changed meanwhile, since it no longer matches them.
 /// `after_backup` runs once the backup is saved, before the final comparison.
-pub(super) fn update_with_backup(
+pub(crate) fn update_with_backup(
     target: &Path,
     snapshot: Option<&str>,
     replacement: &str,

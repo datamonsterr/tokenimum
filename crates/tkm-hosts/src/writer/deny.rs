@@ -43,13 +43,13 @@ fn git_path(root: &Path, args: &[&str]) -> Result<PathBuf, AdapterError> {
     })
 }
 
-fn exclude_target(root: &Path) -> Result<PathBuf, AdapterError> {
+pub(crate) fn exclude_target(root: &Path) -> Result<PathBuf, AdapterError> {
     let path = git_path(root, &["rev-parse", "--git-path", "info/exclude"])?;
     let common = git_path(root, &["rev-parse", "--git-common-dir"])?;
     safe_target(&common, &path)
 }
 
-fn refuse_tracked(root: &Path, path: &Path) -> Result<(), AdapterError> {
+pub(crate) fn refuse_tracked(root: &Path, path: &Path) -> Result<(), AdapterError> {
     let output = Command::new("git")
         .current_dir(root)
         .args(["ls-files", "--error-unmatch", "--"])
@@ -203,7 +203,7 @@ pub fn update_deny(
             report.changed_files.push(backup.clone());
         }
         // Exclude before creating settings, so a partial write cannot expose it.
-        exclude_changed |= update_exclude(&exclude, dry_run)?;
+        exclude_changed |= update_exclude(&exclude, EXCLUDE_LINE, dry_run)?;
         if exclude_changed {
             report.changed_files.push(exclude);
         }
@@ -218,17 +218,18 @@ pub fn update_deny(
     })
 }
 
-fn update_exclude(path: &Path, dry_run: bool) -> Result<bool, AdapterError> {
+/// Appends `line` to the exclude file once; returns whether it changed (or would).
+pub(crate) fn update_exclude(path: &Path, line: &str, dry_run: bool) -> Result<bool, AdapterError> {
     retry_update(read_optional(path)?, |snapshot| {
         let previous = snapshot.unwrap_or_default();
-        if previous.lines().any(|line| line == EXCLUDE_LINE) {
+        if previous.lines().any(|l| l == line) {
             return Ok(Update::Done(false));
         }
         let mut next = previous.to_owned();
         if !next.is_empty() && !next.ends_with('\n') {
             next.push('\n');
         }
-        next.push_str(EXCLUDE_LINE);
+        next.push_str(line);
         next.push('\n');
         if dry_run {
             return Ok(Update::Done(true));

@@ -1,0 +1,20 @@
+{
+  "hook": "tool_result",
+  "event": {
+    "type": "tool_result",
+    "toolName": "bash",
+    "toolCallId": "call_example1",
+    "input": {
+      "command": "false"
+    },
+    "content": [
+      {
+        "type": "text",
+        "text": "Command exited with code 1"
+      }
+    ],
+    "isError": true
+  },
+  "cwd": "/home/user/project",
+  "session_id": "00000000-0000-4000-8000-000000000001"
+}

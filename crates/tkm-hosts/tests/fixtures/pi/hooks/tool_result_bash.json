@@ -1,0 +1,20 @@
+{
+  "hook": "tool_result",
+  "event": {
+    "type": "tool_result",
+    "toolName": "bash",
+    "toolCallId": "call_example1",
+    "input": {
+      "command": "ls -la"
+    },
+    "content": [
+      {
+        "type": "text",
+        "text": "a.txt\nb.txt"
+      }
+    ],
+    "isError": false
+  },
+  "cwd": "/home/user/project",
+  "session_id": "00000000-0000-4000-8000-000000000001"
+}

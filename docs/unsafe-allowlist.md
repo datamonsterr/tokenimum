@@ -30,6 +30,7 @@ observed count per crate name, without adding the same crate repeatedly.
 | bit-set | Bit set storage. | 2026-10-29 |
 | bit-vec | Bit vector storage. | 2026-10-29 |
 | bitflags | Bit flag representations. | 2026-10-29 |
+| block-buffer | Block buffering for hash digests (sha2). | 2026-10-29 |
 | bstr | Byte string operations. | 2026-10-29 |
 | bytes | Reference-counted byte buffers. | 2026-10-29 |
 | castaway | Type casting primitives. | 2026-10-29 |
@@ -53,6 +54,7 @@ observed count per crate name, without adding the same crate repeatedly.
 | futures-core | Asynchronous core interfaces. | 2026-10-29 |
 | futures-task | Asynchronous task primitives. | 2026-10-29 |
 | futures-util | Asynchronous combinators. | 2026-10-29 |
+| generic-array | Fixed-size arrays for digest output (sha2). | 2026-10-29 |
 | getrandom | Operating system randomness. | 2026-10-29 |
 | globset | Glob matching. | 2026-10-29 |
 | hashbrown | Hash table implementation. | 2026-10-29 |
@@ -118,6 +120,7 @@ observed count per crate name, without adding the same crate repeatedly.
 | serde_core | Serialization core. | 2026-10-29 |
 | serde_json | JSON parsing and serialization. | 2026-10-29 |
 | sharded-slab | Concurrent sharded slab storage. | 2026-10-29 |
+| sha2 | SHA-256 for the shim content hash (E6); SIMD backends. | 2026-10-29 |
 | signal-hook | Signal handling. | 2026-10-29 |
 | signal-hook-mio | Signal event integration. | 2026-10-29 |
 | signal-hook-registry | Signal handler registration. | 2026-10-29 |

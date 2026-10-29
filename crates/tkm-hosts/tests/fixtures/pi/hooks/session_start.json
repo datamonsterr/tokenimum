@@ -1,0 +1,9 @@
+{
+  "hook": "session_start",
+  "event": {
+    "type": "session_start",
+    "reason": "startup"
+  },
+  "cwd": "/home/user/project",
+  "session_id": "00000000-0000-4000-8000-000000000001"
+}

@@ -44,6 +44,15 @@ class GeigerDiffTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
         self.assertIn('unknown owner', result.stdout)
 
+    def test_non_rust_data_files_are_not_owners(self):
+        result = self.run_report([
+            '/runner/work/tokenimum/shims/opencode.ts',
+            '/runner/work/tokenimum/crates/tkm-hosts/src/generated.rs',
+        ], '')
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertNotIn('opencode.ts', result.stdout)
+        self.assertIn('generated.rs', result.stdout)
+
 
 if __name__ == '__main__':
     unittest.main()
