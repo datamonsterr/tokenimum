@@ -18,7 +18,7 @@ fn fact_confirmation_requires_exercise_and_failure_overrides_confirmation() {
 }
 
 fn example() -> (Session, FactsState) {
-    let mut session = Session::new(tkm_core::model::Host::Claude, "later");
+    let mut session = Session::new(tkm_core::model::Host::Claude);
     session.turns.push(Turn {
         stopped_by: StopReason::OwnStop,
         calls: vec![Call {

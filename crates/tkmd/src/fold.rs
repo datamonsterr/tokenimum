@@ -485,6 +485,75 @@ fn fold_prune(
     Ok(())
 }
 
+// Labels are saved on the original batch, preserving the identity of every question.
+// Fact predictions train only on later sessions; relevance trains on its own session.
+fn label_decisions(
+    store: &Store,
+    record: &SessionRecord,
+    session: &tkm_core::model::Session,
+    state: &FactsState,
+    injected: &BTreeSet<String>,
+    verdicts: &[FactEvent],
+) -> HResult<()> {
+    let mut outcomes = tkm_decide::labels::session_outcomes(session, state, injected);
+    for verdict in verdicts
+        .iter()
+        .filter(|v| v.kind == FactEventKind::Contradicted)
+    {
+        outcomes.insert(verdict.fact_id.clone(), false);
+    }
+    for decision in store.list_recent_decisions(-1)? {
+        if decision.repo_key.as_ref() != Some(&record.repo_key) {
+            continue;
+        }
+        let relevance = decision.purpose == "relevance";
+        let facts = matches!(
+            decision.purpose.as_str(),
+            "fact_filter" | "fact_contradiction"
+        );
+        if !(relevance || facts)
+            || (relevance && decision.session_id != Some(record.id))
+            || (facts
+                && (decision.session_id == Some(record.id)
+                    || decision
+                        .created_at
+                        .is_none_or(|at| at.0 >= record.started.0)))
+        {
+            continue;
+        }
+        let Some(questions) = decision.questions.as_object() else {
+            continue;
+        };
+        let mut labels = decision
+            .outcome_label
+            .as_deref()
+            .and_then(|text| serde_json::from_str::<BTreeMap<String, bool>>(text).ok())
+            .unwrap_or_default();
+        for (question, label) in
+            tkm_decide::labels::question_labels(questions.keys().map(String::as_str), &outcomes)
+        {
+            // A later contradiction revokes an earlier confirmation.
+            labels
+                .entry(question)
+                .and_modify(|old| {
+                    if decision.purpose == "fact_contradiction" {
+                        *old |= label;
+                    } else {
+                        *old &= label;
+                    }
+                })
+                .or_insert(label);
+        }
+        if !labels.is_empty() {
+            store.set_decision_outcome(
+                decision.id,
+                &serde_json::to_string(&labels).map_err(tkm_store::StoreError::from)?,
+            )?;
+        }
+    }
+    Ok(())
+}
+
 fn fold_inner(
     store: &Store,
     record: &SessionRecord,
@@ -569,8 +638,17 @@ fn fold_inner(
                 injected_ids: job.injected.clone(),
                 decisions,
             };
-            (result.facts, result.events) = facts::update(state, &evidence, &job.settings.facts);
+            (result.facts, result.events) =
+                facts::update(state.clone(), &evidence, &job.settings.facts);
         }
+        label_decisions(
+            store,
+            record,
+            &session,
+            &state,
+            &job.injected,
+            &result.events,
+        )?;
         if job.settings.facts_enabled {
             persist_facts(
                 store,
