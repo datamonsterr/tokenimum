@@ -225,3 +225,27 @@ fn session_observed_before_detection_is_registered_after_enable() {
     runtime.detect_now(dir.path());
     assert!(runtime.handles(Host::Claude, "s"));
 }
+
+#[test]
+fn forgetting_session_removes_registered_run() {
+    use tkm_integrations::Escalator;
+    let dir = tempfile::tempdir().unwrap();
+    script(dir.path(), "superorchestrator", "printf '[]'");
+    let runtime = Integrations::new(
+        Mode::On,
+        Mode::Off,
+        dir.path().as_os_str().to_owned(),
+        dir.path().to_path_buf(),
+        BTreeMap::new(),
+        Arc::new(SystemClock),
+    );
+    runtime.detect_now(dir.path());
+    let env = BTreeMap::from([
+        ("SUPERORCHESTRATOR_RUN_ID".into(), "run".into()),
+        ("SUPERORCHESTRATOR_RUN_TOKEN".into(), "secret".into()),
+    ]);
+    runtime.observe_session(Host::Claude, "s", dir.path(), &env);
+    assert!(runtime.handles(Host::Claude, "s"));
+    runtime.forget_session(Host::Claude, "s");
+    assert!(!runtime.handles(Host::Claude, "s"));
+}

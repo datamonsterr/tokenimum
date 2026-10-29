@@ -407,6 +407,90 @@ impl Daemon {
 mod tests {
     use super::*;
 
+    #[tokio::test]
+    async fn queued_escalation_survives_fold_and_falls_back_only_on_failure() {
+        use std::{fs, os::unix::fs::PermissionsExt};
+        use tkm_integrations::{
+            Escalator,
+            detect::{Mode, SystemClock},
+            runtime::Integrations,
+        };
+        use tkm_proto::{EventKind, PROTOCOL_VERSION, Request};
+        for succeeds in [false, true] {
+            let dir = tempfile::tempdir().unwrap();
+            let binary = dir.path().join("superorchestrator");
+            let log = dir.path().join("rpc");
+            let marker = dir.path().join("marker");
+            let mcp = if succeeds {
+                format!(
+                    r#"while IFS= read -r line; do printf '%s\n' "$line" >> '{}'; case "$line" in *'"id":1'*) echo '{{"jsonrpc":"2.0","id":1,"result":{{}}}}';; *'"id":2'*) echo '{{"jsonrpc":"2.0","id":2,"result":{{}}}}';; esac; done"#,
+                    log.display()
+                )
+            } else {
+                "exit 1".to_owned()
+            };
+            fs::write(&binary, format!("#!/bin/sh\nif [ \"$1\" = --version ]; then exit 0; fi\nif [ \"$1\" = runs ]; then printf '[]'; exit 0; fi\n{mcp}\n")).unwrap();
+            fs::set_permissions(&binary, fs::Permissions::from_mode(0o755)).unwrap();
+            let adapter = Arc::new(Integrations::new(
+                Mode::On,
+                Mode::Off,
+                dir.path().as_os_str().to_owned(),
+                dir.path().to_path_buf(),
+                BTreeMap::new(),
+                Arc::new(SystemClock),
+            ));
+            adapter.detect_now(dir.path());
+            let paths = tkm_config::paths::Paths::from_dirs(
+                dir.path(),
+                Some(&dir.path().join("data")),
+                Some(&dir.path().join("config")),
+                Some(&dir.path().join("run")),
+            );
+            let mut options = crate::daemon::DaemonOptions::new(paths);
+            options.escalator = adapter.clone();
+            let daemon = Daemon::new(options);
+            let env = BTreeMap::from([
+                ("SUPERORCHESTRATOR_RUN_ID".into(), "run".into()),
+                ("SUPERORCHESTRATOR_RUN_TOKEN".into(), "secret".into()),
+            ]);
+            let request = Request {
+                version: PROTOCOL_VERSION,
+                host: Host::Claude,
+                event: EventKind::SessionStart,
+                host_event: Some("SessionStart".into()),
+                payload: serde_json::json!({"session_id":"s", "hook_event_name":"SessionStart", "cwd":"/tmp"}),
+                env,
+                cwd: None,
+            };
+            daemon.handle(request).await;
+            let run = adapter.delegated_run_for(Host::Claude, "s");
+            assert!(run.is_some());
+            let job = EscalationJob {
+                host: Host::Claude,
+                session_id: "s".into(),
+                repo: RepoKey::default(),
+                turn_calls: 1,
+                envelope: 0,
+                redirect_given: None,
+                scores: None,
+                prompt: String::new(),
+                calls: Vec::new(),
+                repo_root: dir.path().to_path_buf(),
+                with_adapter: true,
+                delegated_run: run,
+                command: Some(format!("printf fallback > '{}'", marker.display())),
+                secrets: BTreeMap::new(),
+            };
+            daemon.fold_live_session(&(Host::Claude, "s".into()), true);
+            assert!(!adapter.handles(Host::Claude, "s"));
+            daemon.run_escalation(job).await;
+            assert_eq!(marker.exists(), !succeeds);
+            if succeeds {
+                assert!(fs::read_to_string(log).unwrap().contains("report_progress"));
+            }
+        }
+    }
+
     #[test]
     fn escalation_digest_redacts_session_token() {
         let env = BTreeMap::from([(
