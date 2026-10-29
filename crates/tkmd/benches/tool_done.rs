@@ -7,14 +7,53 @@ use std::collections::BTreeMap;
 use std::hint::black_box;
 use std::sync::Arc;
 
-use criterion::{Criterion, criterion_group, criterion_main};
+use criterion::{BatchSize, Criterion, criterion_group, criterion_main};
 use tkm_config::paths::Paths;
+use tkm_core::model::{RepoKey, Timestamp};
+use tkm_decide::api::{Answer, Usage};
+use tkm_decide::calibrate::{CalibrationKey, CalibrationStore, Thresholds};
+use tkm_decide::client::{DecideRequest, Decision, Outcome};
 use tkm_proto::{EventKind, Host, PROTOCOL_VERSION, Request};
+use tkm_store::{Repo, Store};
 use tkmd::daemon::{Daemon, DaemonOptions};
+use tkmd::decider::{BoxFuture, Decider};
+use tkmd::settings::{FixedSettings, Settings};
 
 const POST_TOOL_USE: &str = include_str!("../../../fixtures/claude/hooks/PostToolUse-bash.json");
 const SESSION_START: &str = include_str!("../../../fixtures/claude/hooks/SessionStart.json");
 const PROMPT: &str = include_str!("../../../fixtures/claude/hooks/UserPromptSubmit.json");
+const FAILURE: &str = include_str!("../../../fixtures/claude/hooks/PostToolUseFailure-bash.json");
+const STOP: &str = include_str!("../../../fixtures/claude/hooks/Stop.json");
+const MODEL: &str = "benchmark/model-20260101";
+
+struct StuckDecider;
+
+impl Decider for StuckDecider {
+    fn decide(&self, _request: DecideRequest) -> BoxFuture<'_, Outcome> {
+        Box::pin(async {
+            let mut answers = BTreeMap::new();
+            answers.insert("stuck".into(), Answer::Noul { noul: 0.95 });
+            answers.insert("progress".into(), Answer::Noul { noul: 0.1 });
+            answers.insert(
+                "redirect".into(),
+                Answer::Choice {
+                    choice: "reread_error".into(),
+                    confidence: Some(0.9),
+                    probabilities: None,
+                },
+            );
+            Outcome::Decision(Decision {
+                model_version: MODEL.into(),
+                requested_model: MODEL.into(),
+                provider: None,
+                answers,
+                usage: Usage::default(),
+                latency_ms: 0,
+                cached: false,
+            })
+        })
+    }
+}
 
 fn request(event: EventKind, payload: &str) -> Request {
     let payload: serde_json::Value = serde_json::from_str(payload).unwrap();
@@ -42,8 +81,34 @@ fn tool_done(c: &mut Criterion) {
         .enable_all()
         .build()
         .unwrap();
-    let daemon: Arc<Daemon> = Daemon::new(DaemonOptions::new(paths));
+    let store = Store::open(&paths.db).unwrap();
+    let repo = RepoKey("dir:~/dev/example".into());
+    store
+        .upsert_repo(&Repo {
+            repo_key: repo.clone(),
+            display_name: "example".into(),
+            first_seen: Timestamp(1),
+            last_seen: Timestamp(1),
+            delegated_runs: 0,
+        })
+        .unwrap();
+    for _ in 0..5 {
+        store.push_envelope_sample(&repo, Host::Claude, 5).unwrap();
+    }
+    drop(store);
+    let mut options = DaemonOptions::new(paths);
+    options.settings = Arc::new(FixedSettings::new(Settings::default()));
+    options.decider = Arc::new(StuckDecider);
+    let daemon: Arc<Daemon> = Daemon::new(options);
+    daemon.calibration().put(
+        CalibrationKey {
+            model_version: MODEL.into(),
+            purpose: "loop_guard".into(),
+        },
+        Thresholds::default(),
+    );
     runtime.block_on(async {
+        daemon.start_workers();
         daemon
             .handle(request(EventKind::SessionStart, SESSION_START))
             .await;
@@ -52,6 +117,61 @@ fn tool_done(c: &mut Criterion) {
     let hot = request(EventKind::ToolDone, POST_TOOL_USE);
     c.bench_function("tool_done_claude_posttooluse", |b| {
         b.iter(|| black_box(daemon.handle_tool_done(black_box(&hot))));
+    });
+
+    let mut failing = request(EventKind::ToolDone, FAILURE);
+    failing.payload["error"] = "ValueError: boom".into();
+    runtime.block_on(async {
+        daemon.settle().await;
+        daemon.handle(request(EventKind::TurnEnd, STOP)).await;
+        daemon.handle(request(EventKind::Prompt, PROMPT)).await;
+    });
+    for _ in 0..17 {
+        daemon.handle_tool_done(&failing);
+    }
+    let mut monitor = daemon.subscribe();
+    daemon.handle_tool_done(&failing);
+    assert!(
+        matches!(monitor.try_recv(), Ok(tkm_proto::monitor::MonitorMessage::Session(update)) if update.loop_state == "judging")
+    );
+    drop(monitor);
+    runtime.block_on(daemon.settle());
+    assert!(matches!(
+        daemon.handle_tool_done(&failing).action,
+        tkm_proto::ReplyAction::Inject { .. }
+    ));
+    c.bench_function("tool_done_gate_open", |b| {
+        b.iter_batched(
+            || {
+                runtime.block_on(async {
+                    daemon.settle().await;
+                    daemon.handle(request(EventKind::TurnEnd, STOP)).await;
+                    daemon.handle(request(EventKind::Prompt, PROMPT)).await;
+                });
+                for _ in 0..17 {
+                    daemon.handle_tool_done(&failing);
+                }
+            },
+            |()| black_box(daemon.handle_tool_done(black_box(&failing))),
+            BatchSize::PerIteration,
+        );
+    });
+    c.bench_function("tool_done_pending_redirect", |b| {
+        b.iter_batched(
+            || {
+                runtime.block_on(async {
+                    daemon.settle().await;
+                    daemon.handle(request(EventKind::TurnEnd, STOP)).await;
+                    daemon.handle(request(EventKind::Prompt, PROMPT)).await;
+                });
+                for _ in 0..18 {
+                    daemon.handle_tool_done(&failing);
+                }
+                runtime.block_on(daemon.settle());
+            },
+            |()| black_box(daemon.handle_tool_done(black_box(&failing))),
+            BatchSize::PerIteration,
+        );
     });
 }
 

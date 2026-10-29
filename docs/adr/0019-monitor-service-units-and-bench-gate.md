@@ -29,8 +29,9 @@ Date: 2026-10-29. Status: accepted (epics E4.6 to E4.8).
 
 ## Bench gate (E4.8)
 
-- Criterion bench `crates/tkmd/benches/tool_done.rs`: a Claude `PostToolUse` fixture through the
-  in-memory handler. `scripts/check_bench_budget.py` fails when mean plus deviation exceeds 200 µs.
+- Criterion bench `crates/tkmd/benches/tool_done.rs`: Claude fixtures cover quiet calls, opening
+  the judge gate, and delivering a pending redirect. `scripts/check_bench_budget.py` checks every
+  `tool_done_` case and fails when mean plus deviation exceeds 200 µs.
 - `bench.yml` builds release `tkmd` and `tkm-hook`, starts `tkmd` in a scratch `HOME`/`XDG_*`, waits
   for the socket, runs hyperfine (`--shell=none --input <fixture>`), and
   `scripts/check_hook_latency.py` computes p50/p99 from the `times` array: fail at p50 >= 3 ms or

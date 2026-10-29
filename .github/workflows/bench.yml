@@ -37,7 +37,7 @@ jobs:
       - name: Run tkmd tool_done benchmark (budget 200 us)
         run: |
           cargo bench --locked -p tkmd --bench tool_done -- --output-format bencher | tee tkmd-criterion.txt
-          python3 scripts/check_bench_budget.py tkmd-criterion.txt tool_done_claude_posttooluse 200000
+          python3 scripts/check_bench_budget.py tkmd-criterion.txt tool_done_ 200000
           cat tkmd-criterion.txt >> criterion.txt
       - name: Run hook benchmark
         run: |
