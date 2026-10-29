@@ -10,6 +10,10 @@ use tkm_core::{
 
 /// Label a fact (or exercised context item) from independent session evidence.
 #[must_use]
+#[expect(
+    clippy::fn_params_excessive_bools,
+    reason = "Independent observed exercise, validity, contradiction and failure flags"
+)]
 pub const fn fact_outcome(
     exercised: bool,
     held: bool,
@@ -115,7 +119,7 @@ pub fn question_labels<'a>(
                 (
                     ["stable_", "safe_", "rel_"]
                         .iter()
-                        .find_map(|prefix| key.strip_prefix(prefix))?,
+                        .find_map(|prefix| key.strip_prefix(*prefix))?,
                     false,
                 )
             };
@@ -124,4 +128,41 @@ pub fn question_labels<'a>(
                 .map(|label| (key.to_owned(), *label ^ invert))
         })
         .collect()
+}
+
+/// Label a memory pointer only when the session actually read that exact reference.
+/// Successful reads confirm relevance; observed read failures contradict it. A pointer
+/// merely being injected, or an unrelated read, supplies no label.
+#[must_use]
+pub fn reference_outcome(session: &Session, reference: &str) -> Option<bool> {
+    if session.partial || reference.is_empty() {
+        return None;
+    }
+    let mut label = None;
+    for call in session.turns.iter().flat_map(|turn| &turn.calls) {
+        if !["Read", "read", "read_file"].contains(&call.tool.as_str()) {
+            continue;
+        }
+        let Ok(args) = serde_json::from_str::<serde_json::Value>(&call.args_digest) else {
+            continue;
+        };
+        let Some(path) = ["file_path", "path"]
+            .iter()
+            .find_map(|key| args.get(*key).and_then(serde_json::Value::as_str))
+        else {
+            continue;
+        };
+        if !std::path::Path::new(path).ends_with(reference) {
+            continue;
+        }
+        if let Some(observed) = fact_outcome(
+            true,
+            call.exit_code == Some(0) || !call.output_digest.trim().is_empty(),
+            false,
+            call.is_error || call.exit_code.is_some_and(|exit| exit != 0),
+        ) {
+            label = Some(label.unwrap_or(true) && observed);
+        }
+    }
+    label
 }

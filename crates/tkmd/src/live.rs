@@ -218,9 +218,17 @@ impl Daemon {
                 let store = backing.open()?;
                 store.record_judged_turn(&key, turn_idx, tkm_core::model::Timestamp(now))?;
                 let window = store.shadow_window()?;
+                // The store's legacy window can start at a different purpose's first
+                // decision. Only loop judgments may start the loop observation clock.
+                let start = store
+                    .list_recent_decisions(-1)?
+                    .iter()
+                    .filter(|row| row.purpose == Purpose::LoopGuard.as_str())
+                    .filter_map(|row| row.created_at.map(|at| at.0))
+                    .min()
+                    .unwrap_or(now);
                 Ok::<_, tkm_store::StoreError>(
-                    window
-                        .is_none_or(|(start, count)| shadow_active(start, count, now, days, turns)),
+                    window.is_none_or(|(_, count)| shadow_active(start, count, now, days, turns)),
                 )
             })
             .await

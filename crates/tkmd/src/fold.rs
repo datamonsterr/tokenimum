@@ -515,14 +515,35 @@ fn label_decisions(
         let Some(questions) = decision.questions.as_object() else {
             continue;
         };
+        let mut batch_outcomes = outcomes.clone();
+        if relevance {
+            for (name, question) in questions {
+                let Some(id) = name.strip_prefix("rel_memory:") else {
+                    continue;
+                };
+                let reference = question
+                    .get("instructions")
+                    .and_then(serde_json::Value::as_str)
+                    .and_then(|text| {
+                        text.split_once("\nReference: ")
+                            .map(|(_, reference)| reference)
+                    });
+                if let Some(label) = reference
+                    .and_then(|reference| tkm_decide::labels::reference_outcome(session, reference))
+                {
+                    batch_outcomes.insert(format!("memory:{id}"), label);
+                }
+            }
+        }
         let mut labels = decision
             .outcome_label
             .as_deref()
             .and_then(|text| serde_json::from_str::<BTreeMap<String, bool>>(text).ok())
             .unwrap_or_default();
-        for (question, label) in
-            tkm_decide::labels::question_labels(questions.keys().map(String::as_str), &outcomes)
-        {
+        for (question, label) in tkm_decide::labels::question_labels(
+            questions.keys().map(String::as_str),
+            &batch_outcomes,
+        ) {
             // A later contradiction revokes an earlier confirmation.
             labels
                 .entry(question)
@@ -1335,5 +1356,148 @@ mod replay_tests {
                 assert_eq!(row.last_used, None);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod label_tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::pedantic)]
+    use super::*;
+    use tkm_core::model::{Call, Session, Turn};
+
+    #[test]
+    fn fold_labels_prior_facts_and_same_session_relevance_without_labelling_its_own_fact_prediction()
+     {
+        let store = Store::open_in_memory().unwrap();
+        let repo = RepoKey("labels".into());
+        store
+            .upsert_repo(&tkm_store::Repo {
+                repo_key: repo.clone(),
+                display_name: "labels".into(),
+                first_seen: Timestamp(0),
+                last_seen: Timestamp(200),
+                delegated_runs: 0,
+            })
+            .unwrap();
+        let mut ids = Vec::new();
+        for (name, start) in [("prior", 0), ("current", 200)] {
+            ids.push(
+                store
+                    .upsert_session(&tkm_store::NewSession {
+                        key: SessionKey {
+                            host: Host::Claude,
+                            agent_home: "/agent".into(),
+                            session_id: name.into(),
+                        },
+                        repo_key: repo.clone(),
+                        cwd: "/repo".into(),
+                        started: Timestamp(start),
+                        ended: Some(Timestamp(start + 99)),
+                        fold_status: "pending".into(),
+                        shadow: true,
+                        integration_level: "hooks".into(),
+                    })
+                    .unwrap(),
+            );
+        }
+        let current = store.get_session(ids[1]).unwrap().unwrap();
+        let mut decisions = Vec::new();
+        for (purpose, key, session, at) in [
+            ("fact_filter", "stable_repair", ids[0], 100),
+            ("fact_contradiction", "contradicts_repair", ids[0], 100),
+            ("relevance", "rel_repair", ids[1], 201),
+            ("fact_filter", "stable_repair", ids[1], 299),
+        ] {
+            decisions.push(
+                store
+                    .insert_decision_with_context(
+                        &tkm_store::NewDecision {
+                            model: "model".into(),
+                            purpose: purpose.into(),
+                            questions: serde_json::json!({key:{"type":"noul"}}),
+                            answers: serde_json::json!({}),
+                            cost_usd: Some(0.0),
+                            latency_ms: 0,
+                            shadow: true,
+                        },
+                        Some(Timestamp(at)),
+                        Some(&repo),
+                        Some(session),
+                        None,
+                    )
+                    .unwrap(),
+            );
+        }
+        let mut session = Session::new(Host::Claude);
+        session.session_id = "current".into();
+        session.turns.push(Turn {
+            stopped_by: StopReason::OwnStop,
+            calls: vec![Call {
+                tool: "Bash".into(),
+                args_digest: "python -m pytest".into(),
+                output_digest: "10 passed".into(),
+                exit_code: Some(0),
+                ..Call::default()
+            }],
+            ..Turn::default()
+        });
+        let state = FactsState {
+            facts: BTreeMap::from([(
+                "repair".into(),
+                Fact {
+                    candidate: Candidate {
+                        id: "repair".into(),
+                        family: facts::Family::FormRepair,
+                        params: Params {
+                            intent: Some(facts::observe::Intent::RunTests),
+                            bad_form: "pytest".into(),
+                            forms: BTreeMap::from([("python -m pytest".into(), 3)]),
+                            ..Params::default()
+                        },
+                        scope: facts::Scope::Neutral,
+                        evidence: vec![],
+                    },
+                    life: Lifecycle::default(),
+                },
+            )]),
+            ..FactsState::default()
+        };
+        label_decisions(&store, &current, &session, &state, &BTreeSet::new(), &[]).unwrap();
+        for (index, key, expected) in [
+            (0, "stable_repair", true),
+            (1, "contradicts_repair", false),
+            (2, "rel_repair", true),
+        ] {
+            let row = store.get_decision(decisions[index]).unwrap().unwrap();
+            let label: serde_json::Value =
+                serde_json::from_str(row.outcome_label.as_deref().unwrap()).unwrap();
+            assert_eq!(label[key], expected);
+        }
+        assert!(
+            store
+                .get_decision(decisions[3])
+                .unwrap()
+                .unwrap()
+                .outcome_label
+                .is_none()
+        );
+        let verdict = FactEvent {
+            fact_id: "repair".into(),
+            session_id: "current".into(),
+            kind: FactEventKind::Contradicted,
+        };
+        label_decisions(
+            &store,
+            &current,
+            &session,
+            &state,
+            &BTreeSet::new(),
+            &[verdict],
+        )
+        .unwrap();
+        let row = store.get_decision(decisions[0]).unwrap().unwrap();
+        let label: serde_json::Value =
+            serde_json::from_str(row.outcome_label.as_deref().unwrap()).unwrap();
+        assert_eq!(label["stable_repair"], false);
     }
 }

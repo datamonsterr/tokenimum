@@ -340,7 +340,7 @@ pub fn fit_purpose(purpose: &str, samples: &[LabelledSample]) -> Option<PurposeF
                 }
                 "fact_contradiction" => thresholds.t_high = low,
                 "relevance" => {
-                    thresholds.t_low = low.max(1.0 / 3.0);
+                    thresholds.t_low = low.max(0.5);
                     thresholds.t_high = low.max(0.5);
                 }
                 _ => return None,

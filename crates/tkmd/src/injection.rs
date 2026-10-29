@@ -277,7 +277,11 @@ impl Daemon {
             questions.insert(
                 format!("rel_{}", item.id),
                 Question::Score {
-                    instructions: "How relevant is this candidate context to the prompt?".into(),
+                    instructions: if item.source == Source::Memory {
+                        let reference = item.text.split_once("](").and_then(|(_, tail)| tail.split_once(')')).map(|(path, _)| path);
+                        reference.map_or_else(|| "How relevant is this candidate context to the prompt?".into(), |path|
+                            format!("How relevant is this candidate context to the prompt?\nReference: {}", redactor.redact(path)))
+                    } else { "How relevant is this candidate context to the prompt?".into() },
                     criteria: RELEVANCE_CRITERIA.iter().map(|c| (*c).to_owned()).collect(),
                 },
             );
