@@ -1,4 +1,4 @@
-# ADR 0049: Conformance audit gaps and outstanding verification
+# ADR 0050: Conformance audit gaps and outstanding verification
 
 Status: recorded for follow-up, 2026-10-29. This record documents observed gaps; it does not
 change SPEC.md or assert that unfinished work satisfies the spec. Fixes and measurement require
