@@ -1413,4 +1413,16 @@ mod tests {
         assert_eq!(digest.observations.len(), 1);
         assert_eq!(facts::extract::extract(&digest), []);
     }
+
+    #[test]
+    fn commented_python_assignments_produce_no_environment_evidence() {
+        for command in [
+            "python -c 'print(1)' # ;python -c \"os.environ['APP_SETTINGS']='conf.dev'\"",
+            "python -c 'print(1)'\n# python -c \"os.environ['APP_SETTINGS']='conf.dev'\"",
+        ] {
+            let digest = observe(&session(command, "ran", 0));
+            assert_eq!(digest.observations.len(), 1, "{command}");
+            assert_eq!(digest.env, [], "{command}");
+        }
+    }
 }
