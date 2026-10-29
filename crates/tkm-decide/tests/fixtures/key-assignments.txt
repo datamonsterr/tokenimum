@@ -1,0 +1,6 @@
+OPENROUTER_API_KEY=first-fixture-key
+OPENROUTER_API_KEY=
+OPENROUTER_API_KEY='unterminated
+export OPENROUTER_API_KEY="last-fixture-key" # last nonempty valid assignment
+OPENROUTER_API_KEY='   '
+OPENROUTER_API_KEY="malformed" trailing
