@@ -97,3 +97,73 @@ fn prune_unsupported_host_reports_proposal_only() {
     assert!(String::from_utf8_lossy(&out.stdout).contains("proposal only"));
     assert!(store.list_denylist(&s.repo).unwrap().is_empty());
 }
+
+#[test]
+fn prune_apply_one_and_restore_all_four_hosts() {
+    let s = support_ops::Sandbox::new();
+    seed(&s);
+    let paths = tkm_config::paths::Paths::from_dirs(
+        s.home.path(),
+        Some(&s.home.path().join("data")),
+        Some(&s.home.path().join("config")),
+        Some(&s.home.path().join("run")),
+    );
+    let store = tkm_store::Store::open(paths.db).unwrap();
+    let repo = tkm_config::repo::repo_identity(&s.repo, "", Some(s.home.path()));
+    for host in [Host::Claude, Host::Cursor, Host::Opencode, Host::Pi] {
+        for tool in ["mcp__example__unused", "mcp__example__other"] {
+            for _ in 0..5 {
+                store
+                    .record_tool_unused_session(&repo.key, host, tool)
+                    .unwrap();
+            }
+        }
+    }
+    let out = s.run(&["prune", "apply", "mcp__example__unused"]);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    for (relative, token) in [
+        (".claude/settings.local.json", "mcp__example__unused"),
+        (".cursor/cli.json", "Mcp(example:unused)"),
+        ("opencode.json", "mcp__example__unused"),
+        (".pi/settings.json", "-mcp__example__unused"),
+    ] {
+        let path = s.repo.join(relative);
+        let contents = std::fs::read_to_string(&path).unwrap();
+        assert!(contents.contains(token));
+        assert!(!contents.contains("other"));
+    }
+    assert_eq!(
+        store
+            .list_denylist(&s.repo)
+            .unwrap()
+            .iter()
+            .filter(|entry| !entry.restored)
+            .count(),
+        4
+    );
+    assert!(
+        s.run(&["prune", "restore", "mcp__example__unused"])
+            .status
+            .success()
+    );
+    assert!(
+        store
+            .list_denylist(&s.repo)
+            .unwrap()
+            .iter()
+            .all(|entry| entry.restored)
+    );
+    assert!(s.run(&["prune", "apply"]).status.success());
+    assert!(s.run(&["prune", "restore"]).status.success());
+    assert!(
+        store
+            .list_denylist(&s.repo)
+            .unwrap()
+            .iter()
+            .all(|entry| entry.restored)
+    );
+}
