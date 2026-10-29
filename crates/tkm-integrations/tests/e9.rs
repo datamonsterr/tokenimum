@@ -352,3 +352,71 @@ fn escalation_rejects_null_initialize_result() {
     });
     assert!(h.in_backoff());
 }
+
+#[test]
+fn otherskill_strips_injected_orchestrator_environment() {
+    let dir = tempfile::tempdir().unwrap();
+    let log = dir.path().join("env");
+    script(
+        dir.path(),
+        "otherskill",
+        &format!(
+            "/usr/bin/env > '{}'; printf '%s' '{{\"status\":\"ok\",\"selected\":[]}}'",
+            log.display()
+        ),
+    );
+    let env = BTreeMap::from([
+        ("SUPERORCHESTRATOR_RUN_TOKEN".into(), "sensitive".into()),
+        ("SUPERORCHESTRATOR_OTHER".into(), "sensitive".into()),
+    ]);
+    let source = OtherskillSource::new_with_env(dir.path().as_os_str().to_owned(), health(), env);
+    source.candidates(&RepoKey::default(), Host::Claude, "p");
+    assert!(
+        !fs::read_to_string(log)
+            .unwrap()
+            .contains("SUPERORCHESTRATOR_")
+    );
+}
+
+#[test]
+fn otherskill_resolves_relative_path_before_session_chdir() {
+    let dir = tempfile::tempdir_in(".").unwrap();
+    let relative = dir.path().strip_prefix("./").unwrap_or(dir.path());
+    script(
+        relative,
+        "otherskill",
+        "printf '%s' '{\"status\":\"ok\",\"selected\":[{\"name\":\"found\",\"description\":\"yes\"}]}'",
+    );
+    let session = tempfile::tempdir().unwrap();
+    let source = OtherskillSource::new(relative.as_os_str().to_owned(), health());
+    assert_eq!(
+        source
+            .candidates_in(&RepoKey::default(), Host::Claude, "p", session.path())
+            .len(),
+        1
+    );
+}
+
+#[test]
+fn escalation_rejects_empty_tool_result() {
+    let dir = tempfile::tempdir().unwrap();
+    script(
+        dir.path(),
+        "superorchestrator",
+        "while read line; do case \"$line\" in *'\"id\":1'*) echo '{\"id\":1,\"result\":{\"protocolVersion\":\"2025-06-18\"}}';; *'\"id\":2'*) echo '{\"id\":2,\"result\":{}}';; esac; done",
+    );
+    let e = SuperorchestratorEscalator::new(
+        dir.path().as_os_str().to_owned(),
+        dir.path().to_path_buf(),
+        health(),
+    );
+    let env = BTreeMap::from([
+        ("SUPERORCHESTRATOR_RUN_ID".into(), "run".into()),
+        ("SUPERORCHESTRATOR_RUN_TOKEN".into(), "token".into()),
+    ]);
+    e.observe_session(Host::Claude, "s", dir.path(), &env);
+    assert!(!e.try_escalate(&EscalationEvent {
+        session_id: "s".into(),
+        ..Default::default()
+    }));
+}

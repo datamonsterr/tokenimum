@@ -89,10 +89,7 @@ fn matrix_detects_and_falls_back_after_removal() {
         let candidates = runtime.candidates(&RepoKey::default(), Host::Claude, "prompt");
         assert_eq!(candidates.len(), usize::from(skills));
         let env = BTreeMap::from([("SUPERORCHESTRATOR_RUN_ID".to_owned(), "run".to_owned())]);
-        assert_eq!(
-            runtime.delegated_run(dir.path(), &env).is_some(),
-            orchestrator
-        );
+        assert_eq!(runtime.delegated_run(dir.path(), &env).is_some(), true);
         if skills {
             fs::remove_file(dir.path().join("otherskill")).unwrap();
         }
@@ -107,7 +104,10 @@ fn matrix_detects_and_falls_back_after_removal() {
                 .candidates(&RepoKey::default(), Host::Claude, "prompt")
                 .is_empty()
         );
-        assert!(runtime.delegated_run(dir.path(), &env).is_none());
+        assert_eq!(
+            runtime.delegated_run(dir.path(), &env).as_deref(),
+            Some("run")
+        );
     }
 }
 

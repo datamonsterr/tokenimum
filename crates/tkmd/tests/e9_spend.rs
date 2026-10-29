@@ -55,16 +55,8 @@ fn ledger_reports_only_uncached_known_costs_with_session_run() {
     row.cached = false;
     row.cost_usd = None;
     ledger.record(row);
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
-    let text = loop {
-        if let Ok(text) = fs::read_to_string(&path)
-            && !text.is_empty()
-        {
-            break text;
-        }
-        assert!(std::time::Instant::now() < deadline);
-        std::thread::sleep(std::time::Duration::from_millis(10));
-    };
+    ledger.flush();
+    let text = fs::read_to_string(&path).unwrap();
     assert_eq!(text.lines().count(), 1);
     let value: serde_json::Value = serde_json::from_str(&text).unwrap();
     assert_eq!(value["account"], "tokenimum-decisions");
