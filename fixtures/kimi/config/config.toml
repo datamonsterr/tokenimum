@@ -1,0 +1,10 @@
+# Kimi configuration file
+model = "kimi-k1.5"
+
+[general]
+theme = "dark"
+
+[[hooks]]
+event = "SessionStart"
+command = "foreign-logger --start"
+timeout = 10

@@ -262,9 +262,9 @@ The host adapter maps a tokenimum action to the harness format:
 |---|---|---|---|
 | Claude Code | `{"hookSpecificOutput":{"hookEventName":"<Event>","additionalContext":"..."}}` (cap 10,000 chars); not on `Stop` (would continue the turn) or `SessionEnd` (output discarded) | `{"systemMessage":"..."}` | exit 0, empty stdout |
 | Codex | same shape as Claude Code; allowed on `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `SubagentStart`; not `Stop`/`SessionEnd`. Default cap ~2,500 tokens, raised with handler `additionalContextLimit` | `systemMessage` | exit 0, empty stdout |
-| agy | `{"injectSteps":[{"systemMessage":{"systemMessage":"..."}}]}` on `SessionStart`; `injectSteps` with `ephemeralMessage` on `PreInvocation` (as otherskill does) | no notice field documented: **to verify** (https://antigravity.google/docs/hooks?tab=cli) | `{}` (inferred, **to verify**) |
+| agy | `{"injectSteps":[{"systemMessage":{"systemMessage":"..."}}]}` on `SessionStart`; `{"injectSteps":[{"ephemeralMessage":"..."}]}` on the first `PreInvocation` (both verified by local probe 2026-10-29) | none exists; tokenimum logs instead | `{}` (verified; empty stdout also accepted) |
 | Cursor | `{"additional_context":"..."}` on `sessionStart`, `postToolUse`, `postToolUseFailure` | `user_message` exists only on block/deny replies; tokenimum uses no notice on Cursor and logs instead | exit 0, `{}` |
-| Kimi Code | exit 0 with plain stdout ("added to context"); per-event confirmation for `SessionStart`/`UserPromptSubmit` **to verify** (https://raw.githubusercontent.com/MoonshotAI/kimi-cli/main/docs/en/customization/hooks.md) | no notice field documented | exit 0, empty stdout |
+| Kimi Code | exit 0 with plain stdout on `SessionStart`/`UserPromptSubmit` as documented; kimi-cli 1.52.0 source ignores hook stdout (verified 2026-10-29), so the instructions-file block is the working path | no notice field documented | exit 0, empty stdout |
 | DeepSeek harness (Codewhale) | `tool_call_before` → `{"decision":"allow","additionalContext":"..."}` (appended to the tool result as `[hook context]`, cap 2,000 chars per field); `message_submit` can rewrite prompt text but tokenimum never rewrites prompts | none | exit 0, empty stdout |
 | opencode (shim) | push a text part in `chat.message` output, or push to `output.system` in `experimental.chat.system.transform` | toast via `client.tui.showToast({body:{message,variant:"info"}})`, verified 2026-10-29 (`docs/verified/opencode-pi.md`) | return without mutation |
 | Pi (shim) | `before_agent_start` returns `{message:{customType:"tokenimum",content,display:false}}`; redirects via `pi.sendMessage(..., {deliverAs:"steer"})` | `ctx.ui.notify(message, "info")`, verified 2026-10-29 (`docs/verified/opencode-pi.md`) | return `undefined` |
@@ -278,10 +278,10 @@ tokenimum never uses blocking replies (`decision: "block"`, exit 2, `continue: f
 |---|---|---|
 | Claude Code | `<home>/projects/<cwd-slug>/<session>.jsonl` | `transcript_path` in hook payload; written asynchronously, may lag the current turn |
 | Codex | `<CODEX_HOME>/sessions/YYYY/MM/DD/rollout-<ts>-<uuid>.jsonl`; older files `.jsonl.zst` | first line `session_meta`; `transcript_path` may be null; zstd decoding needed for old files |
-| agy | `<home>/.gemini/antigravity-cli/conversations/<uuid>.db` (SQLite: `steps`, `trajectory_meta`, ...; payload blobs, protobuf presumed) | prefer hook `transcriptPath`; its format **to verify** by dumping a hook payload; blob schema **to verify**; open read-only |
-| Cursor | `transcript_path` in hook payload (also env `CURSOR_TRANSCRIPT_PATH`) | storage dir and format undocumented: **to verify** (https://cursor.com/docs/hooks) |
+| agy | hook `transcriptPath` = `<home>/.gemini/antigravity-cli/brain/<id>/.system_generated/logs/transcript_full.jsonl` (one JSON step per line, with token counts) | verified 2026-10-29; the `conversations/<uuid>.db` blobs are undocumented protobuf and are not read |
+| Cursor | `transcript_path` in hook payload (also env `CURSOR_TRANSCRIPT_PATH`) | undocumented; forum: `~/.cursor/projects/<cwd>/agent-transcripts/<id>/<id>.jsonl`, rows `{role,message:{content}}` without usage or outputs |
 | Kimi Code | `~/.kimi/sessions/<md5(workdir)>/<session-id>/{context.jsonl,wire.jsonl,state.json}` | base overridable with `KIMI_SHARE_DIR`; source: https://raw.githubusercontent.com/MoonshotAI/kimi-cli/main/docs/en/configuration/data-locations.md |
-| DeepSeek harness (Codewhale) | `$CODEWHALE_HOME/sessions/<id>/runtime` | format **to verify** (https://github.com/Hmbown/DeepSeek-TUI/blob/main/docs/CONFIGURATION.md, `docs/RECEIPTS.md`) |
+| DeepSeek harness (Codewhale) | `$CODEWHALE_HOME/sessions/<uuid>.json` | one JSON document (`metadata`, `messages`, `journal`); verified from source 2026-10-29 |
 | opencode | SQLite `~/.local/share/opencode/opencode.db` (tables `session`, `message`, `part`, ...; path from `opencode db path`); legacy `~/.local/share/opencode/storage/` | open read-only; `opencode export <id>` is the fallback |
 | Pi | `~/.pi/agent/sessions/--<cwd-encoded>--/<timestamp>_<session-id>.jsonl`, header `{type:"session",version:3,...}` | source: https://github.com/badlogic/pi-mono/blob/main/packages/coding-agent/docs/session-format.md |
 
@@ -345,15 +345,21 @@ session `partial` and the fold uses it for the ledger only.
   `hooks.json`. Schema: top-level object `name → {enabled?, <Event>: [...]}`. Source:
   https://antigravity.google/docs/hooks?tab=cli
 - tokenimum registers its own top-level name `tokenimum`, beside existing names such as
-  `otherskill`, so entries never collide.
+  `otherskill`, so entries never collide. Each event holds a flat handler list
+  `{"type":"command","command":...,"timeout":...}`; agy 1.4.9 rejects the nested
+  `{"matcher","hooks":[...]}` shape shown in the docs (probe 2026-10-29).
 - Events: `SessionStart`, `PreToolUse`, `PostToolUse`, `PreInvocation`, `PostInvocation`, `Stop`.
   No session end: idle-fold.
-- Payload: `conversationId`, `workspacePaths`, `transcriptPath`, `modelName`, `lastUserInput`;
-  `PostToolUse` adds `toolCall`, `stepIdx`, `error`.
+- Payload: `conversationId`, `workspacePaths`, `transcriptPath`, `artifactDirectoryPath`,
+  `modelName`, `lastUserInput`; `PreInvocation` adds `invocationNum` (0 = first of the turn);
+  `PostToolUse` adds `toolCall`, `stepIdx`, `error`. `PreToolUse`/`PostToolUse` did not fire under
+  `agy -p` 1.4.9, so `tool_done` is optional for agy.
 - Timeout unit: s, default 30.
-- Exit-code semantics and project-hook trust gating: **to verify** (same doc).
-- Tool pruning: deny-rule syntax in `~/.gemini/antigravity-cli/settings.json` `permissions`
-  **to verify** (https://antigravity.google/docs/cli/features). Until verified: report only.
+- Exit codes: non-zero fails open (probe). Project hooks loaded without a trust prompt under
+  `agy -p` (probe). Details: `docs/verified/e5b-hosts.md`.
+- Tool pruning: deny rules `action(target)` exist only in user-scope
+  `~/.gemini/antigravity-cli/settings.json` `permissions` (https://antigravity.google/docs/cli/permissions);
+  tokenimum prunes per repository, so agy stays report only.
 - Gemini CLI hooks (https://geminicli.com/docs/hooks/) are a separate product; not assumed to apply.
 
 ### 6.8 Cursor (agent and CLI)
@@ -365,16 +371,18 @@ session `partial` and the fold uses it for the ledger only.
   `sessionEnd`.
 - `beforeSubmitPrompt` replies only `{continue, user_message}`: it cannot inject. tokenimum uses it
   to open the turn and record the prompt, then injects on the next `postToolUse`.
-- `sessionStart` is fire-and-forget: injection reliability **to verify**.
-- Which hooks fire in the CLI (`agent`, `agent -p`): **to verify**. Docs are silent; forum reports
-  conflict (https://forum.cursor.com/t/cursor-cli-hooks/148511). `tkm doctor` runs a probe session
+- `sessionStart` is fire-and-forget; its `additional_context` joins the initial system context
+  (docs). Blocks that matter are repeated on the next `postToolUse`.
+- Which hooks fire in the CLI: docs are silent; forum reports say `beforeSubmitPrompt` and `stop`
+  do not fire under `agent -p` (https://forum.cursor.com/t/cursor-cli-hooks/148511). `tkm doctor` runs a probe session
   and records which events arrived; missing events switch that event to idle-fold.
 - Default hook timeout undocumented: installer always sets `timeout`.
 - Tool pruning target: `<repo>/.cursor/cli.json` `permissions.deny` (syntax `Shell(cmd)`,
   `Mcp(server:tool)`, ...). Source: https://cursor.com/docs/cli/reference/permissions
 - Project hooks run only in trusted workspaces.
-- Cursor can also load Claude Code hooks (https://cursor.com/docs/agent/third-party-hooks, **to
-  verify**). The installer checks this and avoids double registration.
+- Cursor also loads Claude Code hooks by default (https://cursor.com/docs/agent/third-party-hooks,
+  verified). The installer warns about it and the daemon ignores `--host claude` requests that
+  carry a Cursor payload (ADR 0020).
 
 ### 6.9 Kimi Code
 
@@ -386,7 +394,8 @@ session `partial` and the fold uses it for the ledger only.
   `tool_output`, `source`, `reason`.
 - Reply: exit 0 with stdout adds context; exit 2 blocks (tokenimum never uses it). Hooks of one
   event run in parallel; identical commands are deduplicated.
-- Project-level hooks and plugin-registered hooks: **to verify** (same doc).
+- Project-level and plugin-registered hooks: not supported (source, 2026-10-29). Despite the docs,
+  kimi-cli 1.52.0 does not add hook stdout to the context.
 - Tool pruning: no allow/deny rules documented
   (https://raw.githubusercontent.com/MoonshotAI/kimi-cli/main/docs/en/configuration/config-files.md):
   report only.
@@ -396,8 +405,8 @@ session `partial` and the fold uses it for the ledger only.
 - DeepSeek publishes no official coding CLI as of 2026-10-29. The adapter targets the most used
   community harness, **Codewhale** (formerly DeepSeek-TUI, binary `codewhale`, legacy `deepseek`),
   https://github.com/Hmbown/DeepSeek-TUI, which states it is not affiliated with DeepSeek.
-  **To verify with the person**: confirm this is the intended harness. Other candidates:
-  whyiyhw/seek, amemiya02/deepseekcode.
+  DeepSeek has since published an official CLI, DeepSeek Harness (`dsh`, developer preview,
+  https://github.com/deepseek-ai/deepseek-harness); it is a separate future adapter.
 - Config: global `~/.codewhale/config.toml` `[hooks]` with `[[hooks.hooks]]`; legacy
   `~/.deepseek/config.toml`; project `<repo>/.codewhale/hooks.toml` (needs workspace trust and
   `/hooks approve`). Source: https://github.com/Hmbown/DeepSeek-TUI/blob/main/docs/HOOKS.md
@@ -576,7 +585,7 @@ Port TE `toolprune` and `plugin/denylist.py`:
   | opencode | `<repo>/opencode.json` `permission.<tool> = "deny"` | verified surface; MCP keys `<server>_<tool>` |
   | Pi | project settings `defaultTools` with `-name` | verified surface |
   | Codex | none for built-in tools (MCP `disabled_tools` only) | verified 2026-10-29; report only |
-  | agy | `settings.json` `permissions` | deny syntax **to verify**; report only until then |
+  | agy | none per repository (`settings.json` `permissions` is user scope) | verified 2026-10-29; report only |
   | Kimi Code | none documented | report only |
   | DeepSeek harness | none documented | report only |
 
@@ -1132,14 +1141,10 @@ Benchmarks (criterion + hyperfine) run in CI against fixtures; a regression over
 | Claude Code | ~~permissions deny syntax~~ closed 2026-10-29 | https://code.claude.com/docs/en/permissions |
 | Codex | ~~hooks under `codex exec`~~ closed 2026-10-29 (trusted hooks only) | https://developers.openai.com/codex/hooks |
 | Codex | ~~tool deny key in `config.toml` / `rules/`; MCP tool filters~~ closed 2026-10-29: no built-in deny key, report only | https://developers.openai.com/codex/config-reference |
-| agy | exit-code semantics; no-op reply; project-hook trust; notice field | https://antigravity.google/docs/hooks?tab=cli |
-| agy | permissions deny syntax | https://antigravity.google/docs/cli/features |
-| agy | `transcriptPath` format; conversation DB blob schema | dump a hook payload locally |
-| Cursor | which hooks fire in `agent` / `agent -p`; default timeout; `sessionStart` injection reliability | https://cursor.com/docs/hooks |
-| Cursor | transcript format and chat storage dir | https://cursor.com/docs/hooks |
-| Cursor | third-party (Claude Code) hook loading | https://cursor.com/docs/agent/third-party-hooks |
-| Kimi Code | project-level hooks; plugin hooks; stdout injection per event | https://raw.githubusercontent.com/MoonshotAI/kimi-cli/main/docs/en/customization/hooks.md |
-| DeepSeek harness | which harness is meant; session file format | https://github.com/Hmbown/DeepSeek-TUI/blob/main/docs/CONFIGURATION.md |
+| agy | ~~exit-code semantics; no-op reply; project-hook trust; notice field; permissions deny syntax; `transcriptPath` format; DB blob schema~~ closed 2026-10-29, `docs/verified/e5b-hosts.md`; still open: `PreToolUse`/`PostToolUse` under `agy -p` (not observed) | https://antigravity.google/docs/hooks?tab=cli |
+| Cursor | ~~which hooks fire in the CLI; default timeout; `sessionStart` injection; third-party hook loading~~ closed 2026-10-29 (CLI facts from forum); transcript format only forum-reported | https://cursor.com/docs/hooks |
+| Kimi Code | ~~project-level hooks; plugin hooks; stdout injection per event~~ closed 2026-10-29 (stdout not consumed in 1.52.0) | https://raw.githubusercontent.com/MoonshotAI/kimi-cli/main/docs/en/customization/hooks.md |
+| DeepSeek harness | ~~which harness is meant; session file format~~ closed 2026-10-29 (Codewhale; `sessions/<uuid>.json`) | https://github.com/Hmbown/DeepSeek-TUI/blob/main/docs/HOOKS.md |
 | opencode | ~~plugin hook timeouts; toast API; `session.created` under `opencode run`; MCP permission keys~~ closed 2026-10-29, `docs/verified/opencode-pi.md` (`session.created` from source, not run) | https://opencode.ai/docs/plugins/, https://opencode.ai/docs/permissions/ |
 | Pi | ~~`ctx.ui` notify API; handler timeouts~~ closed 2026-10-29; async work in `session_shutdown` stays open (not in the docs, needs a runtime probe), `docs/verified/opencode-pi.md` | https://github.com/badlogic/pi-mono/blob/main/packages/coding-agent/docs/extensions.md |
 | Gemini CLI | whether its hooks apply to agy (assumed not) | https://geminicli.com/docs/hooks/ |

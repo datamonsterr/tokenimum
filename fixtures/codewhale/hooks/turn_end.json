@@ -1,0 +1,14 @@
+{
+  "event": "turn_end",
+  "session_id": "sess_8f3a1b2c",
+  "workspace": "/home/user/project",
+  "turn_id": "turn_001",
+  "status": "completed",
+  "duration_ms": 1250,
+  "usage": {
+    "input_tokens": 120,
+    "output_tokens": 45,
+    "prompt_cache_hit_tokens": 80,
+    "prompt_cache_write_tokens": 10
+  }
+}

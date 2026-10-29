@@ -1,0 +1,13 @@
+{
+  "conversation_id": "",
+  "generation_id": "gen-cli-001",
+  "session_id": "sess-cli-001",
+  "model": "claude-3-7-sonnet",
+  "hook_event_name": "sessionStart",
+  "cursor_version": "0.45.0",
+  "workspace_roots": [
+    "/workspace/tokenimum"
+  ],
+  "user_email": "user@example.com",
+  "transcript_path": null
+}

@@ -41,10 +41,10 @@ SPEC.md section 6 is the source of truth. This skill is the working checklist.
 |---|---|
 | Claude Code | `~/.claude/projects/<cwd-slug>/<session>.jsonl` |
 | Codex | `$CODEX_HOME/sessions/YYYY/MM/DD/rollout-*.jsonl` (older `.jsonl.zst`) |
-| agy | `~/.gemini/antigravity-cli/conversations/<uuid>.db` (open read-only) |
-| Cursor | hook `transcript_path` (format to verify) |
+| agy | hook `transcriptPath`: `~/.gemini/antigravity-cli/brain/<id>/.system_generated/logs/transcript_full.jsonl` |
+| Cursor | hook `transcript_path` (JSONL, forum-reported shape) |
 | Kimi Code | `~/.kimi/sessions/<md5(workdir)>/<session-id>/` |
-| Codewhale | `$CODEWHALE_HOME/sessions/<id>/` (format to verify) |
+| Codewhale | `$CODEWHALE_HOME/sessions/<uuid>.json` |
 | opencode | `~/.local/share/opencode/opencode.db` (open read-only) |
 | Pi | `~/.pi/agent/sessions/--<cwd>--/<ts>_<id>.jsonl` |
 

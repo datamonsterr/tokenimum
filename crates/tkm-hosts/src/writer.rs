@@ -577,32 +577,52 @@ fn uninstall_text(
     Ok(text)
 }
 
-/// Installs host-owned matcher groups while retaining all foreign JSON bytes.
+fn node_value(text: &str, node: &span::Node) -> Result<Value, AdapterError> {
+    let slice = text
+        .get(node.range.clone())
+        .ok_or_else(|| invalid("JSON span out of range"))?;
+    Ok(serde_json::from_str(slice)?)
+}
+
+fn json_same(edited: &str, backup: &str) -> Result<bool, AdapterError> {
+    Ok(serde_json::from_str::<Value>(edited)? == serde_json::from_str::<Value>(backup)?)
+}
+
+fn json_empty(edited: &str) -> Result<bool, AdapterError> {
+    let value: Value = serde_json::from_str(edited)?;
+    Ok(value.as_object().is_some_and(serde_json::Map::is_empty))
+}
+
+/// Validates the target and backup paths, then reports nothing to do.
+fn noop_install(root: &Path, path: &Path, dry_run: bool) -> Result<InstallReport, AdapterError> {
+    let target = safe_target(root, path)?;
+    checked_backup(root, path, &target)?;
+    Ok(InstallReport {
+        dry_run,
+        ..InstallReport::default()
+    })
+}
+
+/// Installs by rewriting a whole text file through `edit`, with ADR 0011 safety rules.
 ///
-/// Changed reports list settings first and a newly created backup second.
-/// A repeated install with equal handlers reports no changed files.
+/// `edit` receives the current text (`None` if the file is absent) and returns the desired full
+/// text. Equal text means no change and an empty report. Creating a file writes an empty
+/// `<file>.tkm-bak` marker. Reports list the file first and a newly created backup second.
 ///
 /// # Errors
-/// Returns an adapter error for unsafe paths, invalid settings/specifications,
-/// malformed JSON, or filesystem failures. Dry runs perform no writes.
-pub fn install_hooks(
+/// Returns an adapter error for unsafe paths, errors from `edit`, or filesystem failures.
+/// Dry runs perform no writes.
+pub fn install_text_file(
     root: &Path,
     path: &Path,
-    host: &str,
-    hooks: &[HookSpec],
     dry_run: bool,
+    edit: &dyn Fn(Option<&str>) -> Result<String, AdapterError>,
 ) -> Result<InstallReport, AdapterError> {
     let target = safe_target(root, path)?;
     let (backup, backup_target) = checked_backup(root, path, &target)?;
     let original = read_optional(&target)?;
-    if hooks.is_empty() {
-        return Ok(InstallReport {
-            dry_run,
-            ..InstallReport::default()
-        });
-    }
     retry_update(original, |original| {
-        let changed = install_text(original.unwrap_or("{}"), host, hooks)?;
+        let changed = edit(original)?;
         let mut report = InstallReport {
             dry_run,
             ..InstallReport::default()
@@ -626,20 +646,16 @@ pub fn install_hooks(
     })
 }
 
-/// Removes only groups whose every handler belongs to `host`.
-///
-/// Restores exact backup bytes when the edited settings equal the backup as
-/// JSON. Settings created by tokenimum are deleted when only an empty object
-/// remains. Foreign edits made since installation are retained.
-///
-/// # Errors
-/// Returns an adapter error for unsafe paths, invalid settings, malformed JSON,
-/// or filesystem failures. Dry runs perform no writes.
-pub fn uninstall_hooks(
+/// Edit callback for uninstall; receives the current text and the raw backup text, if any.
+type BackupEdit<'a> = &'a dyn Fn(&str, Option<&str>) -> Result<String, AdapterError>;
+
+fn uninstall_with_backup(
     root: &Path,
     path: &Path,
-    host: &str,
     dry_run: bool,
+    edit: BackupEdit<'_>,
+    same: &dyn Fn(&str, &str) -> Result<bool, AdapterError>,
+    empty: &dyn Fn(&str) -> Result<bool, AdapterError>,
 ) -> Result<InstallReport, AdapterError> {
     let target = safe_target(root, path)?;
     let (backup, backup_target) = checked_backup(root, path, &target)?;
@@ -652,21 +668,17 @@ pub fn uninstall_hooks(
             return Ok(Update::Done(report));
         };
         let backup_text = read_optional(&backup_target)?;
-        let backup_value = backup_text
-            .as_deref()
-            .filter(|text| !text.is_empty())
-            .map(serde_json::from_str::<Value>)
-            .transpose()?;
-        let changed = uninstall_text(original, host, backup_value.as_ref())?;
-        let value: Value = serde_json::from_str(&changed)?;
-        let restore = backup_value.as_ref() == Some(&value);
+        let changed = edit(original, backup_text.as_deref())?;
+        let restore = match backup_text.as_deref() {
+            Some(text) if !text.is_empty() => same(&changed, text)?,
+            _ => false,
+        };
         let replacement = if restore {
             backup_text.as_deref().unwrap_or(&changed)
         } else {
             &changed
         };
-        let delete = backup_text.as_deref() == Some("")
-            && value.as_object().is_some_and(serde_json::Map::is_empty);
+        let delete = backup_text.as_deref() == Some("") && empty(&changed)?;
         let settings_changed = original != replacement || delete;
         if settings_changed {
             report.changed_files.push(path.to_path_buf());
@@ -693,6 +705,393 @@ pub fn uninstall_hooks(
         }
         Ok(Update::Done(report))
     })
+}
+
+/// Uninstalls by rewriting through `edit` (current text in, edited text out).
+///
+/// If a non-empty backup exists and `same(edited, backup)` is true, the exact backup bytes are
+/// restored and the backup removed. If the backup is the empty created-file marker and
+/// `empty(edited)` is true, the file and marker are deleted. A missing file yields an empty report.
+///
+/// # Errors
+/// Returns an adapter error for unsafe paths, errors from the callbacks, or filesystem failures.
+/// Dry runs perform no writes.
+pub fn uninstall_text_file(
+    root: &Path,
+    path: &Path,
+    dry_run: bool,
+    edit: &dyn Fn(&str) -> Result<String, AdapterError>,
+    same: &dyn Fn(&str, &str) -> Result<bool, AdapterError>,
+    empty: &dyn Fn(&str) -> Result<bool, AdapterError>,
+) -> Result<InstallReport, AdapterError> {
+    uninstall_with_backup(
+        root,
+        path,
+        dry_run,
+        &|text: &str, _backup: Option<&str>| edit(text),
+        same,
+        empty,
+    )
+}
+
+/// Installs host-owned matcher groups while retaining all foreign JSON bytes.
+///
+/// Changed reports list settings first and a newly created backup second.
+/// A repeated install with equal handlers reports no changed files.
+///
+/// # Errors
+/// Returns an adapter error for unsafe paths, invalid settings/specifications,
+/// malformed JSON, or filesystem failures. Dry runs perform no writes.
+pub fn install_hooks(
+    root: &Path,
+    path: &Path,
+    host: &str,
+    hooks: &[HookSpec],
+    dry_run: bool,
+) -> Result<InstallReport, AdapterError> {
+    if hooks.is_empty() {
+        return noop_install(root, path, dry_run);
+    }
+    install_text_file(root, path, dry_run, &|original: Option<&str>| {
+        install_text(original.unwrap_or("{}"), host, hooks)
+    })
+}
+
+/// Removes only groups whose every handler belongs to `host`.
+///
+/// Restores exact backup bytes when the edited settings equal the backup as
+/// JSON. Settings created by tokenimum are deleted when only an empty object
+/// remains. Foreign edits made since installation are retained.
+///
+/// # Errors
+/// Returns an adapter error for unsafe paths, invalid settings, malformed JSON,
+/// or filesystem failures. Dry runs perform no writes.
+pub fn uninstall_hooks(
+    root: &Path,
+    path: &Path,
+    host: &str,
+    dry_run: bool,
+) -> Result<InstallReport, AdapterError> {
+    uninstall_with_backup(
+        root,
+        path,
+        dry_run,
+        &|original: &str, backup: Option<&str>| {
+            let backup_value = backup
+                .filter(|text| !text.is_empty())
+                .map(serde_json::from_str::<Value>)
+                .transpose()?;
+            uninstall_text(original, host, backup_value.as_ref())
+        },
+        &json_same,
+        &json_empty,
+    )
+}
+
+fn install_member_text(original: &str, key: &str, value: &Value) -> Result<String, AdapterError> {
+    let root = span::parse(original)?;
+    if !root.object {
+        return Err(invalid("settings must be an object"));
+    }
+    match root.member(key) {
+        Some(node) => {
+            if node_value(original, node)? == *value {
+                Ok(original.to_owned())
+            } else {
+                Ok(span::replace_value(original, node, value))
+            }
+        }
+        None => Ok(span::append_member(original, &root, key, value)),
+    }
+}
+
+/// Sets top-level member `key` of a JSON object file to `value`.
+///
+/// The member is owned wholly by tokenimum (for example agy's `tokenimum`). Its value span is
+/// replaced when present and different, and the member is appended when absent. Foreign bytes
+/// are untouched.
+///
+/// # Errors
+/// Returns an adapter error for unsafe paths, a non-object root, malformed JSON, or filesystem
+/// failures. Dry runs perform no writes.
+pub fn install_member(
+    root: &Path,
+    path: &Path,
+    key: &str,
+    value: &Value,
+    dry_run: bool,
+) -> Result<InstallReport, AdapterError> {
+    install_text_file(root, path, dry_run, &|original: Option<&str>| {
+        install_member_text(original.unwrap_or("{}"), key, value)
+    })
+}
+
+fn uninstall_member_text(original: &str, key: &str) -> Result<String, AdapterError> {
+    let mut text = original.to_owned();
+    loop {
+        let root = span::parse(&text)?;
+        if !root.object {
+            return Err(invalid("settings must be an object"));
+        }
+        if root.member(key).is_none() {
+            return Ok(text);
+        }
+        text = span::remove_member(&text, &root, key);
+    }
+}
+
+/// Removes top-level member `key`; foreign members keep their bytes.
+///
+/// Restores the exact backup when the result equals it as JSON, and deletes a file created by
+/// tokenimum once only an empty object remains.
+///
+/// # Errors
+/// Returns an adapter error for unsafe paths, a non-object root, malformed JSON, or filesystem
+/// failures. Dry runs perform no writes.
+pub fn uninstall_member(
+    root: &Path,
+    path: &Path,
+    key: &str,
+    dry_run: bool,
+) -> Result<InstallReport, AdapterError> {
+    uninstall_text_file(
+        root,
+        path,
+        dry_run,
+        &|original: &str| uninstall_member_text(original, key),
+        &json_same,
+        &json_empty,
+    )
+}
+
+fn flat_event<'a>(
+    root: &'a span::Node,
+    container: &str,
+    event: &str,
+) -> Result<&'a span::Node, AdapterError> {
+    root.member(container)
+        .and_then(|node| node.member(event))
+        .ok_or_else(|| invalid("hook event missing"))
+}
+
+fn install_flat_text(
+    original: &str,
+    host: &str,
+    container: &str,
+    seed: &[(&str, Value)],
+    specs: &[HookSpec],
+) -> Result<String, AdapterError> {
+    for spec in specs {
+        if !spec.handler.is_object() || !owns_handler(&spec.handler, host) {
+            return Err(invalid("hook specification must contain an owned handler"));
+        }
+    }
+    let mut text = original.to_owned();
+    let root = span::parse(&text)?;
+    if !root.object {
+        return Err(invalid("settings must be an object"));
+    }
+    if root.member(container).is_some_and(|node| !node.object) {
+        return Err(invalid("hook container must be an object"));
+    }
+    for (key, value) in seed {
+        let root = span::parse(&text)?;
+        if root.member(key).is_none() {
+            text = span::append_member(&text, &root, key, value);
+        }
+    }
+    let root = span::parse(&text)?;
+    if root.member(container).is_none() {
+        text = span::append_member(&text, &root, container, &json!({}));
+    }
+    for spec in specs {
+        let root = span::parse(&text)?;
+        let node = root
+            .member(container)
+            .ok_or_else(|| invalid("hook container missing"))?;
+        let Some(event) = node.member(&spec.native_event) else {
+            text = span::append_member(&text, node, &spec.native_event, &json!([spec.handler]));
+            continue;
+        };
+        if !event.array {
+            return Err(invalid("hook event must be an array"));
+        }
+        let mut keep = false;
+        let mut remove = Vec::new();
+        for (index, element) in event.elements.iter().enumerate() {
+            let value = node_value(&text, element)?;
+            if owns_handler(&value, host) {
+                if value == spec.handler && !keep {
+                    keep = true;
+                } else {
+                    remove.push(index);
+                }
+            }
+        }
+        for index in remove.into_iter().rev() {
+            let root = span::parse(&text)?;
+            let event = flat_event(&root, container, &spec.native_event)?;
+            text = span::remove_element(&text, event, index);
+        }
+        if !keep {
+            let root = span::parse(&text)?;
+            let event = flat_event(&root, container, &spec.native_event)?;
+            text = span::append_element(&text, event, &spec.handler);
+        }
+    }
+    Ok(text)
+}
+
+/// Installs handler objects directly in `<container>.<native_event>` arrays.
+///
+/// This is the Cursor shape: `{"version":1,"hooks":{"sessionStart":[{handler}]}}`. `seed`
+/// members (for example `("version", json!(1))`) are appended at top level only when absent and
+/// never overwritten. Ownership is decided per handler by [`owns_handler`]; stale owned handlers
+/// in an event are removed and one desired handler is kept, with the same idempotence rules as
+/// [`install_hooks`]. `HookSpec::matcher` is ignored; callers put any matcher inside the handler.
+///
+/// # Errors
+/// Returns an adapter error for unsafe paths, a non-object root or container, a non-array
+/// event, a handler specification that is not owned, malformed JSON, or filesystem failures.
+/// Dry runs perform no writes.
+pub fn install_flat_hooks(
+    root: &Path,
+    path: &Path,
+    host: &str,
+    container: &str,
+    seed: &[(&str, Value)],
+    hooks: &[HookSpec],
+    dry_run: bool,
+) -> Result<InstallReport, AdapterError> {
+    if hooks.is_empty() {
+        return noop_install(root, path, dry_run);
+    }
+    install_text_file(root, path, dry_run, &|original: Option<&str>| {
+        install_flat_text(original.unwrap_or("{}"), host, container, seed, hooks)
+    })
+}
+
+fn uninstall_flat_text(
+    original: &str,
+    host: &str,
+    container: &str,
+    seed: &[&str],
+    backup: Option<&str>,
+) -> Result<String, AdapterError> {
+    let created = backup == Some("");
+    let backup_value = backup
+        .filter(|text| !text.is_empty())
+        .map(serde_json::from_str::<Value>)
+        .transpose()?;
+    let backup_container = backup_value.as_ref().and_then(|value| value.get(container));
+    let mut text = original.to_owned();
+    let root = span::parse(&text)?;
+    if !root.object {
+        return Err(invalid("settings must be an object"));
+    }
+    let Some(node) = root.member(container) else {
+        return Ok(text);
+    };
+    if !node.object {
+        return Err(invalid("hook container must be an object"));
+    }
+    let mut names: Vec<String> = Vec::new();
+    for member in &node.members {
+        if !names.contains(&member.key) {
+            names.push(member.key.clone());
+        }
+    }
+    let mut removed_owned = false;
+    for name in names {
+        let root = span::parse(&text)?;
+        let event = flat_event(&root, container, &name)?;
+        if !event.array {
+            return Err(invalid("hook event must be an array"));
+        }
+        let mut remove = Vec::new();
+        for (index, element) in event.elements.iter().enumerate() {
+            if owns_handler(&node_value(&text, element)?, host) {
+                remove.push(index);
+            }
+        }
+        if remove.is_empty() {
+            continue;
+        }
+        removed_owned = true;
+        for index in remove.into_iter().rev() {
+            let root = span::parse(&text)?;
+            let event = flat_event(&root, container, &name)?;
+            text = span::remove_element(&text, event, index);
+        }
+        let root = span::parse(&text)?;
+        let node = root
+            .member(container)
+            .ok_or_else(|| invalid("hook container missing"))?;
+        if node
+            .member(&name)
+            .is_some_and(|event| event.elements.is_empty())
+            && backup_container
+                .and_then(|value| value.get(&name))
+                .is_none()
+        {
+            text = span::remove_member(&text, node, &name);
+        }
+    }
+    if !removed_owned {
+        return Ok(text);
+    }
+    let root = span::parse(&text)?;
+    if root
+        .member(container)
+        .is_some_and(|node| node.members.is_empty())
+        && backup_container.is_none()
+    {
+        text = span::remove_member(&text, &root, container);
+    }
+    let root = span::parse(&text)?;
+    if root.member(container).is_none() {
+        for key in seed {
+            let root = span::parse(&text)?;
+            let in_backup = backup_value
+                .as_ref()
+                .is_some_and(|value| value.get(*key).is_some());
+            if root.member(key).is_some() && (created || !in_backup) {
+                text = span::remove_member(&text, &root, key);
+            }
+        }
+    }
+    Ok(text)
+}
+
+/// Removes owned handlers from every `<container>.<event>` array.
+///
+/// An event array left empty is removed only if the backup lacks it; the container left empty is
+/// removed only if the backup lacks it; `seed` members are removed only when the container is
+/// gone and the backup lacks them (or the file was created by tokenimum). Restores the exact
+/// backup when the result equals it as JSON, and deletes a file created by tokenimum once only
+/// an empty object remains.
+///
+/// # Errors
+/// Returns an adapter error for unsafe paths, a non-object root or container, a non-array
+/// event, malformed JSON, or filesystem failures. Dry runs perform no writes.
+pub fn uninstall_flat_hooks(
+    root: &Path,
+    path: &Path,
+    host: &str,
+    container: &str,
+    seed: &[&str],
+    dry_run: bool,
+) -> Result<InstallReport, AdapterError> {
+    uninstall_with_backup(
+        root,
+        path,
+        dry_run,
+        &|original: &str, backup: Option<&str>| {
+            uninstall_flat_text(original, host, container, seed, backup)
+        },
+        &json_same,
+        &json_empty,
+    )
 }
 
 #[cfg(test)]

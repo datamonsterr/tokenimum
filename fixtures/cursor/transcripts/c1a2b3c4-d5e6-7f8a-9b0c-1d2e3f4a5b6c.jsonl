@@ -1,0 +1,6 @@
+{"role":"user","message":{"content":[{"type":"text","text":"<user_query>Please check git status and run tests</user_query>"}]}}
+{"role":"assistant","message":{"content":[{"type":"tool_use","name":"Bash","input":{"command":"git status"}}]}}
+{"role":"assistant","message":{"content":[{"type":"tool_use","name":"Bash","input":{"command":"cargo test"}}]}}
+{"role":"assistant","message":{"content":[{"type":"text","text":"Tests are passing."}]}}
+{"role":"user","message":{"content":[{"type":"text","text":"Great, now edit src/lib.rs"}]}}
+{"role":"assistant","message":{"content":[{"type":"tool_use","name":"Edit","input":{"content":"pub fn foo() {}","path":"src/lib.rs"}}]}}

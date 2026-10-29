@@ -1,0 +1,9 @@
+{"_system_prompt":"You are Kimi, an AI assistant developed by Moonshot AI."}
+{"role":"user","content":"<system>CHECKPOINT: save_point_1"}
+{"_checkpoint":{"id":"cp_1"}}
+{"role":"user","content":"Please check the project files"}
+{"role":"assistant","content":"I will list the directory contents.","tool_calls":[{"id":"call_01","type":"function","function":{"name":"bash","arguments":"{\"command\":\"ls -la\"}"}}]}
+{"role":"tool","tool_call_id":"call_01","content":"total 12\n-rw-r--r-- Cargo.toml\n-rw-r--r-- README.md"}
+{"role":"assistant","content":"Now running tests.","tool_calls":[{"id":"call_02","type":"function","function":{"name":"bash","arguments":"{\"command\":\"cargo test\"}"}}]}
+{"role":"tool","tool_call_id":"call_02","content":"<system>ERROR: compilation failed"}
+{"_usage":{"token_count":500}}
