@@ -14,6 +14,17 @@ const MIN_LABELS: usize = 20;
 /// # Errors
 /// Returns an error for database or output failures.
 pub fn run(ctx: &mut Ctx<'_>, args: &CalibrateArgs) -> Result<ExitCode, CliError> {
+    if let Some(path) = &args.fixtures {
+        if args
+            .purpose
+            .is_some_and(|purpose| purpose != CalibrationPurpose::Loop)
+        {
+            return Err(CliError::Usage(
+                "fixture calibration only supports loop".into(),
+            ));
+        }
+        return fit_fixtures(ctx, path);
+    }
     if args
         .purpose
         .is_none_or(|purpose| purpose == CalibrationPurpose::Loop)
@@ -121,4 +132,33 @@ fn fit_loop(ctx: &mut Ctx<'_>) -> Result<(), CliError> {
 }
 fn db_error(error: rusqlite::Error) -> CliError {
     CliError::Usage(format!("database query failed: {error}"))
+}
+
+fn fit_fixtures(ctx: &mut Ctx<'_>, path: &std::path::Path) -> Result<ExitCode, CliError> {
+    let bench = super::bench::load(path)?;
+    let store = daemon::open_db_for_write(&ctx.paths)?;
+    for (model, samples) in &bench.samples {
+        let policy = FitConfig::default();
+        let Some(fit) = fit_upper(samples, &policy).filter(|fit| fit.meets_target(&policy)) else {
+            writeln!(ctx.stdout, "{model}: no qualifying fit")?;
+            continue;
+        };
+        let defaults = Thresholds::default();
+        if samples.len() < MIN_LABELS || fit.threshold <= defaults.t_low {
+            continue;
+        }
+        let count = u32::try_from(samples.len())
+            .map_err(|_| CliError::Usage("too many calibration samples".into()))?;
+        store.upsert_calibration(&tkm_store::CalibrationRecord {
+            model_version: model.clone(), purpose: "loop_guard".into(),
+            thresholds: serde_json::json!({"t_stuck":fit.threshold,"t_progress":defaults.t_progress,"t_low":defaults.t_low,"t_high":defaults.t_high}),
+            sample_count: count, precision: fit.precision, recall: fit.recall,
+        }).map_err(|e| CliError::Usage(format!("cannot save calibration: {e}")))?;
+        writeln!(
+            ctx.stdout,
+            "{model}: threshold {} precision {} recall {}",
+            fit.threshold, fit.precision, fit.recall
+        )?;
+    }
+    Ok(ExitCode::SUCCESS)
 }

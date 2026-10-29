@@ -212,7 +212,11 @@ impl StoreCalibration {
     /// Replaces cached thresholds with the rows read from the database.
     pub fn refresh(&self, records: &[CalibrationRecord]) {
         let mut values = self.values.lock().unwrap_or_else(PoisonError::into_inner);
+        values.clear();
         for record in records {
+            if record.purpose == "loop_guard" && !(0.9..=1.0).contains(&record.precision) {
+                continue;
+            }
             if let Some(thresholds) = thresholds_from_json(&record.thresholds) {
                 values.insert(
                     CalibrationKey {
@@ -267,10 +271,13 @@ impl CalibrationStore for StoreCalibration {
                 precision: 0.0,
                 recall: 0.0,
             });
-        self.values
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .insert(key, t);
+        // An unscored row cannot authorize a loop decision.
+        let mut values = self.values.lock().unwrap_or_else(PoisonError::into_inner);
+        if key.purpose == "loop_guard" {
+            values.remove(&key);
+        } else {
+            values.insert(key, t);
+        }
     }
 }
 
@@ -279,7 +286,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn put_is_visible_and_queued_for_persistence() {
+    fn put_is_queued_without_authorizing_unscored_loop() {
         let store = StoreCalibration::default();
         let key = CalibrationKey {
             model_version: "m-20260101".into(),
@@ -287,10 +294,45 @@ mod tests {
         };
         assert!(store.get(&key).is_none());
         store.put(key.clone(), Thresholds::default());
-        assert_eq!(store.get(&key), Some(Thresholds::default()));
+        assert_eq!(store.get(&key), None);
         let pending = store.take_pending();
         assert_eq!(pending.len(), 1);
         assert_eq!(store.take_pending().len(), 0);
+    }
+
+    #[test]
+    fn refresh_requires_loop_precision_and_revokes_stale_authorization() {
+        let store = StoreCalibration::default();
+        let key = CalibrationKey {
+            model_version: "m".into(),
+            purpose: "loop_guard".into(),
+        };
+        let mut row = CalibrationRecord {
+            model_version: key.model_version.clone(),
+            purpose: key.purpose.clone(),
+            thresholds: serde_json::json!({"t_stuck":0.9,"t_progress":0.2,"t_low":0.1,"t_high":0.8}),
+            sample_count: 200,
+            precision: 0.9,
+            recall: 0.6,
+        };
+        store.refresh(&[row.clone()]);
+        assert!(store.get(&key).is_some());
+        row.precision = 0.899;
+        store.refresh(&[row]);
+        assert!(store.get(&key).is_none());
+        store.refresh(&[]);
+        assert!(store.get(&key).is_none());
+    }
+
+    #[test]
+    fn unscored_put_does_not_authorize_loop_action() {
+        let store = StoreCalibration::default();
+        let key = CalibrationKey {
+            model_version: "m".into(),
+            purpose: "loop_guard".into(),
+        };
+        store.put(key.clone(), Thresholds::default());
+        assert!(store.get(&key).is_none());
     }
 
     #[test]

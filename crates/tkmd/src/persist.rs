@@ -96,6 +96,15 @@ pub struct DecisionInsert {
     pub digest: Option<String>,
 }
 
+/// Outcome waiting for its decision ID to be persisted.
+#[derive(Debug, Clone)]
+pub struct DecisionOutcome {
+    /// Decision identifier populated by the flusher.
+    pub decision_id: Arc<AtomicI64>,
+    /// Outcome classification.
+    pub label: &'static str,
+}
+
 /// One good-turn length for the envelope ring.
 #[derive(Debug, Clone)]
 pub struct EnvelopeSample {
@@ -120,6 +129,8 @@ pub struct FlushBatch {
     pub events: VecDeque<EventInsert>,
     /// Decision rows.
     pub decisions: VecDeque<DecisionInsert>,
+    /// Observed decision outcomes.
+    pub outcomes: VecDeque<DecisionOutcome>,
     /// Envelope samples.
     pub envelope: VecDeque<EnvelopeSample>,
     /// Calibration rows.
@@ -134,6 +145,7 @@ impl FlushBatch {
             && self.turns.is_empty()
             && self.events.is_empty()
             && self.decisions.is_empty()
+            && self.outcomes.is_empty()
             && self.envelope.is_empty()
             && self.calibration.is_empty()
     }
@@ -156,6 +168,7 @@ impl FlushBatch {
         merge!(turns);
         merge!(events);
         merge!(decisions);
+        merge!(outcomes);
         merge!(envelope);
         merge!(calibration);
         dropped
@@ -269,6 +282,20 @@ pub fn apply(store: &Store, batch: &mut FlushBatch) -> Result<(), StoreError> {
         )?;
         item.evidence_id.store(id, Ordering::Release);
         batch.decisions.pop_front();
+    }
+    for _ in 0..batch.outcomes.len() {
+        let Some(outcome) = batch.outcomes.front() else {
+            break;
+        };
+        let id = outcome.decision_id.load(Ordering::Acquire);
+        if id == 0 {
+            if let Some(outcome) = batch.outcomes.pop_front() {
+                batch.outcomes.push_back(outcome);
+            }
+            continue;
+        }
+        store.set_decision_outcome(id, outcome.label)?;
+        batch.outcomes.pop_front();
     }
     for _ in 0..batch.events.len() {
         let Some(event) = batch.events.front() else {

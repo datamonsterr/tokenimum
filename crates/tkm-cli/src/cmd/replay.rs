@@ -17,6 +17,15 @@ use tkm_hosts::{HostAdapter, SessionSource};
 /// # Errors
 /// Returns an error for unknown sources, unsupported formats, or output failures.
 pub fn run(ctx: &mut Ctx<'_>, args: &ReplayArgs) -> Result<ExitCode, CliError> {
+    if args.bench {
+        let root = Path::new(&args.session_or_fixture);
+        if args.record {
+            super::bench::record(ctx, root)?;
+        }
+        let report = super::bench::load(root)?;
+        write!(ctx.stdout, "{}", report.render())?;
+        return Ok(ExitCode::SUCCESS);
+    }
     let path = PathBuf::from(&args.session_or_fixture);
     let (host, source) = if path.is_file() {
         fixture_source(ctx, path)?

@@ -78,6 +78,9 @@ pub struct TurnGuard {
     pub redirects_done: u32,
     /// Whether an escalation has already been emitted.
     pub escalated: bool,
+    /// Whether a code-rule backstop fired during this turn.
+    #[serde(default)]
+    pub backstop_triggered: bool,
     mode: EscalationMode,
     // Outstanding job identity survives segment resets until its completion/release.
     pending: Option<JudgeRequest>,
@@ -95,6 +98,7 @@ impl TurnGuard {
             segment_id: 0,
             redirects_done: 0,
             escalated: false,
+            backstop_triggered: false,
             mode,
             pending: None,
             last_judge_call: None,
@@ -136,6 +140,7 @@ impl TurnGuard {
             && f64::from(self.whole.turns) > backstop
             && is_stuck(&self.segment, cfg)
         {
+            self.backstop_triggered = true;
             return vec![self.act(
                 RedirectKind::rule_default(),
                 &self.last_failure.clone(),

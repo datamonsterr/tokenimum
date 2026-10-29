@@ -98,3 +98,35 @@ fn calibrate_refuses_threshold_at_or_below_t_low_without_overwriting() {
         );
     }
 }
+
+#[test]
+fn fixture_outcomes_fit_precision_and_authorize_only_at_target() {
+    let s = support_ops::Sandbox::new();
+    let fixtures = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/bench");
+    s.seed_db();
+    let out = s.run(&["calibrate", "--purpose", "loop", "--fixtures", fixtures]);
+    assert!(out.status.success(), "{out:?}");
+    let paths = tkm_config::paths::Paths::from_dirs(
+        s.home.path(),
+        Some(&s.home.path().join("data")),
+        Some(&s.home.path().join("config")),
+        Some(&s.home.path().join("run")),
+    );
+    let store = tkm_store::Store::open(paths.db).unwrap();
+    let records = store.list_calibration().unwrap();
+    assert!(!records.is_empty());
+    let gate = tkmd::decider::StoreCalibration::default();
+    for row in &records {
+        gate.refresh(&records);
+        assert!(row.sample_count >= 30 && row.precision >= 0.9);
+        let key = tkm_decide::calibrate::CalibrationKey {
+            model_version: row.model_version.clone(),
+            purpose: row.purpose.clone(),
+        };
+        assert!(tkm_decide::calibrate::CalibrationStore::get(&gate, &key).is_some());
+        let mut below = row.clone();
+        below.precision = 0.899;
+        gate.refresh(&[below]);
+        assert!(tkm_decide::calibrate::CalibrationStore::get(&gate, &key).is_none());
+    }
+}

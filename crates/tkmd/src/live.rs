@@ -295,7 +295,9 @@ impl Daemon {
         };
         let mut shadow_stuck = false;
         if let Some(turn) = session.turn.as_mut().filter(|t| t.seq == job.seq) {
-            session.loop_evidence = Some(evidence);
+            session.loop_evidence = Some(evidence.clone());
+            turn.decision_evidence
+                .push((evidence, job.request.call_index));
             turn.judging = false;
             turn.judge_scores = Some((stuck, progress));
             if let Some(turn_guard) = turn.guard.as_mut() {

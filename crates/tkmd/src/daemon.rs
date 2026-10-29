@@ -617,6 +617,7 @@ impl Daemon {
             judge_scores: None,
             escalated: false,
             judging: false,
+            decision_evidence: Vec::new(),
             pending_redirect: None,
         });
         session.loop_state = if session.settings.loop_mode == LoopMode::Off {
@@ -648,6 +649,10 @@ impl Daemon {
             return;
         };
         let escalated = turn.escalated;
+        let backstop = turn
+            .guard
+            .as_ref()
+            .is_some_and(|guard| guard.backstop_triggered);
         let model_turn = Turn {
             prompt: turn.prompt,
             calls: turn.calls,
@@ -670,6 +675,22 @@ impl Daemon {
                     repo: session.repo.clone(),
                     host: session.host,
                     calls: turn.total_calls,
+                });
+            }
+        }
+        let good_outcome = tkm_core::loopguard::is_good_turn(&model_turn, escalated);
+        for (decision_id, call_index) in &turn.decision_evidence {
+            let label = if backstop || stopped_by == StopReason::Interrupted {
+                Some("stuck")
+            } else if good_outcome && turn.total_calls > *call_index {
+                Some("progress")
+            } else {
+                None
+            };
+            if let Some(label) = label {
+                outbox.outcomes.push_back(crate::persist::DecisionOutcome {
+                    decision_id: decision_id.clone(),
+                    label,
                 });
             }
         }

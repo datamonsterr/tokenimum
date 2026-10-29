@@ -4,6 +4,7 @@ use std::process::ExitCode;
 
 use crate::{cli::Command, ctx::Ctx, error::CliError};
 
+mod bench;
 pub mod calibrate;
 pub mod config;
 pub mod dashboard;

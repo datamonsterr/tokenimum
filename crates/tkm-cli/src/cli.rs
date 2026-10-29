@@ -323,6 +323,9 @@ pub struct CalibrateArgs {
     /// Calibrate only this decision purpose; omit for all purposes.
     #[arg(long, value_enum)]
     pub purpose: Option<CalibrationPurpose>,
+    /// Fit against offline fixture outcomes instead of stored decisions.
+    #[arg(long)]
+    pub fixtures: Option<std::path::PathBuf>,
 }
 
 /// Supported calibration purposes.
@@ -339,6 +342,12 @@ pub enum CalibrationPurpose {
 /// Recorded session replay options.
 #[derive(Debug, Args)]
 pub struct ReplayArgs {
+    /// Run the offline decision bench for a fixture directory.
+    #[arg(long)]
+    pub bench: bool,
+    /// Refresh bench responses using the configured live decision models.
+    #[arg(long, requires = "bench")]
+    pub record: bool,
     /// Session identifier or fixture path.
     #[arg(value_name = "SESSION_OR_FIXTURE")]
     pub session_or_fixture: String,
