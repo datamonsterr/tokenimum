@@ -59,3 +59,53 @@ fn export_never_contains_key() {
     assert!(!text.contains("OPENROUTER_API_KEY"));
     assert!(!text.contains("sk-or-v1-fixture-secret-123"));
 }
+
+#[test]
+fn export_redacts_legacy_raw_digest_and_excludes_other_repositories() {
+    let f = Fixture::new();
+    let store = f.store();
+    let decision = tkm_store::NewDecision {
+        model: "fixture".into(),
+        purpose: "relevance".into(),
+        questions: serde_json::json!({}),
+        answers: serde_json::json!({}),
+        cost_usd: 0.0,
+        latency_ms: 1,
+        shadow: false,
+    };
+    store
+        .insert_decision_with_context(
+            &decision,
+            Some(tkm_core::model::Timestamp(1)),
+            Some(&f.repo),
+            None,
+            Some("sk-or-v1-raw-fixture /outside/private.txt mail@example.invalid"),
+        )
+        .unwrap();
+    store
+        .insert_decision_with_context(
+            &decision,
+            Some(tkm_core::model::Timestamp(1)),
+            Some(&tkm_core::model::RepoKey("fixture/other".into())),
+            None,
+            Some("other-repo-only"),
+        )
+        .unwrap();
+    let out = f.run(&["export", "--show-digests"]);
+    assert!(out.status.success(), "{out:?}");
+    let text = String::from_utf8(out.stdout).unwrap();
+    assert!(
+        !text.contains("sk-or-v1-raw-fixture")
+            && !text.contains("/outside/private.txt")
+            && !text.contains("other-repo-only")
+    );
+    assert!(
+        text.contains("[redacted:openrouter]")
+            && text.contains("[outside-repo]")
+            && text.contains("mail@example.invalid")
+    );
+    let out = f.run(&["export"]);
+    assert!(out.status.success(), "{out:?}");
+    let text = String::from_utf8(out.stdout).unwrap();
+    assert!(!text.contains("digest"));
+}

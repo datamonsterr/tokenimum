@@ -53,3 +53,26 @@ fn why_unknown_id_exits_1() {
     assert_eq!(out.status.code(), Some(1), "{out:?}");
     assert!(!out.stderr.is_empty());
 }
+
+#[test]
+fn why_last_ignores_newer_observations() {
+    let f = Fixture::new();
+    let id = seed(&f, "one", "action detail");
+    let store = f.store();
+    let mut event = store.get_event(id).unwrap().unwrap();
+    event.kind = "hook.seen".into();
+    store
+        .insert_event(&NewEvent {
+            kind: event.kind,
+            session_id: event.session_id,
+            inputs: serde_json::json!({}),
+            evidence_ids: vec![],
+            explanation_template_id: "observation".into(),
+            params: serde_json::json!({}),
+        })
+        .unwrap();
+    let out = f.run(&["why", "last"]);
+    assert!(out.status.success(), "{out:?}");
+    let text = String::from_utf8(out.stdout).unwrap();
+    assert!(text.contains("action detail") && text.contains("unknown time"));
+}
