@@ -56,8 +56,7 @@ pub fn run(ctx: &mut Ctx<'_>, args: &CalibrateArgs) -> Result<ExitCode, CliError
             }
             let answers: serde_json::Value = serde_json::from_str(&answers)
                 .map_err(|e| CliError::Usage(format!("invalid decision answers: {e}")))?;
-            let labels =
-                serde_json::from_str(&label).unwrap_or_else(|_| serde_json::Value::String(label));
+            let labels = serde_json::from_str(&label).unwrap_or(serde_json::Value::String(label));
             groups
                 .entry((model, purpose.clone()))
                 .or_default()
