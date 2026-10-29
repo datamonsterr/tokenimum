@@ -35,24 +35,21 @@ pub fn fold_skills(report: &mut SkillReport, session: &Session) {
         let item = report.skills.entry((*name).to_owned()).or_default();
         item.loaded_sessions = item.loaded_sessions.saturating_add(1);
     }
+    let Ok(pattern) = regex::Regex::new(r#"^\s*\{\s*"skill"\s*:\s*"([A-Za-z0-9_:/.-]+)"\s*\}\s*$"#)
+    else {
+        return;
+    };
     for call in session.turns.iter().flat_map(|turn| &turn.calls) {
         if !["Skill", "skill"].contains(&call.tool.as_str()) {
             continue;
         }
-        let Ok(pattern) =
-            regex::Regex::new(r#"^\s*\{\s*"skill"\s*:\s*"([A-Za-z0-9_:/.-]+)"\s*\}\s*$"#)
-        else {
-            return;
-        };
         if let Some(name) = pattern
             .captures(&call.args_digest)
             .and_then(|captures| captures.get(1))
+            && names.contains(name.as_str())
+            && let Some(item) = report.skills.get_mut(name.as_str())
         {
-            if names.contains(name.as_str()) {
-                if let Some(item) = report.skills.get_mut(name.as_str()) {
-                    item.invocations = item.invocations.saturating_add(1);
-                }
-            }
+            item.invocations = item.invocations.saturating_add(1);
         }
     }
 }
