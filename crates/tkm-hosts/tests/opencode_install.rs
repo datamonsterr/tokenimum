@@ -64,7 +64,7 @@ fn user_install_writes_the_verified_shim_under_plugins() {
     let scratch = Scratch::new();
     let report = OpencodeAdapter::new().install(&scratch.user()).unwrap();
     assert_eq!(report.changed_files, vec![scratch.shim()]);
-    assert!(report.instructions.is_empty());
+    assert_eq!(report.instructions.len(), 0);
     assert!(!report.dry_run);
     let bytes = fs::read(scratch.shim()).unwrap();
     assert_eq!(bytes, expected());
@@ -88,7 +88,7 @@ fn second_install_changes_nothing() {
     adapter.install(&scratch.user()).unwrap();
     let before = fs::metadata(scratch.shim()).unwrap().modified().unwrap();
     let report = adapter.install(&scratch.user()).unwrap();
-    assert!(report.changed_files.is_empty());
+    assert_eq!(report.changed_files.len(), 0);
     assert_eq!(fs::read(scratch.shim()).unwrap(), expected());
     assert_eq!(
         fs::metadata(scratch.shim()).unwrap().modified().unwrap(),
@@ -132,7 +132,7 @@ fn uninstall_removes_only_the_verified_shim() {
     assert_eq!(report.changed_files, vec![scratch.shim()]);
     assert!(!scratch.shim().exists());
     let again = adapter.uninstall(&scratch.user()).unwrap();
-    assert!(again.changed_files.is_empty());
+    assert_eq!(again.changed_files.len(), 0);
 }
 
 #[test]
@@ -165,7 +165,7 @@ fn foreign_file_is_never_overwritten_or_removed() {
         Err(AdapterError::UnsafeTarget { .. })
     ));
     let report = adapter.uninstall(&scratch.user()).unwrap();
-    assert!(report.changed_files.is_empty());
+    assert_eq!(report.changed_files.len(), 0);
     assert_eq!(
         fs::read_to_string(scratch.shim()).unwrap(),
         "export const Mine = async () => ({})\n"

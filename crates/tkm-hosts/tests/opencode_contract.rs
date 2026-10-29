@@ -134,7 +134,7 @@ fn write_and_edit_tools_map_to_repo_relative_edits() {
         .unwrap()
         .call
         .unwrap();
-    assert!(outside.edits.is_empty());
+    assert_eq!(outside.edits.len(), 0);
 }
 
 #[test]

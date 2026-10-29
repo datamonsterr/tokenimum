@@ -115,7 +115,7 @@ fn tool_calls_pair_with_their_results() {
     );
     assert!(calls[1].is_error);
     assert_eq!(calls[1].output_digest, "Error: no match");
-    assert!(calls[1].edits.is_empty());
+    assert_eq!(calls[1].edits.len(), 0);
 }
 
 #[test]

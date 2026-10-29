@@ -52,6 +52,9 @@ for filename in args.reports:
         seen.add(package_id['name'])
     for path in report['used_but_not_scanned_files']:
         name = registry_package(path)
+        if not name and not path.endswith('.rs'):
+            # Data pulled in with include_str!/include_bytes! (shim templates) is not Rust.
+            continue
         unscanned.add(name if name else f'<unknown owner: {path}>')
         if name:
             seen.add(name)
