@@ -3064,6 +3064,8 @@ name = "tkm-hook"
 version = "0.0.0"
 dependencies = [
  "serde_json",
+ "tempfile",
+ "tkm-config",
  "tkm-proto",
 ]
 
