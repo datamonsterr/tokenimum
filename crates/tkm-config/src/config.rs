@@ -506,13 +506,13 @@ fn build_registry() -> Vec<Key> {
             "integrations.superorchestrator",
             Kind::Enum(&["auto", "on", "off"]),
             "auto",
-            "Superorchestrator integration mode."
+            "Superorchestrator integration mode. Repository-level modes can only turn an adapter off; enabling requires global auto (detected) or on."
         ),
         key!(
             "integrations.otherskill",
             Kind::Enum(&["auto", "on", "off"]),
             "auto",
-            "Otherskill integration mode."
+            "Otherskill integration mode. Repository-level modes can only turn an adapter off; enabling requires global auto (detected) or on."
         ),
         key!(
             "integrations.otherskill_key_reuse",

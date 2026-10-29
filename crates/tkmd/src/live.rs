@@ -297,7 +297,14 @@ impl Daemon {
 
     /// Delivers an escalation of a delegated run (adapter call or user command).
     pub(crate) async fn run_escalation(self: &Arc<Self>, job: EscalationJob) {
+        let adapter_allowed = lock(&self.state)
+            .sessions
+            .get(&(job.host, job.session_id.clone()))
+            .is_none_or(|session| {
+                session.settings.superorchestrator_mode != tkm_integrations::detect::Mode::Off
+            });
         let use_adapter = job.with_adapter
+            && adapter_allowed
             && (job.delegated_run.is_some() || self.escalator.handles(job.host, &job.session_id));
         let mut suggest = Suggest::Redirect;
         let mut suggest_probs = BTreeMap::new();

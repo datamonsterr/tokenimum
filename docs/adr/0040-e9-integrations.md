@@ -66,7 +66,9 @@ installed tools: superorchestrator 0.1.0 (`superorchestrator --help`, `runs list
    `otherskill --help`), each with a 1 s deadline and no shell. otherskill config: global
    `~/.config/otherskill/otherskill.config.json`, or a project `otherskill.config.json` or
    `.otherskill/config.json` in the cwd or an ancestor. A failure at runtime disables the
-   adapter for 15 minutes; detection reruns every 10 minutes.
+   adapter for 15 minutes; detection reruns every 10 minutes. Repository-level integration modes
+   can only narrow (turn an adapter off for that repo); enabling requires the global mode `auto`
+   (detected) or `on`.
 7. **otherskill call on the prompt path.** `otherskill select --json --agent <a> --prompt <text>
    --timeout-ms 600`, argv only, killed after 700 ms. Host mapping: Claude Code `claude`,
    Codex `codex`, agy `antigravity`, opencode `opencode`; other hosts get no otherskill

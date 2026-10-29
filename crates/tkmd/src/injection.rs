@@ -83,6 +83,7 @@ impl Daemon {
         event: tkm_core::model::HookEvent,
     ) -> HResult<Reply> {
         let seed = self.seed(request, &event);
+        self.refresh_session_credentials(&seed);
         self.ensure_session(seed, false).await;
         let tag: Tag = (event.host, event.session_id.clone());
         let prompt = event.prompt.clone().unwrap_or_default();

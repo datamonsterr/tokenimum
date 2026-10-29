@@ -1115,6 +1115,17 @@ impl Daemon {
         }
     }
 
+    pub(crate) fn refresh_session_credentials(&self, seed: &SessionSeed) {
+        if seed.env.contains_key("SUPERORCHESTRATOR_RUN_ID")
+            && lock(&self.state)
+                .sessions
+                .contains_key(&(seed.host, seed.session_id.clone()))
+        {
+            self.escalator
+                .observe_session(seed.host, &seed.session_id, &seed.cwd, &seed.env);
+        }
+    }
+
     async fn session_start(
         self: &Arc<Self>,
         request: &Request,
@@ -1122,6 +1133,7 @@ impl Daemon {
         event: HookEvent,
     ) -> HResult<Reply> {
         let seed = self.seed(request, &event);
+        self.refresh_session_credentials(&seed);
         self.ensure_session(seed, true).await;
         let tag: Tag = (event.host, event.session_id.clone());
         {
