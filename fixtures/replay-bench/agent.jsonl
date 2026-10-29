@@ -1,0 +1,2 @@
+{"type": "user", "timestamp": "2026-10-22T23:22:00Z", "message": {"content": "delegated synthetic task"}}
+{"type": "assistant", "timestamp": "2026-10-22T23:22:10Z", "message": {"id": "one", "model": "synthetic-model", "content": [], "stop_reason": "end_turn", "usage": {"input_tokens": 4, "cache_creation_input_tokens": 2, "cache_read_input_tokens": 0, "output_tokens": 4}}}

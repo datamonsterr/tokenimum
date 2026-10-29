@@ -1,0 +1,2 @@
+{"type": "user", "timestamp": "2026-10-22T23:22:00Z", "message": {"content": "Work"}}
+{"type": "assistant", "timestamp": "2026-10-22T23:22:10Z", "message": {"id": "pending", "model": "synthetic-model", "content": [{"type": "tool_use", "id": "pending", "name": "Bash", "input": {}}], "stop_reason": "tool_use", "usage": {"input_tokens": 1, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0, "output_tokens": 1}}}
