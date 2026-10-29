@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""Fail when the tkm-hook round trip exceeds p50/p99 limits (hyperfine JSON `times`, seconds).
+"""Fail when the tkm-hook round trip exceeds p50/p99 limits (hyperfine JSON, seconds).
+
+Reads the `times` array (hyperfine 1.x) or `measurements[].time_wall_clock.value` (2.x).
 
 Usage: check_hook_latency.py <hyperfine.json> [--p50-ms 3] [--p99-ms 10] [--summary FILE]
 """
@@ -21,9 +23,17 @@ def summarize(export):
     results = export["results"]
     if len(results) != 1:
         raise ValueError(f"expected exactly one hyperfine result, got {len(results)}")
-    times = results[0].get("times")
+    result = results[0]
+    # hyperfine 1.x exports `times`; 2.x (schema_version 2) replaced it by `measurements`.
+    times = result.get("times")
     if not times:
-        raise ValueError("hyperfine export has no `times` array")
+        times = [
+            m["time_wall_clock"]["value"]
+            for m in result.get("measurements", [])
+            if "time_wall_clock" in m
+        ]
+    if not times:
+        raise ValueError("hyperfine export has neither a `times` nor a `measurements` array")
     ordered = sorted(float(t) * 1000.0 for t in times)
     return {"runs": len(ordered), "p50": percentile(ordered, 0.50), "p99": percentile(ordered, 0.99)}
 
