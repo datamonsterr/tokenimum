@@ -114,3 +114,27 @@ fn relevance_labels_require_an_exercised_skill_and_observed_outcome() {
     let labels = session_outcomes(&session, &FactsState::default(), &BTreeSet::new());
     assert_eq!(labels.get("skill:review"), Some(&false));
 }
+
+#[test]
+fn memory_relevance_uses_observed_reads_and_leaves_unused_pointers_unknown() {
+    let (mut session, _) = example();
+    session.turns[0].calls = vec![Call {
+        tool: "Read".into(),
+        args_digest: r#"{"file_path":"/repo/memory/build.md"}"#.into(),
+        output_digest: "Build steps".into(),
+        ..Call::default()
+    }];
+    assert_eq!(
+        tkm_decide::labels::reference_outcome(&session, "memory/build.md"),
+        Some(true)
+    );
+    assert_eq!(
+        tkm_decide::labels::reference_outcome(&session, "memory/other.md"),
+        None
+    );
+    session.turns[0].calls[0].is_error = true;
+    assert_eq!(
+        tkm_decide::labels::reference_outcome(&session, "memory/build.md"),
+        Some(false)
+    );
+}

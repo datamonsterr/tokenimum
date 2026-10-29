@@ -70,3 +70,23 @@ fn calibration_fit_reaches_precision_target_on_noisy_synthetic_labels() {
     };
     assert!(fit_upper(&samples, &impossible).is_none());
 }
+
+#[test]
+fn relevance_fit_measures_the_fire_gate_cutoff_too() {
+    use tkm_decide::calibrate::{LabelledSample, fit_purpose};
+    // The generic cutoff alone would report perfect precision; a lower fire-gate
+    // cutoff would admit twelve false positives that its measurement did not count.
+    let samples: Vec<_> = (0..24)
+        .map(|i| LabelledSample {
+            primary: if i < 12 { 0.6 } else { 0.4 },
+            secondary: None,
+            positive: i < 12,
+        })
+        .collect();
+    let fit = fit_purpose("relevance", &samples).unwrap();
+    let admitted: Vec<_> = samples
+        .iter()
+        .filter(|s| s.primary >= fit.thresholds.t_low)
+        .collect();
+    assert!(admitted.iter().all(|s| s.positive));
+}
