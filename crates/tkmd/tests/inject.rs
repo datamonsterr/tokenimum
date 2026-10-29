@@ -222,15 +222,17 @@ async fn relevance_stays_shadowed_without_its_own_qualifying_calibration() {
                 shadow_turns: 0,
                 ..Settings::default()
             },
+            // Near-duplicate fact lines collapse to the earlier one, so only acting scores
+            // could surface the later fact.
             ScriptedDecider::new(relevance(&[
-                ("boundary:example.com", 2.5),
-                ("boundary:other.org", 0.0),
+                ("boundary:example.com", 0.0),
+                ("boundary:other.org", 2.5),
             ])),
         );
         let reply = daemon.handle(prompt()).await;
         let text = additional_context(&reply).unwrap();
         assert!(
-            text.contains("other.org"),
+            text.contains("example.com") && !text.contains("other.org"),
             "shadow uses code-only context (precision {precision}): {text}"
         );
         daemon.flush_now().await;
