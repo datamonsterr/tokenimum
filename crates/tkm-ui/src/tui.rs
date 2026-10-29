@@ -482,6 +482,145 @@ pub fn run(paths: &Paths) -> Result<(), Error> {
 mod ordering_tests {
     use super::*;
     use std::{cell::RefCell, rc::Rc};
+    fn test_feed(
+        overflow: bool,
+    ) -> (
+        feed::Feed,
+        std::sync::mpsc::Sender<(u64, tkm_proto::monitor::MonitorMessage)>,
+    ) {
+        use std::sync::{
+            Arc,
+            atomic::{AtomicBool, AtomicU64},
+            mpsc,
+        };
+        let (sender, receiver) = mpsc::channel();
+        (
+            feed::Feed {
+                mode: Mode::Live,
+                receiver,
+                resync: Arc::new(AtomicBool::new(overflow)),
+                sequence: Arc::new(AtomicU64::new(1)),
+            },
+            sender,
+        )
+    }
+
+    fn new_session() -> tkm_proto::monitor::MonitorMessage {
+        tkm_proto::monitor::MonitorMessage::Session(tkm_proto::monitor::SessionUpdate {
+            host: tkm_proto::Host::Claude,
+            session_id: "new".into(),
+            repo: None,
+            phase: "active".into(),
+            turn_calls: 1,
+            envelope: None,
+            loop_state: "off".into(),
+        })
+    }
+
+    #[test]
+    fn overflow_followup_loads_previously_unflushed_session() -> Result<(), ()> {
+        let (feed, sender) = test_feed(true);
+        sender.send((1, new_session())).map_err(|_| ())?;
+        let start = std::time::Instant::now();
+        let mut deadline = None;
+        let mut watermark = 0;
+        let mut state = MonitorState::default();
+        let mut calls = 0;
+        let mut load = || {
+            calls += 1;
+            let mut snapshot = MonitorState::default();
+            if calls > 1 {
+                snapshot.apply(new_session());
+            }
+            Ok::<_, ()>(snapshot)
+        };
+        tick_resync(
+            &feed,
+            &mut state,
+            &mut watermark,
+            &mut deadline,
+            start,
+            &mut load,
+        )?;
+        let (seq, message) = feed.receiver.try_recv().map_err(|_| ())?;
+        assert!(!apply_queued(
+            &mut state,
+            seq,
+            watermark,
+            message,
+            || Ok::<_, ()>((vec![], vec![]))
+        )?);
+        assert!(state.sessions.is_empty());
+        tick_resync(
+            &feed,
+            &mut state,
+            &mut watermark,
+            &mut deadline,
+            start + Duration::from_secs(5),
+            &mut load,
+        )?;
+        assert!(state.sessions.is_empty());
+        tick_resync(
+            &feed,
+            &mut state,
+            &mut watermark,
+            &mut deadline,
+            start + Duration::from_secs(6),
+            &mut load,
+        )?;
+        assert_eq!(state.sessions[0].session_id, "new");
+        assert!(deadline.is_none());
+        tick_resync(
+            &feed,
+            &mut state,
+            &mut watermark,
+            &mut deadline,
+            start + Duration::from_secs(7),
+            &mut load,
+        )?;
+        assert_eq!(calls, 2);
+        Ok(())
+    }
+
+    #[test]
+    fn no_overflow_does_not_schedule_followup() -> Result<(), ()> {
+        let (feed, _sender) = test_feed(false);
+        let mut state = MonitorState::default();
+        let mut watermark = 0;
+        let mut deadline = None;
+        let mut calls = 0;
+        let start = std::time::Instant::now();
+        tick_resync(
+            &feed,
+            &mut state,
+            &mut watermark,
+            &mut deadline,
+            start + Duration::from_secs(10),
+            &mut || {
+                calls += 1;
+                Ok::<_, ()>(MonitorState::default())
+            },
+        )?;
+        assert_eq!(calls, 0);
+        assert!(deadline.is_none());
+        Ok(())
+    }
+
+    #[test]
+    fn status_line_shows_resyncing_while_followup_pending() -> Result<(), Box<dyn std::error::Error>>
+    {
+        let backend = ratatui::backend::TestBackend::new(80, 5);
+        let mut terminal = ratatui::Terminal::new(backend)?;
+        let view = ViewState {
+            resyncing: true,
+            ..ViewState::default()
+        };
+        terminal.draw(|frame| render(&MonitorState::default(), &view, frame))?;
+        let buffer = terminal.backend().buffer();
+        let line: String = (0..80).map(|x| buffer[(x, 4)].symbol()).collect();
+        assert!(line.contains("resyncing"));
+        Ok(())
+    }
     #[test]
     fn overflow_does_not_replay_session_before_snapshot() -> Result<(), ()> {
         use std::sync::{
