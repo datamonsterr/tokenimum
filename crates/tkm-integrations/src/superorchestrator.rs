@@ -268,7 +268,7 @@ fn response(reader: &mut impl BufRead, id: u64) -> io::Result<()> {
                     && value
                         .pointer("/result/content")
                         .and_then(serde_json::Value::as_array)
-                        .is_none_or(|items| items.is_empty())
+                        .is_none_or(Vec::is_empty)
                     && !value
                         .pointer("/result/structuredContent")
                         .is_some_and(serde_json::Value::is_object))
