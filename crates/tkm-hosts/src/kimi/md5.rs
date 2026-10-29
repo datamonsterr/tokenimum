@@ -109,11 +109,7 @@ pub fn md5_hex(data: &[u8]) -> String {
 
     let bit_len = (data.len() as u64).wrapping_mul(8);
     let mod64 = data.len() % 64;
-    let pad_len = if mod64 < 56 {
-        56 - mod64
-    } else {
-        120 - mod64
-    };
+    let pad_len = if mod64 < 56 { 56 - mod64 } else { 120 - mod64 };
 
     let mut message = Vec::with_capacity(data.len().saturating_add(pad_len).saturating_add(8));
     message.extend_from_slice(data);
@@ -141,38 +137,22 @@ pub fn md5_hex(data: &[u8]) -> String {
             let (f_val, g_idx, shift) = match step {
                 0..=15 => {
                     let shifts = [7, 12, 17, 22];
-                    (
-                        f(b, c, d),
-                        step,
-                        *shifts.get(step % 4).unwrap_or(&0),
-                    )
+                    (f(b, c, d), step, *shifts.get(step % 4).unwrap_or(&0))
                 }
                 16..=31 => {
                     let shifts = [5, 9, 14, 20];
                     let idx = (1 + 5 * step) % 16;
-                    (
-                        g(b, c, d),
-                        idx,
-                        *shifts.get(step % 4).unwrap_or(&0),
-                    )
+                    (g(b, c, d), idx, *shifts.get(step % 4).unwrap_or(&0))
                 }
                 32..=47 => {
                     let shifts = [4, 11, 16, 23];
                     let idx = (5 + 3 * step) % 16;
-                    (
-                        h(b, c, d),
-                        idx,
-                        *shifts.get(step % 4).unwrap_or(&0),
-                    )
+                    (h(b, c, d), idx, *shifts.get(step % 4).unwrap_or(&0))
                 }
                 _ => {
                     let shifts = [6, 10, 15, 21];
                     let idx = (7 * step) % 16;
-                    (
-                        i_fn(b, c, d),
-                        idx,
-                        *shifts.get(step % 4).unwrap_or(&0),
-                    )
+                    (i_fn(b, c, d), idx, *shifts.get(step % 4).unwrap_or(&0))
                 }
             };
 

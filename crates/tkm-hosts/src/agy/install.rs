@@ -46,7 +46,8 @@ pub(super) fn install(context: &InstallContext) -> Result<InstallReport, Adapter
             }
         ]
     });
-    let mut report = crate::writer::install_member(&root, &path, "tokenimum", &value, context.dry_run)?;
+    let mut report =
+        crate::writer::install_member(&root, &path, "tokenimum", &value, context.dry_run)?;
     report.instructions.clear();
     Ok(report)
 }

@@ -252,15 +252,14 @@ fn process_message(
                     let content = block.get("content").unwrap_or(&Value::Null);
                     let output_digest = crate::digest::output_digest(content);
 
-                    let exit_code = if let Some(code) =
-                        content.get("exit_code").and_then(Value::as_i64)
-                    {
-                        i32::try_from(code).ok()
-                    } else if is_error {
-                        crate::claude::map::parse_exit(&crate::digest::output_text(content))
-                    } else {
-                        None
-                    };
+                    let exit_code =
+                        if let Some(code) = content.get("exit_code").and_then(Value::as_i64) {
+                            i32::try_from(code).ok()
+                        } else if is_error {
+                            crate::claude::map::parse_exit(&crate::digest::output_text(content))
+                        } else {
+                            None
+                        };
 
                     if let Some(&(turn_idx, call_idx)) = pending_calls.get(call_id) {
                         if let Some(t) = turns.get_mut(turn_idx) {

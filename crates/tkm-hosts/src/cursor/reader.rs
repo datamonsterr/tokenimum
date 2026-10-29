@@ -186,7 +186,9 @@ fn strip_user_query_tags(prompt: &str) -> String {
     {
         inner.trim().to_owned()
     } else {
-        prompt.replace("<user_query>", "").replace("</user_query>", "")
+        prompt
+            .replace("<user_query>", "")
+            .replace("</user_query>", "")
     }
 }
 

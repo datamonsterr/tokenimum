@@ -269,10 +269,7 @@ fn read_wire(path: &Path, session: &mut Session) -> Result<(), AdapterError> {
                         .get("input_other")
                         .and_then(Value::as_u64)
                         .unwrap_or(0);
-                    let output = usage_val
-                        .get("output")
-                        .and_then(Value::as_u64)
-                        .unwrap_or(0);
+                    let output = usage_val.get("output").and_then(Value::as_u64).unwrap_or(0);
                     let cache_read = usage_val
                         .get("input_cache_read")
                         .and_then(Value::as_u64)

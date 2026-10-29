@@ -44,9 +44,7 @@ fn already_matches(doc: &DocumentMut) -> bool {
         if table.get("name").and_then(Item::as_str) != Some(&expected_name) {
             return false;
         }
-        if table.get("timeout_secs").and_then(Item::as_integer)
-            != i64::try_from(timeout).ok()
-        {
+        if table.get("timeout_secs").and_then(Item::as_integer) != i64::try_from(timeout).ok() {
             return false;
         }
         if table.get("continue_on_error").and_then(Item::as_bool) != Some(true) {
@@ -112,8 +110,7 @@ pub(super) fn install(context: &InstallContext) -> Result<InstallReport, Adapter
                 kind.as_str()
             ));
             table["name"] = toml_edit::value(format!("tokenimum-{ev}"));
-            table["timeout_secs"] =
-                toml_edit::value(i64::try_from(timeout).unwrap_or(1));
+            table["timeout_secs"] = toml_edit::value(i64::try_from(timeout).unwrap_or(1));
             table["continue_on_error"] = toml_edit::value(true);
             hooks_arr.push(table);
         }
@@ -121,8 +118,7 @@ pub(super) fn install(context: &InstallContext) -> Result<InstallReport, Adapter
         Ok(doc.to_string())
     };
 
-    let mut report =
-        crate::writer::install_text_file(root, &path, context.dry_run, &edit)?;
+    let mut report = crate::writer::install_text_file(root, &path, context.dry_run, &edit)?;
 
     let config_text = fs::read_to_string(&path).ok();
     let doc_opt: Option<DocumentMut> = config_text.as_deref().and_then(|s| s.parse().ok());
@@ -136,7 +132,8 @@ pub(super) fn install(context: &InstallContext) -> Result<InstallReport, Adapter
         }
     }
     report.instructions.push(
-        "Note that [hooks] default_timeout_secs, when set, overrides tokenimum timeouts.".to_owned(),
+        "Note that [hooks] default_timeout_secs, when set, overrides tokenimum timeouts."
+            .to_owned(),
     );
 
     Ok(report)
@@ -157,8 +154,9 @@ pub(super) fn uninstall(context: &InstallContext) -> Result<InstallReport, Adapt
             message: format!("malformed config TOML: {e}"),
         })?;
         if let Some(hooks_table) = doc.get_mut("hooks").and_then(Item::as_table_mut) {
-            if let Some(hooks_arr) =
-                hooks_table.get_mut("hooks").and_then(Item::as_array_of_tables_mut)
+            if let Some(hooks_arr) = hooks_table
+                .get_mut("hooks")
+                .and_then(Item::as_array_of_tables_mut)
             {
                 hooks_arr.retain(|t| !is_owned(t));
                 if hooks_arr.is_empty() {
@@ -195,12 +193,5 @@ pub(super) fn uninstall(context: &InstallContext) -> Result<InstallReport, Adapt
         Ok(doc.as_table().is_empty())
     };
 
-    crate::writer::uninstall_text_file(
-        root,
-        &path,
-        context.dry_run,
-        &edit,
-        &same,
-        &empty,
-    )
+    crate::writer::uninstall_text_file(root, &path, context.dry_run, &edit, &same, &empty)
 }

@@ -10,10 +10,7 @@ use tkm_core::model::{Call, Host, Session, StopReason, Timestamp, Turn, Usage};
 
 fn extract_session_id_from_path(path: &Path) -> Option<String> {
     if path.extension().is_some_and(|ext| ext == "db") {
-        return path
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .map(str::to_owned);
+        return path.file_stem().and_then(|s| s.to_str()).map(str::to_owned);
     }
     let components: Vec<_> = path.components().collect();
     for (i, comp) in components.iter().enumerate() {
@@ -24,9 +21,7 @@ fn extract_session_id_from_path(path: &Path) -> Option<String> {
             return next_str.to_str().map(str::to_owned);
         }
     }
-    path.file_name()
-        .and_then(|s| s.to_str())
-        .map(str::to_owned)
+    path.file_name().and_then(|s| s.to_str()).map(str::to_owned)
 }
 
 fn resolve_path(source: &SessionSource) -> (PathBuf, String) {
@@ -145,7 +140,12 @@ struct Reader {
 }
 
 impl Reader {
-    fn new(agent_home: PathBuf, session_id: String, repo_key: tkm_core::model::RepoKey, cwd: PathBuf) -> Self {
+    fn new(
+        agent_home: PathBuf,
+        session_id: String,
+        repo_key: tkm_core::model::RepoKey,
+        cwd: PathBuf,
+    ) -> Self {
         Self {
             session: Session {
                 agent_home,
@@ -179,10 +179,7 @@ impl Reader {
                     }
                     self.session.turns.push(prev);
                 }
-                let content = record
-                    .get("content")
-                    .and_then(Value::as_str)
-                    .unwrap_or("");
+                let content = record.get("content").and_then(Value::as_str).unwrap_or("");
                 let prompt = extract_prompt(content);
                 self.current_turn = Some(Turn {
                     prompt,
@@ -242,21 +239,12 @@ impl Reader {
             }
             "GENERIC" => {
                 if let Some(mut call) = self.pending_calls.pop_front() {
-                    let content = record
-                        .get("content")
-                        .and_then(Value::as_str)
-                        .unwrap_or("");
+                    let content = record.get("content").and_then(Value::as_str).unwrap_or("");
                     let cleaned = strip_leading_header_lines(content);
                     call.output_digest = digest::output_digest(&Value::String(cleaned.to_owned()));
                     call.exit_code = parse_exit_code(content);
-                    let status = record
-                        .get("status")
-                        .and_then(Value::as_str)
-                        .unwrap_or("");
-                    let error_val = record
-                        .get("error")
-                        .and_then(Value::as_str)
-                        .unwrap_or("");
+                    let status = record.get("status").and_then(Value::as_str).unwrap_or("");
+                    let error_val = record.get("error").and_then(Value::as_str).unwrap_or("");
                     call.is_error = status == "ERROR" || !error_val.is_empty();
                     call.duration_ms = parse_duration_ms(content);
                     if let Some(turn) = self.current_turn.as_mut() {
@@ -312,7 +300,8 @@ pub(super) fn read_session(source: &SessionSource) -> Result<Session, AdapterErr
 
     reader.session.started = reader.first_created_at.unwrap_or_default();
     reader.session.ended = None;
-    reader.session.partial = reader.session.skipped_records.saturating_mul(5) > reader.session.total_records;
+    reader.session.partial =
+        reader.session.skipped_records.saturating_mul(5) > reader.session.total_records;
 
     Ok(reader.session)
 }

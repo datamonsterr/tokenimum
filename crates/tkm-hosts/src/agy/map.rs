@@ -22,7 +22,9 @@ pub(super) fn map_event(request: &Request) -> Result<Option<HookEvent>, AdapterE
                 .filter(|s| !s.is_empty())
                 .cloned()
         })
-        .ok_or_else(|| crate::writer::invalid("conversationId or ANTIGRAVITY_CONVERSATION_ID missing"))?;
+        .ok_or_else(|| {
+            crate::writer::invalid("conversationId or ANTIGRAVITY_CONVERSATION_ID missing")
+        })?;
 
     let cwd = payload
         .get("workspacePaths")
@@ -69,10 +71,7 @@ pub(super) fn map_event(request: &Request) -> Result<Option<HookEvent>, AdapterE
             let args = tool_call
                 .and_then(|tc| tc.get("args"))
                 .unwrap_or(&Value::Null);
-            let error_str = payload
-                .get("error")
-                .and_then(Value::as_str)
-                .unwrap_or("");
+            let error_str = payload.get("error").and_then(Value::as_str).unwrap_or("");
             let is_error = !error_str.is_empty();
             let args_digest = call_args_digest(tool_name, args);
             let output_digest = if is_error {
@@ -95,10 +94,7 @@ pub(super) fn map_event(request: &Request) -> Result<Option<HookEvent>, AdapterE
         "Stop" => {
             let mut event = HookEvent::new(Host::Agy, EventKind::TurnEnd, session_id);
             event.cwd = cwd;
-            let error_str = payload
-                .get("error")
-                .and_then(Value::as_str)
-                .unwrap_or("");
+            let error_str = payload.get("error").and_then(Value::as_str).unwrap_or("");
             event.stopped_by = Some(if error_str.is_empty() {
                 StopReason::OwnStop
             } else {

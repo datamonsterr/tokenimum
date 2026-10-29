@@ -11,7 +11,10 @@ pub(super) fn render_reply(request: &Request, action: &ReplyAction) -> String {
     let Ok(native) = super::native_event(request) else {
         return "{}".to_owned();
     };
-    if !matches!(native, "sessionStart" | "postToolUse" | "postToolUseFailure") {
+    if !matches!(
+        native,
+        "sessionStart" | "postToolUse" | "postToolUseFailure"
+    ) {
         return "{}".to_owned();
     }
     let inject_text = match action {
