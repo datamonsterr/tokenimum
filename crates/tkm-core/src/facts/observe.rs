@@ -842,7 +842,7 @@ fn env_call(command: &str, output: &str, ok: bool, call: usize) -> EnvCall {
             ),
     }
 }
-fn attribute(obs: &mut [Observation], command: &str, output: &str, success: bool) {
+fn homogeneous(obs: &[Observation], command: &str) -> bool {
     let n = segments(&unwrap(command))
         .iter()
         .filter(|s| {
@@ -856,13 +856,15 @@ fn attribute(obs: &mut [Observation], command: &str, output: &str, success: bool
             )
         })
         .count();
-    let homogeneous = n == obs.len()
+    n == obs.len()
         && obs
             .first()
-            .is_some_and(|first| obs.iter().all(|o| o.intent == first.intent));
+            .is_some_and(|first| obs.iter().all(|o| o.intent == first.intent))
+}
+fn fetch_homogeneous(command: &str, homogeneous: bool) -> bool {
     // Output producers can fabricate a successful fetch's entire digest. TE's
     // pass-through rule is retained for probes but tightened for reachability.
-    let fetch_homogeneous = homogeneous
+    homogeneous
         && !segments(&unwrap(command)).iter().any(|s| {
             ["echo", "printf", "cat"].contains(
                 &s.split_whitespace()
@@ -872,7 +874,11 @@ fn attribute(obs: &mut [Observation], command: &str, output: &str, success: bool
                     .next()
                     .unwrap_or(""),
             )
-        });
+        })
+}
+fn attribute(obs: &mut [Observation], command: &str, output: &str, success: bool) {
+    let homogeneous = homogeneous(obs, command);
+    let fetch_homogeneous = fetch_homogeneous(command, homogeneous);
     let error = error_class(output);
     if let Some(error) = error {
         let targets: Vec<usize> = obs

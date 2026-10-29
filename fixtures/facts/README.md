@@ -93,6 +93,76 @@ Fixtures are synthetic Rust Session/Call builders in `crates/tkm-core/tests/fact
 - Config/threshold validation fails open. Decisions are caller-provided calibrated scores; unavailable/invalid threshold batches require the extra code-only confirmation.
 - Native transcript schemas, filesystem discovery/persistence, plugin detection, Python experiment vocabulary/proposer logic, model calls, daemon wiring and ledger accounting are outside this pure module. E2.9 owns event explanation prose. Controller owns NOTICE.
 
+## Every Rust test mapped to DoD
+
+| Test | DoD |
+| --- | --- |
+| `facts_te.rs::te_envfacts_test_classify_forms_and_intents` | E2.3 observation / table-driven TE parity |
+| `facts_te.rs::te_envfacts_test_error_classes_are_environmental_only` | E2.3 observation / table-driven TE parity |
+| `facts_te.rs::te_envfacts_test_interpreter_fact_forms_fires_and_renders` | E2.5 lifecycle / decisions / firing / scope / persistence |
+| `facts_te.rs::te_envfacts_test_clean_environment_forms_nothing` | E2.4 five-family extraction / TE behavioural parity |
+| `facts_te.rs::te_envfacts_test_prevented_waste_still_counts_as_firing` | E2.5 lifecycle / decisions / firing / scope / persistence |
+| `facts_te.rs::te_envfacts_test_bare_runner_success_contradicts_and_retires` | E2.5 lifecycle / decisions / firing / scope / persistence |
+| `facts_te.rs::te_envfacts_test_bare_one_liner_success_is_not_a_contradiction` | E2.4 five-family extraction / TE behavioural parity |
+| `facts_te.rs::te_envfacts_test_history_fact_forms_only_when_probes_return_nothing` | E2.5 lifecycle / decisions / firing / scope / persistence |
+| `facts_te.rs::te_envfacts_test_refused_hosts_form_a_boundary_fact_and_a_reachable_host_does_not` | E2.4 five-family extraction / TE behavioural parity |
+| `facts_te.rs::te_envfacts_test_lint_refuses_completion_advice` | E2.5 lint / template-only injection; E2.4 regex validation |
+| `facts_te.rs::te_envfacts_test_block_is_capped_in_facts_and_tokens` | E2.4 five-family extraction / TE behavioural parity |
+| `facts_te.rs::te_envfacts_test_form_repair_facts_sharing_the_working_form_merge_into_one_line` | E2.4 five-family extraction / TE behavioural parity |
+| `facts_te.rs::te_envfacts_test_a_merged_line_with_one_working_form_says_works` | E2.4 five-family extraction / TE behavioural parity |
+| `facts_te.rs::te_envfacts_test_an_environment_fact_forms_in_a_repository_where_every_session_edits_one_file` | E2.4 five-family extraction / TE behavioural parity |
+| `facts_te.rs::te_envfacts_test_a_form_that_only_worked_with_an_assignment_before_it_is_not_named` | E2.4 five-family extraction / TE behavioural parity |
+| `facts_te.rs::te_envfacts_test_one_session_is_one_piece_of_evidence_per_form` | E2.4 five-family extraction / TE behavioural parity |
+| `facts_te.rs::te_envfacts_test_a_named_form_that_stops_working_is_named_no_more` | E2.4 five-family extraction / TE behavioural parity |
+| `facts_te.rs::te_envfacts_test_env_assignments_after_env_are_part_of_how_a_command_was_typed` | E2.3 observation / table-driven TE parity |
+| `facts_te.rs::te_envfacts_test_save_load_roundtrip` | E2.5 lifecycle / decisions / firing / scope / persistence |
+| `facts_te.rs::te_envfacts_test_the_classifier_sees_through_rtks_command_prefix` | E2.3 observation / table-driven TE parity |
+| `facts_te.rs::te_envfacts_test_only_a_shape_rewrite_counts_as_a_repair` | E2.4 five-family extraction / TE behavioural parity |
+| `facts_te.rs::te_envfacts_test_labels_are_the_structured_arguments_after_the_runner` | E2.3 observation / table-driven TE parity |
+| `facts_te.rs::te_envfacts_test_a_label_prefix_the_runner_rejects_becomes_a_fact` | E2.4 five-family extraction / TE behavioural parity |
+| `facts_te.rs::te_envfacts_test_pytest_style_separators_the_runner_rejects_become_a_fact` | E2.4 five-family extraction / TE behavioural parity |
+| `facts_te.rs::te_envfacts_test_a_plain_mistake_is_not_a_fact` | E2.4 five-family extraction / TE behavioural parity |
+| `facts_te.rs::te_envfacts_test_a_prefixed_label_that_loads_contradicts_the_fact` | E2.4 five-family extraction / TE behavioural parity |
+| `facts_te.rs::te_envfacts_test_an_environment_variable_the_code_asks_for_and_its_working_value_become_a_fact` | E2.4 five-family extraction / TE behavioural parity |
+| `facts_te.rs::te_envfacts_test_a_value_set_in_the_code_counts_too` | E2.4 five-family extraction / TE behavioural parity |
+| `facts_te.rs::te_envfacts_test_no_value_that_worked_means_no_fact` | E2.4 five-family extraction / TE behavioural parity |
+| `facts_te.rs::te_envfacts_test_output_filtered_away_neither_teaches_nor_contradicts` | E2.4 five-family extraction / TE behavioural parity |
+| `facts_te.rs::te_envfacts_test_a_repair_needs_the_rewritten_label_to_have_run_tests` | E2.4 five-family extraction / TE behavioural parity |
+| `facts_te.rs::te_envfacts_test_being_asked_for_the_variable_again_does_not_confirm_its_value` | E2.4 five-family extraction / TE behavioural parity |
+| `facts_te.rs::te_envfacts_test_mistyped_labels_do_not_teach_that_the_runner_fails` | E2.4 five-family extraction / TE behavioural parity |
+| `facts_te.rs::te_envfacts_test_a_directory_change_is_part_of_the_form` | E2.3 observation / table-driven TE parity |
+| `facts_te.rs::te_envfacts_test_a_missing_runner_is_still_a_form_failure_not_a_label_one` | E2.3 observation / table-driven TE parity |
+| `facts_te.rs::te_envfacts_test_a_cd_into_the_start_directory_by_absolute_path_is_no_cd` | E2.3 observation / table-driven TE parity |
+| `facts_te.rs::te_envfacts_test_a_cd_up_to_the_repository_from_a_subdirectory_is_no_cd` | E2.3 observation / table-driven TE parity |
+| `facts_te.rs::te_envfacts_test_a_command_stopped_by_its_own_cd_teaches_nothing` | E2.3 observation / table-driven TE parity |
+| `facts_te.rs::te_envfacts_test_a_runner_script_run_where_it_is_not_becomes_a_fact` | E2.4 five-family extraction / TE behavioural parity |
+| `facts_te.rs::te_envfacts_test_an_option_the_runner_rejects_is_not_a_failing_form` | E2.4 five-family extraction / TE behavioural parity |
+| `facts_te.rs::te_envfacts_test_a_run_whose_output_was_filtered_away_does_not_show_a_form_works` | E2.4 five-family extraction / TE behavioural parity |
+| `facts_te.rs::te_envfacts_test_a_working_form_that_leaves_the_shell_where_it_is_is_the_one_named` | E2.4 five-family extraction / TE behavioural parity |
+| `facts_te.rs::te_generic_reading_knows_builds_and_other_ecosystems` | E2.3 observation / table-driven TE parity |
+| `facts_te.rs::te_generic_build_tool_repair_becomes_a_fact` | E2.4 five-family extraction / TE behavioural parity |
+| `facts_te.rs::te_injection_empty_render_before_formation_and_grounded_firing` | E2.5 lifecycle / decisions / firing / scope / persistence |
+| `facts_te.rs::decision_thresholds_code_only_and_events` | E2.5 lifecycle / decisions / firing / scope / persistence |
+| `facts_te.rs::lint_table_rejects_completion_verification_and_external_paths` | E2.5 lint / template-only injection; E2.4 regex validation |
+| `facts_te.rs::rendered_text_uses_only_templates_and_validated_parameters` | E2.5 lint / template-only injection; E2.4 regex validation |
+| `facts_te.rs::parameter_validation_table_for_all_families` | E2.5 lint / template-only injection; E2.4 regex validation |
+| `facts_te.rs::lifecycle_table_firing_gate_and_decay` | E2.5 lifecycle / decisions / firing / scope / persistence |
+| `facts_te.rs::partial_replay_and_evidence_indices` | E2.5 lifecycle / decisions / firing / scope / persistence |
+| `facts_te.rs::host_scope_and_neutral_scope_rendering` | E2.5 lifecycle / decisions / firing / scope / persistence |
+| `facts_te.rs::conservative_attribution_and_reported_exit_codes` | E2.3 observation / table-driven TE parity |
+| `facts_te.rs::segments_table_and_heredoc` | E2.3 observation / table-driven TE parity |
+| `facts_te.rs::high_stakes_candidate_hard_kill_and_decision_contradiction` | E2.5 lifecycle / decisions / firing / scope / persistence |
+| `facts_te.rs::defaults_match_spec_and_zero_caps_fail_open` | E2.5 lifecycle / decisions / firing / scope / persistence |
+| `facts_safety.rs::rejects_whole_invalid_env_values_instead_of_learning_a_safe_prefix` | E2.5 lint / template-only injection; E2.4 regex validation |
+| `facts_safety.rs::quoted_env_values_remain_literal_and_validated` | E2.5 lint / template-only injection; E2.4 regex validation |
+| `facts_safety.rs::observation_error_precedence_table` | E2.3 observation / table-driven TE parity |
+| `facts_safety.rs::probe_kinds_and_hit_patterns_table` | E2.3 observation / table-driven TE parity |
+| `facts_safety.rs::generic_test_summaries_and_all_edited_languages` | E2.3 observation / table-driven TE parity |
+| `facts_safety.rs::scope_is_inferred_from_host_tool_names` | E2.5 lifecycle / decisions / firing / scope / persistence |
+| `facts_safety.rs::invalid_thresholds_use_code_only_and_invalid_config_abstains` | E2.5 lifecycle / decisions / firing / scope / persistence |
+| `facts_safety.rs::boundary_success_with_failure_in_same_session_never_promotes` | E2.5 lifecycle / decisions / firing / scope / persistence |
+| `facts_safety.rs::code_contradictions_apply_configured_recency_weight_despite_low_model_score` | E2.5 lifecycle / decisions / firing / scope / persistence |
+
 ## API documentation checked
 
-Checked 2026-10-29: [regex 1.13.1](https://docs.rs/regex/1.13.1/regex/struct.Regex.html), [Rust 1.99.1 str](https://doc.rust-lang.org/std/primitive.str.html), [Vec](https://doc.rust-lang.org/std/vec/struct.Vec.html), [BTreeMap](https://doc.rust-lang.org/std/collections/struct.BTreeMap.html), [BTreeSet](https://doc.rust-lang.org/std/collections/struct.BTreeSet.html), [f64](https://doc.rust-lang.org/std/primitive.f64.html), [serde 1.0.229](https://docs.rs/serde/1.0.229/serde/), and [serde_json 1.0.154](https://docs.rs/serde_json/1.0.154/serde_json/).
+Checked 2026-10-29: [regex 1.13.1](https://docs.rs/regex/1.13.1/regex/struct.Regex.html), [Rust 1.99.1 str](https://doc.rust-lang.org/std/primitive.str.html), [Vec](https://doc.rust-lang.org/std/vec/struct.Vec.html), [BTreeMap](https://doc.rust-lang.org/std/collections/struct.BTreeMap.html), [BTreeSet](https://doc.rust-lang.org/std/collections/struct.BTreeSet.html), [f64](https://doc.rust-lang.org/std/primitive.f64.html), [Option](https://doc.rust-lang.org/std/option/enum.Option.html), [Iterator](https://doc.rust-lang.org/std/iter/trait.Iterator.html), [Path](https://doc.rust-lang.org/std/path/struct.Path.html), [serde 1.0.229](https://docs.rs/serde/1.0.229/serde/), and [serde_json 1.0.154](https://docs.rs/serde_json/1.0.154/serde_json/).
