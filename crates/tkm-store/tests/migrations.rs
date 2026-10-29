@@ -105,6 +105,7 @@ fn schema_snapshot_includes_all_tables() {
         [
             "calibration",
             "decisions",
+            "delegated_run_history",
             "denylist_applied",
             "envelopes",
             "events",
