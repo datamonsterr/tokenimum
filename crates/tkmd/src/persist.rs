@@ -309,6 +309,24 @@ mod tests {
     }
 
     #[test]
+    fn unresolved_session_rows_are_retained_until_session_exists() {
+        let store = Store::open_in_memory().unwrap();
+        let mut batch = FlushBatch::default();
+        batch.push_turn(TurnUpsert { key: key("late"), turn_idx: 0, calls: 1, ended_well: false, escalated: false });
+        batch.events.push_back(EventInsert { key: key("late"), kind: "loop.redirect".into(), inputs: serde_json::json!({}), template: "redirect".into(), params: serde_json::json!({}) });
+        apply(&store, &mut batch).unwrap();
+        assert_eq!(batch.turns.len(), 1);
+        assert_eq!(batch.events.len(), 1);
+        batch.push_repo(Repo { repo_key: RepoKey("r".into()), display_name: "r".into(), first_seen: Timestamp(1), last_seen: Timestamp(1), delegated_runs: 0 });
+        batch.push_session(session("late", "open"));
+        apply(&store, &mut batch).unwrap();
+        assert!(batch.is_empty());
+        let id = store.find_session(&key("late")).unwrap().unwrap().id;
+        assert_eq!(store.list_turns(id).unwrap().len(), 1);
+        assert_eq!(store.list_events_by_session(id).unwrap().len(), 1);
+    }
+
+    #[test]
     fn requeue_keeps_unapplied_items_before_newer_ones() {
         let mut current = FlushBatch::default();
         current.envelope.push_back(EnvelopeSample {
