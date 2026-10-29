@@ -7,19 +7,19 @@ mod common;
 use std::sync::Arc;
 
 use common::*;
-use tkm_decide::calibrate::{CalibrationKey, CalibrationStore as _, Thresholds};
 use tkm_decide::client::{NoDecisionReason, Outcome};
 use tkm_proto::Host;
 use tkmd::settings::{LoopMode, Settings};
 
 fn calibrate(daemon: &tkmd::daemon::Daemon) {
-    daemon.calibration().put(
-        CalibrationKey {
-            model_version: MODEL.into(),
-            purpose: "loop_guard".into(),
-        },
-        Thresholds::default(),
-    );
+    daemon.calibration().refresh(&[tkm_store::CalibrationRecord {
+        model_version: MODEL.into(),
+        purpose: "loop_guard".into(),
+        thresholds: serde_json::json!({"t_stuck": 0.85, "t_progress": 0.3, "t_low": 0.3, "t_high": 0.8}),
+        sample_count: 200,
+        precision: 0.9,
+        recall: 0.6,
+    }]);
 }
 
 fn redirect_settings() -> Settings {
