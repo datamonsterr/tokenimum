@@ -117,10 +117,16 @@ async fn resync_after_lag<E, F>(
     if let Ok(mut state) = monitor.write() {
         state.degraded = true;
     }
-    if let Ok(snapshot) = load().await
-        && let Ok(mut state) = monitor.write()
-    {
-        *state = snapshot;
+    let mut delay = std::time::Duration::from_millis(250);
+    loop {
+        if let Ok(snapshot) = load().await {
+            if let Ok(mut state) = monitor.write() {
+                *state = snapshot;
+            }
+            break;
+        }
+        tokio::time::sleep(delay).await;
+        delay = (delay * 2).min(std::time::Duration::from_secs(5));
     }
 }
 struct DiscoveryFile(PathBuf);
@@ -245,6 +251,7 @@ impl WebServer {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
     use tkm_core::model::Timestamp;

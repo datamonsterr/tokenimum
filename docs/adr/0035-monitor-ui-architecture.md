@@ -40,3 +40,6 @@ and render budgets in ADR 0038.
    messages afterward. The TUI bounds its socket queue at 1,024 messages and reloads the snapshot
    after overflow. The web dashboard marks its state degraded while reloading after broadcast lag.
    A folded session triggers a refresh of ledger savings rows.
+
+8. **Lag recovery retry.** A failed web snapshot reload remains degraded and retries with
+   exponential backoff from 250 ms to 5 s until a reload succeeds or the server stops.
