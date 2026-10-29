@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use serde_json::{Value, json};
 use tkm_core::model::{Call, EditKind, EditVia, FileEdit, HookEvent, StopReason};
 use tkm_hosts::codex::CodexAdapter;
-use tkm_hosts::{AdapterError, HostAdapter, InstallContext, PruneTarget};
+use tkm_hosts::{AdapterError, HostAdapter, PruneTarget};
 use tkm_proto::{EventKind, Host, PROTOCOL_VERSION, ReplyAction, Request};
 
 const SESSION: &str = "01a18562-fb1c-7522-9939-dda89fa83662";
@@ -52,20 +52,6 @@ fn adapter_identity_and_prune_target() {
     let adapter: Box<dyn HostAdapter + Send + Sync> = Box::new(CodexAdapter::new());
     assert_eq!(adapter.host(), Host::Codex);
     assert_eq!(adapter.prune_target(), PruneTarget::ReportOnly);
-}
-
-#[test]
-fn install_and_uninstall_are_pending_until_the_writer_lands() {
-    let adapter = CodexAdapter::new();
-    let context = InstallContext::default();
-    for result in [adapter.install(&context), adapter.uninstall(&context)] {
-        match result {
-            Err(AdapterError::Unsupported { operation }) => {
-                assert_eq!(operation, "codex install pending writer");
-            }
-            other => panic!("expected Unsupported, got {other:?}"),
-        }
-    }
 }
 
 #[test]

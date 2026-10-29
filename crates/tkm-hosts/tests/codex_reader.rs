@@ -147,7 +147,7 @@ fn reads_plain_rollout_into_two_turns_with_prompts_and_calls() {
             via: EditVia::Tool,
         }]
     );
-    assert!(second.calls[1].edits.is_empty());
+    assert_eq!(second.calls[1].edits, [] as [FileEdit; 0]);
     assert_eq!(second.calls[1].output_digest, "c.txt");
 }
 
@@ -281,10 +281,10 @@ fn synthetic_items_cover_delete_update_aborts_outside_paths_and_unknown_events()
     let turn = &session.turns[0];
     assert_eq!(turn.stopped_by, StopReason::Interrupted);
     assert_eq!(turn.prompt, "do it");
-    let patch = &turn.calls[0];
-    assert_eq!(patch.tool, "apply_patch");
-    assert!(patch.is_error);
-    let mut edits: Vec<(String, EditKind)> = patch
+    let applied = &turn.calls[0];
+    assert_eq!(applied.tool, "apply_patch");
+    assert!(applied.is_error);
+    let mut edits: Vec<(String, EditKind)> = applied
         .edits
         .iter()
         .map(|e| (e.path.to_string_lossy().into_owned(), e.kind))
