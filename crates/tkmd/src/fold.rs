@@ -643,6 +643,7 @@ pub(crate) fn spawn_log_watcher(daemon: Arc<Daemon>) -> JoinHandle<()> {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::pedantic)]
     use super::*;
     use tkm_core::facts::Family;
 

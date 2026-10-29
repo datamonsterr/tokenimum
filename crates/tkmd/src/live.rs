@@ -405,6 +405,7 @@ impl Daemon {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::pedantic)]
     use super::*;
 
     #[tokio::test]
@@ -423,7 +424,7 @@ mod tests {
             let marker = dir.path().join("marker");
             let mcp = if succeeds {
                 format!(
-                    r#"while IFS= read -r line; do printf '%s\n' "$line" >> '{}'; case "$line" in *'"id":1'*) echo '{{"jsonrpc":"2.0","id":1,"result":{{}}}}';; *'"id":2'*) echo '{{"jsonrpc":"2.0","id":2,"result":{{}}}}';; esac; done"#,
+                    r#"while IFS= read -r line; do printf '%s\n' "$line" >> '{}'; case "$line" in *'"id":1'*) echo '{{"jsonrpc":"2.0","id":1,"result":{{"protocolVersion":"2025-06-18"}}}}';; *'"id":2'*) echo '{{"jsonrpc":"2.0","id":2,"result":{{}}}}';; esac; done"#,
                     log.display()
                 )
             } else {
@@ -481,9 +482,11 @@ mod tests {
                 command: Some(format!("printf fallback > '{}'", marker.display())),
                 secrets: BTreeMap::new(),
             };
+            assert!(daemon.enqueue(crate::daemon::Effect::Escalate(job)));
             daemon.fold_live_session(&(Host::Claude, "s".into()), true);
             assert!(!adapter.handles(Host::Claude, "s"));
-            daemon.run_escalation(job).await;
+            daemon.start_workers();
+            daemon.settle().await;
             assert_eq!(marker.exists(), !succeeds);
             if succeeds {
                 assert!(fs::read_to_string(log).unwrap().contains("report_progress"));
