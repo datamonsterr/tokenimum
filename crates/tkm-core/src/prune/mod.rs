@@ -1,5 +1,9 @@
 // Portions ported from microsoft/TokenEconomizer (tokeneconomizer/toolprune/stage.py),
 // Copyright (c) Microsoft Corporation, licensed under the Apache License, Version 2.0.
+// Portions ported from microsoft/TokenEconomizer (tokeneconomizer/toolprune/tools.py),
+// Copyright (c) Microsoft Corporation, licensed under the Apache License, Version 2.0.
+// Portions ported from microsoft/TokenEconomizer (tokeneconomizer/plugin/adapter.py),
+// Copyright (c) Microsoft Corporation, licensed under the Apache License, Version 2.0.
 //! Pure tool pruning and skill usage evidence.
 pub mod skills;
 
@@ -268,7 +272,7 @@ pub fn decide(
         candidates: Vec::new(),
         protected_skipped: Vec::new(),
     };
-    if mode_effective == PruneMode::Off {
+    if mode_effective == PruneMode::Off || state.host.is_some_and(|h| h != host) {
         return result;
     }
     for (name, evidence) in &state.tools {
