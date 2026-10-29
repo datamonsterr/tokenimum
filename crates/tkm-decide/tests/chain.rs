@@ -92,7 +92,7 @@ fn defaults_are_pinned_and_match_spec() {
         ]
     );
     assert!(config.chain[0].free_probe);
-    assert_eq!(config.timeout_ms, 1500);
+    assert_eq!(config.timeout_ms, 1_500);
     assert!((config.daily_cap_usd - 0.50).abs() < f64::EPSILON);
     assert!((config.session_cap_usd - 0.02).abs() < f64::EPSILON);
     assert_eq!(config.max_state_bytes, 16_384);

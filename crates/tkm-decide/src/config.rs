@@ -48,7 +48,7 @@ impl Default for DecideConfig {
                 free_probe,
             })
             .collect(),
-            timeout_ms: 1500,
+            timeout_ms: 1_500,
             daily_cap_usd: 0.50,
             session_cap_usd: 0.02,
             max_state_bytes: 16_384,

@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 /// Decision thresholds.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[allow(clippy::struct_field_names)] // Threshold names match SPEC section 8.5.
 pub struct Thresholds {
     /// Stuck threshold.
     pub t_stuck: f64,

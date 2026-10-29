@@ -54,11 +54,17 @@ pub fn load_key(
     key_file: &Path,
     reuse_path: Option<&Path>,
 ) -> Result<ApiKey, KeyError> {
-    if let Some(value) = env {
+    if let Some(value) = env.filter(|value| !value.trim().is_empty()) {
         return key_from_value(value);
     }
     let path = reuse_path.unwrap_or(key_file);
-    let mut file = std::fs::File::open(path)?;
+    let mut file = std::fs::File::open(path).map_err(|error| {
+        if error.kind() == std::io::ErrorKind::NotFound {
+            KeyError::Missing
+        } else {
+            KeyError::Io(error)
+        }
+    })?;
     // Inspect the opened file rather than re-statting its path before reading.
     #[cfg(unix)]
     {
@@ -69,7 +75,8 @@ pub fn load_key(
     }
     let mut text = String::new();
     std::io::Read::read_to_string(&mut file, &mut text)?;
-    for line in text.lines() {
+    // Dotenv assignments override earlier ones, ignoring empty or invalid values.
+    for line in text.lines().rev() {
         let line = line.trim();
         let line = line.strip_prefix("export ").map_or(line, str::trim_start);
         let Some((name, value)) = line.split_once('=') else {
@@ -78,7 +85,9 @@ pub fn load_key(
         if name.trim() != "OPENROUTER_API_KEY" {
             continue;
         }
-        return parse_assignment(value).and_then(key_from_value);
+        if let Ok(key) = parse_assignment(value).and_then(key_from_value) {
+            return Ok(key);
+        }
     }
     Err(KeyError::Missing)
 }

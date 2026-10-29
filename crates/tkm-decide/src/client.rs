@@ -226,8 +226,13 @@ impl<T: Transport, C: Clock, L: SpendLedger> DecisionClient<T, C, L> {
         let mut outcomes = Vec::new();
         for model in self.chain.free_models() {
             let outcome = self.attempt(&model, &req).await;
-            self.chain
-                .reprobe_free(&model, matches!(outcome, Outcome::Decision(_)));
+            match &outcome {
+                Outcome::Decision(_) => self.chain.reprobe_free(&model, true),
+                Outcome::NoDecision(NoDecisionReason::AllFailed) => {
+                    self.chain.reprobe_free(&model, false);
+                }
+                _ => {}
+            }
             let stop = matches!(
                 outcome,
                 Outcome::CodeOnly(_) | Outcome::NoDecision(NoDecisionReason::RequestRejected)

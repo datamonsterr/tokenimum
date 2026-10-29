@@ -5,8 +5,8 @@ use std::{
     sync::{Arc, Mutex},
     time::{SystemTime, UNIX_EPOCH},
 };
-const FAILURE_WINDOW_MS: u64 = 5 * 60 * 1000;
-const SKIP_MS: u64 = 15 * 60 * 1000;
+const FAILURE_WINDOW_MS: u64 = 5 * 60 * 1_000;
+const SKIP_MS: u64 = 15 * 60 * 1_000;
 /// Millisecond clock shared by health, cache, and spend accounting.
 pub trait Clock: Send + Sync {
     /// Current Unix time in milliseconds.

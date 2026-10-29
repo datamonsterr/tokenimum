@@ -78,6 +78,7 @@ pub struct DecisionsRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub user: Option<String>,
 }
+#[allow(clippy::ref_option)] // serde serialize_with signature
 fn serialize_session_id<S: serde::Serializer>(
     value: &Option<String>,
     serializer: S,
@@ -203,13 +204,10 @@ pub fn validate(
             }
             _ => return Err(invalid("answer type does not match question")),
         }
-    }
-    for (name, answer) in &response.answers {
         if !probabilities_valid(answer) {
-            return Err(InvalidAnswer {
-                question: name.clone(),
-                reason: "unsupported answer or probability outside zero to one",
-            });
+            return Err(invalid(
+                "unsupported answer or probability outside zero to one",
+            ));
         }
     }
     Ok(())

@@ -5,8 +5,7 @@ use crate::{
 };
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::{BTreeMap, HashMap, hash_map::DefaultHasher},
-    hash::{Hash, Hasher},
+    collections::{BTreeMap, HashMap},
     sync::Mutex,
 };
 /// Stable purpose identifiers shared with spend and calibration storage.
@@ -49,10 +48,16 @@ struct Entry {
     expires_ms: u64,
     response: DecisionsResponse,
 }
+#[derive(PartialEq, Eq, Hash)]
+struct CacheKey {
+    model: String,
+    state: String,
+    questions_json: String,
+}
 /// A synchronized response cache using an injected clock.
 #[allow(clippy::module_name_repetitions)] // Public names follow the decision-client contract.
 pub struct DecisionCache<C: Clock> {
-    entries: Mutex<HashMap<u64, Entry>>,
+    entries: Mutex<HashMap<CacheKey, Entry>>,
     clock: C,
 }
 impl<C: Clock> DecisionCache<C> {
@@ -121,9 +126,11 @@ impl<C: Clock> DecisionCache<C> {
         );
     }
 }
-fn cache_key(model: &str, state: &str, questions: &BTreeMap<String, Question>) -> Option<u64> {
+fn cache_key(model: &str, state: &str, questions: &BTreeMap<String, Question>) -> Option<CacheKey> {
     let questions_json = serde_json::to_string(questions).ok()?;
-    let mut hasher = DefaultHasher::new();
-    (model, state, questions_json).hash(&mut hasher);
-    Some(hasher.finish())
+    Some(CacheKey {
+        model: model.into(),
+        state: state.into(),
+        questions_json,
+    })
 }

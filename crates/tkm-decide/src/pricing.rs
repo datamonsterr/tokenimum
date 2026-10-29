@@ -20,10 +20,11 @@ pub struct ModelPrice {
 /// Invalid model data or TOML.
 #[derive(Debug, thiserror::Error)]
 #[error("invalid pricing data: {0}")]
+#[allow(clippy::module_name_repetitions)] // Public name identifies pricing failures.
 pub struct PricingError(pub String);
 #[derive(Deserialize)]
 struct Listing {
-    data: Vec<Entry>,
+    data: Vec<serde_json::Value>,
 }
 #[derive(Deserialize)]
 struct Entry {
@@ -37,27 +38,24 @@ struct Prices {
     prompt: String,
     completion: String,
 }
-/// Parses model JSON, omitting alias slugs.
+/// Parses model JSON, omitting alias slugs and malformed individual entries.
 ///
 /// # Errors
-/// Returns an error for malformed JSON or invalid prices.
+/// Returns an error for malformed JSON or an invalid top-level listing.
 pub fn parse_models(json: &str) -> Result<Vec<ModelPrice>, PricingError> {
     let listing: Listing = serde_json::from_str(json).map_err(|e| PricingError(e.to_string()))?;
-    listing
+    Ok(listing
         .data
         .into_iter()
+        .filter_map(|entry| serde_json::from_value::<Entry>(entry).ok())
         .filter(|entry| !entry.id.starts_with('~'))
-        .map(|entry| {
-            let parse = |s: &str| -> Result<f64, PricingError> {
-                let price: f64 = s
-                    .parse()
-                    .map_err(|_| PricingError(format!("invalid price: {s}")))?;
-                if !price.is_finite() || price < 0.0 {
-                    return Err(PricingError(format!("invalid price: {s}")));
-                }
-                Ok(price)
+        .filter_map(|entry| {
+            let parse = |s: &str| {
+                s.parse::<f64>()
+                    .ok()
+                    .filter(|price| price.is_finite() && *price >= 0.0)
             };
-            Ok(ModelPrice {
+            Some(ModelPrice {
                 slug: entry.id,
                 canonical: entry.canonical_slug,
                 prompt_per_token: parse(&entry.pricing.prompt)?,
@@ -65,7 +63,7 @@ pub fn parse_models(json: &str) -> Result<Vec<ModelPrice>, PricingError> {
                 context: entry.context_length,
             })
         })
-        .collect()
+        .collect())
 }
 /// Updates model tables while retaining other document content.
 ///
@@ -92,12 +90,28 @@ pub fn render_pricing_toml(
         let table = root[model.slug.as_str()]
             .as_table_mut()
             .ok_or_else(|| PricingError(format!("{} is not a table", model.slug)))?;
-        table["prompt_per_token"] = value(model.prompt_per_token);
-        table["completion_per_token"] = value(model.completion_per_token);
-        table["canonical"] = value(model.canonical.as_str());
-        table["context"] =
-            value(i64::try_from(model.context).map_err(|e| PricingError(e.to_string()))?);
-        table["fetched"] = value(fetched_date);
+        update_value(table, "prompt_per_token", value(model.prompt_per_token));
+        update_value(
+            table,
+            "completion_per_token",
+            value(model.completion_per_token),
+        );
+        update_value(table, "canonical", value(model.canonical.as_str()));
+        update_value(
+            table,
+            "context",
+            value(i64::try_from(model.context).map_err(|e| PricingError(e.to_string()))?),
+        );
+        update_value(table, "fetched", value(fetched_date));
     }
     Ok(doc.to_string())
+}
+
+fn update_value(table: &mut Table, name: &str, mut new: Item) {
+    if let Some(old) = table.get(name).and_then(Item::as_value)
+        && let Some(new_value) = new.as_value_mut()
+    {
+        *new_value.decor_mut() = old.decor().clone();
+    }
+    table[name] = new;
 }
