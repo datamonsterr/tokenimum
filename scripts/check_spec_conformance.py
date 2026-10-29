@@ -47,11 +47,17 @@ def check(spec, audit, root):
             links = LINK.findall(evidence)
             if not links:
                 errors.append(f'{ident}: evidence needs a local file link')
-            paths = links + ['../' + p for p in re.findall(r'`([^`]+)`', evidence)
-                             if re.match(r'^(?:crates|docs|scripts|fixtures|shims|\.github)/', p)]
+            plain = LINK.sub('', evidence)
+            referenced = re.findall(
+                r'(?<![\w./-])(?:\.\./)?(?:[\w.-]+/)*[\w-]+\.(?:rs|py|md|toml|json|ya?ml|sh|ts|lock)',
+                plain,
+            )
+            paths = links + [path if path.startswith('../') else '../' + path for path in referenced]
             for link in paths:
                 path = link.split('#', 1)[0]
-                if '://' in path or path.startswith('/') or not (root / 'docs' / path).is_file():
+                if ('://' in path or path.startswith('/')
+                        or not (root / 'docs' / path).resolve().is_relative_to(root.resolve())
+                        or not (root / 'docs' / path).is_file()):
                     errors.append(f'{ident}: evidence file does not exist: {link}')
             if status == 'deferred' and not any((root / 'docs' / link.split('#', 1)[0]).resolve().is_relative_to((root / 'docs').resolve()) for link in links):
                 errors.append(f'{ident}: deferred requires a docs link')

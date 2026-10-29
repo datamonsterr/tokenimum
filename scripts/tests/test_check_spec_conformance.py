@@ -37,6 +37,18 @@ class CheckConformance(unittest.TestCase):
         audit = self.audit.replace('[source](../evidence.rs)', '[source](../evidence.rs); `crates/missing.rs`', 1)
         self.assertTrue(any('does not exist' in e for e in self.errors(audit)))
 
+    def test_missing_plain_path(self):
+        audit = self.audit.replace('[source](../evidence.rs)', '[source](../evidence.rs); crates/missing.rs', 1)
+        self.assertTrue(any('does not exist' in e for e in self.errors(audit)))
+
+    def test_missing_arbitrary_test_file(self):
+        audit = self.audit.replace('[source](../evidence.rs)', '[source](../evidence.rs); tests/missing.rs', 1)
+        self.assertTrue(any('does not exist' in e for e in self.errors(audit)))
+
+    def test_file_outside_repo_is_rejected(self):
+        audit = self.audit.replace('../evidence.rs', '../../outside.rs', 1)
+        self.assertTrue(any('does not exist' in e for e in self.errors(audit)))
+
     def test_missing_heading_table(self):
         self.assertTrue(any('missing table' in e for e in self.errors(self.audit.split('###')[0])))
 
