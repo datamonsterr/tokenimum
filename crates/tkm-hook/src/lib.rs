@@ -474,6 +474,16 @@ const fn host_env_markers(host: Host) -> &'static [&'static str] {
     }
 }
 
+fn is_host_env_key(host: Host, key: &str) -> bool {
+    host_env_markers(host).iter().any(|marker| {
+        if marker.ends_with('_') {
+            key.starts_with(*marker)
+        } else {
+            key == *marker
+        }
+    })
+}
+
 /// Collect filtered env vars from an iterator of `(key, value)` pairs.
 #[must_use]
 pub fn collect_env<I>(iter: I) -> BTreeMap<String, String>
@@ -622,16 +632,7 @@ pub fn run_hook_with_fallible_stdin<I, S, E, F>(
     };
     let filtered_env = env
         .into_iter()
-        .filter(|(key, _)| {
-            is_allowed_env_key(key)
-                || host_env_markers(host).iter().any(|marker| {
-                    if marker.ends_with('_') {
-                        key.starts_with(*marker)
-                    } else {
-                        key.as_str() == *marker
-                    }
-                })
-        })
+        .filter(|(key, _)| is_allowed_env_key(key) || is_host_env_key(host, key))
         .collect();
     let process_cwd = std::env::current_dir()
         .ok()
