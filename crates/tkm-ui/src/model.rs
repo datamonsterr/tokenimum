@@ -242,22 +242,22 @@ pub fn load_snapshot(conn: &Connection) -> Result<MonitorState, crate::Error> {
         })?
         .collect::<rusqlite::Result<_>>()?;
     if version >= 4 {
-        state.unknown_decision_costs = conn.query_row(
+        state.unknown_decision_costs = count(conn.query_row(
             "SELECT (SELECT count(*) FROM spend_attempts WHERE json_extract(record, '$.cost_usd') IS NULL) + (SELECT count(*) FROM decisions WHERE cost_usd IS NULL AND (id <= (SELECT legacy_decision_max FROM spend_migration) OR purpose IN ('models_probe','doctor_probe')))",
             [],
-            |row| row.get(0),
-        )?;
+            |row| row.get::<_, i64>(0),
+        )?)?;
     }
     let price = if version >= 4 {
         "l.priced_cost_usd"
     } else {
         "NULLIF(l.priced_cost, 0)"
     };
-    state.unknown_session_costs = conn.query_row(
+    state.unknown_session_costs = count(conn.query_row(
         &format!("SELECT count(*) FROM ledger l WHERE {price} IS NULL"),
         [],
-        |row| row.get(0),
-    )?;
+        |row| row.get::<_, i64>(0),
+    )?)?;
     let sql = format!(
         "SELECT repo_key,host,priced_cost,shadow FROM (SELECT s.repo_key,s.host,{price} AS priced_cost,s.shadow,s.started_at FROM ledger l JOIN sessions s ON s.id=l.session_id WHERE {price} IS NOT NULL ORDER BY s.started_at DESC LIMIT 1000) ORDER BY started_at"
     );
@@ -320,4 +320,8 @@ fn load_redirects(conn: &Connection, state: &mut MonitorState) -> Result<(), cra
         }
     }
     Ok(())
+}
+
+fn count(value: i64) -> rusqlite::Result<u64> {
+    u64::try_from(value).map_err(|_| rusqlite::Error::IntegralValueOutOfRange(0, value))
 }
