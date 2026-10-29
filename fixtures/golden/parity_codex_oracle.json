@@ -1,0 +1,78 @@
+{
+  "te_commit": "d0675a3",
+  "rules": "ported TE rules; scripts/te_parity_oracle.py",
+  "cases": [
+    {
+      "source": "fixtures/codex/sessions/2026/10/29/rollout-2026-10-29T09-00-20-01a18562-fb1c-7522-9939-dda89fa83662.jsonl",
+      "calls_per_turn": [
+        2,
+        2
+      ],
+      "candidate_ids": [],
+      "te_active_after_sessions": [
+        [],
+        [],
+        [],
+        []
+      ],
+      "code_only_active_after_sessions": [
+        [],
+        [],
+        [],
+        []
+      ],
+      "loops": [
+        {
+          "judge_calls": [],
+          "backstop_calls": []
+        },
+        {
+          "judge_calls": [],
+          "backstop_calls": []
+        }
+      ]
+    },
+    {
+      "source": "fixtures/codex/parity/behavior.jsonl",
+      "calls_per_turn": [
+        2,
+        21
+      ],
+      "candidate_ids": [
+        "form_repair:run_tests:pytest"
+      ],
+      "te_active_after_sessions": [
+        [],
+        [],
+        [
+          "form_repair:run_tests:pytest"
+        ],
+        [
+          "form_repair:run_tests:pytest"
+        ]
+      ],
+      "code_only_active_after_sessions": [
+        [],
+        [],
+        [],
+        [
+          "form_repair:run_tests:pytest"
+        ]
+      ],
+      "loops": [
+        {
+          "judge_calls": [],
+          "backstop_calls": []
+        },
+        {
+          "judge_calls": [
+            18
+          ],
+          "backstop_calls": [
+            21
+          ]
+        }
+      ]
+    }
+  ]
+}

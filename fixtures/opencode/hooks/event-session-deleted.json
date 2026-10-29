@@ -1,0 +1,20 @@
+{
+  "hook": "event",
+  "event": {
+    "id": "evt_example3",
+    "type": "session.deleted",
+    "properties": {
+      "info": {
+        "id": "ses_example1",
+        "projectID": "proj_example",
+        "directory": "/home/user/project",
+        "title": "New session",
+        "version": "1.18.35",
+        "time": {
+          "created": 1791436988255,
+          "updated": 1791436988255
+        }
+      }
+    }
+  }
+}

@@ -28,13 +28,9 @@ in [ADR 0050](../docs/adr/0050-conformance-gaps.md); that record does not close 
 - SPEC 8.2: “`tkm doctor` re-probes `:free` slugs daily and moves a free model to the front when it answers.” [doctor models](../crates/tkm-cli/src/cmd/doctor/models.rs) performs an explicit probe, with no daily scheduler established.
 
 
-- SPEC 16: “Golden: replay fixtures per harness (all eight); expected actions committed as JSON.” A single loop golden exists, but no all-host expected-action JSON suite was identified.
-- SPEC 16: “Parity: for Claude Code and Codex fixtures, tokenimum's fact formation and loop gate agree with TE run over the same logs (TE is the oracle in M2; differences documented).” Ported tests exist, but no same-log TE oracle comparison was identified.
 
 - SPEC 6.8: “Blocks that matter are repeated on the next `postToolUse`.” [ADR 0050](../docs/adr/0050-conformance-gaps.md) item 11 records that this repetition is not established.
 - SPEC 15 M1: “shadow decisions logged on real sessions”. The [end-to-end test](../crates/tkm-cli/tests/e2e_shadow.rs) uses an installed fake home and fixture events.
-- SPEC 15 M3: “fresh machine to working install in one command; every action explainable”. [ADR 0050](../docs/adr/0050-conformance-gaps.md) items 15 and 17 record missing switch wiring and fresh-machine evidence.
-- SPEC 16: “Fault injection: daemon down, socket slow, OpenRouter 404/500/timeout, DB locked, corrupt log, foreign SQLite locked, shim timeout. Each must yield the no-op reply and an error line, never a hook failure.” [ADR 0050](../docs/adr/0050-conformance-gaps.md) item 19 records incomplete matrix evidence.
 
 
 ## Pending
@@ -879,7 +875,7 @@ will replace the placeholder row after that work lands.
 | S15-5 | M2: facts and ledger for Claude and Codex | deferred | [0050-conformance-gaps.md](../docs/adr/0050-conformance-gaps.md) items 1 and 12. |
 | S15-6 | M2: facts match TE fixtures; ledger within 2% of cost | deferred | [0050-conformance-gaps.md](../docs/adr/0050-conformance-gaps.md) items 1 and 16. |
 | S15-7 | M3: init, status, top, why, presets and switches | deferred | [0050-conformance-gaps.md](../docs/adr/0050-conformance-gaps.md) item 15: switches not applied. |
-| S15-8 | M3: fresh machine one-command install and every action explainable | deferred | [0050-conformance-gaps.md](../docs/adr/0050-conformance-gaps.md) item 17. |
+| S15-8 | M3: fresh machine one-command install and every action explainable | met | [fresh_install.py](../scripts/fresh_install.py); [test_fresh_install.py](../scripts/tests/test_fresh_install.py); [ci.yml](../.github/workflows/ci.yml) `fresh-install` job; [why.rs](../crates/tkm-cli/src/cmd/why.rs) |
 | S15-9 | M4: agy, Cursor, Kimi, Codewhale hooks and idle-fold | met | [0020-e5b-host-adapters.md](../docs/adr/0020-e5b-host-adapters.md) |
 | S15-10 | M4: fold a real session of each; doctor probe reports events; verifications closed or documented | deferred | [0050-conformance-gaps.md](../docs/adr/0050-conformance-gaps.md) items 5 and 10. |
 | S15-11 | M5: opencode/Pi shims ≤40 lines, hash-checked and fold-only with --no-shims | met | [shim.rs](../crates/tkm-hosts/tests/shim.rs); [fold_only_e2e.rs](../crates/tkm-hosts/tests/fold_only_e2e.rs) |
@@ -895,13 +891,13 @@ will replace the placeholder row after that work lands.
 | ID | Requirement | Status | Evidence |
 |---|---|---|---|
 | S16-1 | Table-driven core unit tests and ported TE behavioral tests | met | [facts_te.rs](../crates/tkm-core/tests/facts_te.rs); [ledger_te.rs](../crates/tkm-core/tests/ledger_te.rs) |
-| S16-2 | Golden replay per eight hosts with expected actions in JSON | deferred | [0050-conformance-gaps.md](../docs/adr/0050-conformance-gaps.md) item 16. |
+| S16-2 | Golden replay per eight hosts with expected actions in JSON | met | [golden_replay.rs](../crates/tkmd/tests/golden_replay.rs) (`TKM_BLESS=1`); [golden fixtures](../fixtures/golden/claude.json) for all eight hosts |
 | S16-3 | Recorded payload-to-reply contract tests for each host | met | [contracts.rs](../crates/tkm-hosts/tests/contracts.rs); [pi_contract.rs](../crates/tkm-hosts/tests/pi_contract.rs) |
 | S16-4 | Installer tests preserve foreign entries byte-for-byte and restore | met | [writer.rs](../crates/tkm-hosts/tests/writer.rs); [cursor_install.rs](../crates/tkm-hosts/tests/cursor_install.rs) |
-| S16-5 | Claude and Codex parity against TE on same logs | deferred | [0050-conformance-gaps.md](../docs/adr/0050-conformance-gaps.md) item 16. |
+| S16-5 | Claude and Codex parity against TE on same logs | met | [parity_te.rs](../crates/tkmd/tests/parity_te.rs); [te_parity_oracle.py](../scripts/te_parity_oracle.py); differences in [parity.md](parity.md) |
 | S16-6 | Integration matrix using fake binaries for all four combinations | met | [matrix.rs](../crates/tkm-integrations/tests/matrix.rs) |
 | S16-7 | Recorded decision responses; opt-in live model tests TKM_LIVE=1 | met | [live.rs](../crates/tkm-decide/tests/live.rs); [client.rs](../crates/tkm-decide/tests/client.rs) |
-| S16-8 | Fault-inject daemon down, slow socket, 404/500/timeout, locked DB, corrupt log, foreign SQLite lock and shim timeout; each noop and log | deferred | [0050-conformance-gaps.md](../docs/adr/0050-conformance-gaps.md) item 19. |
+| S16-8 | Fault-inject daemon down, slow socket, 404/500/timeout, locked DB, corrupt log, foreign SQLite lock and shim timeout; each noop and log | met | [hook fault_matrix.rs](../crates/tkm-hook/tests/fault_matrix.rs); [daemon fault_matrix.rs](../crates/tkmd/tests/fault_matrix.rs) |
 | S16-9 | CI forbid-unsafe check, cargo-deny and cargo-geiger diff | met | [ci.yml](../.github/workflows/ci.yml) |
 
 ## 17. Open questions

@@ -1,0 +1,20 @@
+{
+  "hook": "tool.execute.after",
+  "input": {
+    "tool": "bash",
+    "sessionID": "ses_example1",
+    "callID": "call_example1",
+    "args": {
+      "command": "false"
+    }
+  },
+  "output": {
+    "title": "synthetic",
+    "output": "",
+    "metadata": {
+      "output": "",
+      "exit": 1,
+      "truncated": false
+    }
+  }
+}
