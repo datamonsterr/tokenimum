@@ -87,3 +87,22 @@ async fn main() -> ExitCode {
     daemon.shutdown().await;
     ExitCode::SUCCESS
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn configured_key_path_reuses_absolute_and_home_relative_paths() {
+        let home = std::path::Path::new("/fixture/home");
+        assert_eq!(
+            key_file(home, Some("/fixture/account/key.env")),
+            std::path::PathBuf::from("/fixture/account/key.env")
+        );
+        assert_eq!(
+            key_file(home, Some("~/keys/openrouter.env")),
+            home.join("keys/openrouter.env")
+        );
+        assert_eq!(key_file(home, None), default_key_file(home));
+    }
+}
