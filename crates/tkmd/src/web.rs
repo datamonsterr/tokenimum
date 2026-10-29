@@ -39,6 +39,37 @@ impl Actions for DaemonActions {
         Ok(format!("Forgot fact {fact_id} in {repo}"))
     }
     fn restore_tool(&self, checkout: &str, host: &str, tool: &str) -> Result<String, String> {
+        self.restore_tool_with_hook(checkout, host, tool, || {})
+    }
+    fn switch_preset(&self, repo: &str, preset: &str) -> Result<String, String> {
+        let conn = tkm_store::open_read_only(&self.db).map_err(|e| e.to_string())?;
+        let cwd: String = conn
+            .query_row(
+                "SELECT cwd FROM sessions WHERE repo_key=?1 ORDER BY started_at DESC LIMIT 1",
+                [repo],
+                |r| r.get(0),
+            )
+            .map_err(|e| e.to_string())?;
+        let identity = tkm_config::repo::repo_identity(Path::new(&cwd), "", None);
+        let root = identity.root;
+        if identity.key.0 != repo {
+            return Err("checkout no longer matches repository".into());
+        }
+        let mut config = ConfigFile::load(root.join(".tokenimum.toml"), Layer::Repo)
+            .map_err(|e| e.to_string())?;
+        config.set("preset", preset).map_err(|e| e.to_string())?;
+        config.save().map_err(|e| e.to_string())?;
+        Ok(format!("Changed {repo} to {preset}"))
+    }
+}
+impl DaemonActions {
+    fn restore_tool_with_hook(
+        &self,
+        checkout: &str,
+        host: &str,
+        tool: &str,
+        after_read: impl FnOnce(),
+    ) -> Result<String, String> {
         let _guard = self.deny_lock.lock().map_err(|e| e.to_string())?;
         let host: Host = host.parse().map_err(|_| "invalid host".to_owned())?;
         if host != Host::Claude {
@@ -75,6 +106,7 @@ impl Actions for DaemonActions {
             .filter_map(serde_json::Value::as_str)
             .map(str::to_owned)
             .collect();
+        after_read();
         let desired = owned
             .intersection(&present)
             .filter(|entry| !delta.remove.contains(*entry))
@@ -86,26 +118,6 @@ impl Actions for DaemonActions {
             .mark_denylist_restored(path, host, tool)
             .map_err(|e| e.to_string())?;
         Ok(format!("Restored {tool} in {checkout}"))
-    }
-    fn switch_preset(&self, repo: &str, preset: &str) -> Result<String, String> {
-        let conn = tkm_store::open_read_only(&self.db).map_err(|e| e.to_string())?;
-        let cwd: String = conn
-            .query_row(
-                "SELECT cwd FROM sessions WHERE repo_key=?1 ORDER BY started_at DESC LIMIT 1",
-                [repo],
-                |r| r.get(0),
-            )
-            .map_err(|e| e.to_string())?;
-        let identity = tkm_config::repo::repo_identity(Path::new(&cwd), "", None);
-        let root = identity.root;
-        if identity.key.0 != repo {
-            return Err("checkout no longer matches repository".into());
-        }
-        let mut config = ConfigFile::load(root.join(".tokenimum.toml"), Layer::Repo)
-            .map_err(|e| e.to_string())?;
-        config.set("preset", preset).map_err(|e| e.to_string())?;
-        config.save().map_err(|e| e.to_string())?;
-        Ok(format!("Changed {repo} to {preset}"))
     }
 }
 async fn resync_after_lag<E, F>(
@@ -295,6 +307,51 @@ mod tests {
         };
         actions
             .restore_tool(&dir.path().to_string_lossy(), "claude", "A")
+            .map_err(std::io::Error::other)?;
+        let value: serde_json::Value = serde_json::from_slice(&std::fs::read(file)?)?;
+        assert_eq!(value["permissions"]["deny"], serde_json::json!([]));
+        Ok(())
+    }
+    #[test]
+    fn restore_preserves_manual_removal_after_settings_read()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let dir = tempfile::tempdir()?;
+        assert!(
+            std::process::Command::new("git")
+                .args(["init", "-q"])
+                .current_dir(dir.path())
+                .status()?
+                .success()
+        );
+        let paths = Paths::from_dirs(
+            dir.path(),
+            Some(dir.path()),
+            Some(dir.path()),
+            Some(dir.path()),
+        );
+        paths.ensure_runtime_dir()?;
+        let store = tkm_store::Store::open(&paths.db)?;
+        for tool in ["A", "B"] {
+            store.record_denylist_write(&DenylistEntry {
+                checkout_path: dir.path().into(),
+                host: Host::Claude,
+                tool: tool.into(),
+                written_at: Timestamp(1),
+                restored: false,
+            })?;
+        }
+        std::fs::create_dir_all(dir.path().join(".claude"))?;
+        let file = dir.path().join(".claude/settings.local.json");
+        std::fs::write(&file, r#"{"permissions":{"deny":["A","B"]}}"#)?;
+        let actions = DaemonActions {
+            db: paths.db.clone(),
+            daemon: Daemon::new(crate::daemon::DaemonOptions::new(paths)),
+            deny_lock: Mutex::new(()),
+        };
+        actions
+            .restore_tool_with_hook(&dir.path().to_string_lossy(), "claude", "A", || {
+                std::fs::write(&file, r#"{"permissions":{"deny":["A"]}}"#).unwrap();
+            })
             .map_err(std::io::Error::other)?;
         let value: serde_json::Value = serde_json::from_slice(&std::fs::read(file)?)?;
         assert_eq!(value["permissions"]["deny"], serde_json::json!([]));
