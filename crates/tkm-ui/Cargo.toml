@@ -26,6 +26,8 @@ rusqlite = { workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]
+tower = { version = "0.5.3", features = ["util"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 tempfile = { workspace = true }
 criterion = { workspace = true }
 
