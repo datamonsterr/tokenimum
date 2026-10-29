@@ -511,8 +511,7 @@ pub fn run_hook_with_stdin<I, S, E, F>(
     let env: Vec<(String, String)> = env_iter.into_iter().collect();
 
     let parsed = parse_args(&args);
-    let parsed_host = parsed.as_ref().map(|a| a.host);
-    let parsed_event = parsed.as_ref().map(|a| a.event);
+    let (parsed_host, parsed_event) = parse_host_and_event(&args);
 
     let (host, event) = match (parsed_host, parsed_event) {
         (Some(h), Some(e)) => (h, e),

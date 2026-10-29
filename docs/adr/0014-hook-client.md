@@ -18,7 +18,7 @@ The hook binary is invoked as:
 tkm-hook --host <host> --event <event>
 ```
 
-- **Hand-rolled argument parsing**: We do not use `clap` or external CLI parsing libraries. Parsing is implemented with a single linear pass over `std::env::args()` using string matching and `Host::from_str` / `EventKind::from_str` from `tkm-proto`. This eliminates binary bloat and parsing startup cost.
+- **Hand-rolled argument parsing**: We do not use `clap` or external CLI parsing libraries. Arguments are collected inside the panic guard with `std::env::args_os()`, skipping non-UTF-8 values, then parsed using string matching and `Host::from_str` / `EventKind::from_str` from `tkm-proto`. Non-UTF-8 environment entries are also skipped. This eliminates binary bloat and parsing startup cost.
 - **Missing or unrecognized arguments**: If `--host` is valid and recognized but `--event` is missing or unrecognized, `tkm-hook` outputs the recognized host's no-op reply (`Host::noop_reply`), logs one error to `errors.log` (if paths are known), and exits 0. If `--host` is missing or unrecognized, it outputs empty stdout `""`, logs one error, and exits 0.
 
 ## Shim options (E6)
