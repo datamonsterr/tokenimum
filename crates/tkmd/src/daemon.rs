@@ -53,7 +53,7 @@ pub(crate) type HResult<T> = Result<T, HandlerError>;
 pub(crate) enum Effect {
     Judge(Box<JudgeJob>),
     Escalate(EscalationJob),
-    Resolve(SessionSeed),
+    Resolve(SessionSeed, u64),
 }
 
 /// What is known about a session before repository resolution.
@@ -512,8 +512,15 @@ impl Daemon {
         }
     }
 
-    fn lazy_session(&self, seed: &SessionSeed, repo: Option<RepoKey>, now: u64) -> SessionState {
+    fn lazy_session(
+        &self,
+        seed: &SessionSeed,
+        repo: Option<RepoKey>,
+        now: u64,
+        generation: u64,
+    ) -> SessionState {
         SessionState {
+            generation,
             key: SessionKey {
                 host: seed.host,
                 agent_home: seed.agent_home.to_string_lossy().into_owned(),
@@ -658,9 +665,11 @@ impl Daemon {
             let state = &mut *guard;
             if !state.sessions.contains_key(&tag) {
                 let seed = self.seed(request, &event);
-                let session = self.lazy_session(&seed, event.repo_key.clone(), now);
+                state.session_generation = state.session_generation.wrapping_add(1);
+                let generation = state.session_generation;
+                let session = self.lazy_session(&seed, event.repo_key.clone(), now, generation);
                 state.sessions.insert(tag.clone(), session);
-                self.enqueue(Effect::Resolve(seed));
+                self.enqueue(Effect::Resolve(seed, generation));
                 self.activity.notify_one();
             }
             let StateMap {
@@ -909,13 +918,18 @@ impl Daemon {
 
     /// Resolves repository identity and settings, and loads the snapshot, for a session that is
     /// new or was created lazily by `tool_done`.
-    pub(crate) async fn resolve_session(self: &Arc<Self>, seed: SessionSeed, want_stale: bool) {
+    pub(crate) async fn resolve_session(
+        self: &Arc<Self>,
+        seed: SessionSeed,
+        generation: u64,
+        want_stale: bool,
+    ) {
         {
             let guard = lock(&self.state);
-            if guard
+            if !guard
                 .sessions
                 .get(&(seed.host, seed.session_id.clone()))
-                .is_some_and(|s| s.resolved)
+                .is_some_and(|s| s.generation == generation && !s.resolved)
             {
                 return;
             }
@@ -952,9 +966,12 @@ impl Daemon {
                 turn_bases,
                 ..
             } = &mut *guard;
-            let session = sessions
-                .entry(tag.clone())
-                .or_insert_with(|| self.lazy_session(&seed, None, now));
+            let Some(session) = sessions
+                .get_mut(&tag)
+                .filter(|s| s.generation == generation && !s.resolved)
+            else {
+                return;
+            };
             session.repo.clone_from(&resolved.repo);
             session.repo_label.clone_from(&resolved.label);
             session.root = Some(resolved.root.clone());
@@ -1023,7 +1040,20 @@ impl Daemon {
     }
 
     pub(crate) async fn ensure_session(self: &Arc<Self>, seed: SessionSeed, want_stale: bool) {
-        self.resolve_session(seed, want_stale).await;
+        let tag = (seed.host, seed.session_id.clone());
+        let generation = {
+            let mut state = lock(&self.state);
+            if !state.sessions.contains_key(&tag) {
+                state.session_generation = state.session_generation.wrapping_add(1);
+                let session =
+                    self.lazy_session(&seed, None, self.clock.now_ms(), state.session_generation);
+                state.sessions.insert(tag.clone(), session);
+            }
+            state.sessions.get(&tag).map(|session| session.generation)
+        };
+        if let Some(generation) = generation {
+            self.resolve_session(seed, generation, want_stale).await;
+        }
     }
 
     async fn session_start(
@@ -1137,7 +1167,9 @@ impl Daemon {
                 match effect {
                     Effect::Judge(job) => me.run_judge(*job).await,
                     Effect::Escalate(job) => me.run_escalation(job).await,
-                    Effect::Resolve(seed) => me.resolve_session(seed, false).await,
+                    Effect::Resolve(seed, generation) => {
+                        me.resolve_session(seed, generation, false).await
+                    }
                 }
                 me.inflight.fetch_sub(1, Ordering::SeqCst);
             });

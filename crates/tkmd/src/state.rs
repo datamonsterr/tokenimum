@@ -46,6 +46,8 @@ pub struct TurnState {
 /// A live session.
 #[derive(Debug)]
 pub struct SessionState {
+    /// Unique incarnation of this in-memory session.
+    pub generation: u64,
     /// Database natural key.
     pub key: SessionKey,
     /// Harness.
@@ -129,6 +131,8 @@ impl EnvelopeEntry {
 /// All mutable daemon state behind one lock.
 #[derive(Debug, Default)]
 pub struct StateMap {
+    /// Source of session incarnation identifiers.
+    pub session_generation: u64,
     /// Live sessions.
     pub sessions: HashMap<Tag, SessionState>,
     /// Envelopes per (repository, host).
