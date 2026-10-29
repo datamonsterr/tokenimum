@@ -120,3 +120,48 @@ CREATE TABLE installs (
 
 /// Migrations in schema version order.
 pub(crate) const MIGRATIONS: &[&str] = &[V001];
+
+#[cfg(test)]
+mod report_schema_tests {
+    use super::V001;
+    use crate::Store;
+    use rusqlite::Connection;
+
+    #[test]
+    fn v001_database_upgrades_with_nullable_report_columns() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(V001).unwrap();
+        conn.pragma_update(None, "user_version", 1).unwrap();
+        let store = Store::initialize(conn, std::time::Duration::from_millis(100)).unwrap();
+        let conn = &store.conn;
+        let version: i64 = conn
+            .pragma_query_value(None, "user_version", |row| row.get(0))
+            .unwrap();
+        assert_eq!(version, 2);
+        for (table, column) in [
+            ("events", "created_at"),
+            ("decisions", "created_at"),
+            ("decisions", "repo_key"),
+            ("decisions", "session_id"),
+            ("decisions", "digest"),
+            ("facts", "state_changed_at"),
+        ] {
+            let mut stmt = conn
+                .prepare(&format!("PRAGMA table_info({table})"))
+                .unwrap();
+            let columns = stmt
+                .query_map([], |row| {
+                    Ok((row.get::<_, String>(1)?, row.get::<_, bool>(3)?))
+                })
+                .unwrap()
+                .collect::<rusqlite::Result<Vec<_>>>()
+                .unwrap();
+            assert!(
+                columns
+                    .iter()
+                    .any(|(name, not_null)| name == column && !not_null),
+                "{table}.{column}"
+            );
+        }
+    }
+}
