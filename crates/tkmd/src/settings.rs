@@ -317,6 +317,19 @@ mod tests {
     }
 
     #[test]
+    fn mechanism_switches_are_loaded_from_configuration() {
+        let dir = std::env::temp_dir().join("tkmd-settings-switches-test-nonexistent");
+        let paths = Paths::from_dirs(&dir, Some(&dir), Some(&dir), Some(&dir));
+        let env = vec![
+            ("TKM_FACTS_ENABLED".to_owned(), "false".to_owned()),
+            ("TKM_LEDGER_ENABLED".to_owned(), "false".to_owned()),
+        ];
+        let settings = Settings::load(&paths, None, env);
+        assert!(!settings.facts_enabled);
+        assert!(!settings.ledger_enabled);
+    }
+
+    #[test]
     fn environment_overrides_loop_mode_and_decide_switch() {
         let dir = std::env::temp_dir().join("tkmd-settings-test-nonexistent");
         let paths = Paths::from_dirs(&dir, Some(&dir), Some(&dir), Some(&dir));
