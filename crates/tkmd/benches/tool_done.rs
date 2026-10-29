@@ -195,6 +195,7 @@ fn tool_done(c: &mut Criterion) {
         store.push_envelope_sample(&repo, Host::Claude, 5).unwrap();
     }
     drop(store);
+    let db_path = paths.db.clone();
     let mut options = DaemonOptions::new(paths);
     // Steady state: the initial shadow window has elapsed, so a stuck verdict acts.
     let settings = Settings {
@@ -250,9 +251,18 @@ fn tool_done(c: &mut Criterion) {
     assert_eq!(daemon.handle_tool_done(&failing).stdout, "");
     blind.store(false, Ordering::Relaxed);
     let delivered = daemon.handle_tool_done(&failing);
+    runtime.block_on(daemon.flush_now());
+    let evidence = tkm_store::open_read_only(&db_path).map(|conn| {
+        let count = |sql: &str| conn.query_row(sql, [], |row| row.get::<_, i64>(0)).ok();
+        (
+            count("SELECT COUNT(*) FROM decisions WHERE purpose = 'loop_guard' AND shadow = 0"),
+            count("SELECT COUNT(*) FROM decisions WHERE purpose = 'loop_guard' AND shadow = 1"),
+            count("SELECT COUNT(*) FROM events WHERE kind = 'loop.redirect'"),
+        )
+    });
     assert!(
         matches!(delivered.action, tkm_proto::ReplyAction::Inject { .. }),
-        "redirect must be delivered once the host can show it: {delivered:?}"
+        "redirect must be delivered once the host can show it: {delivered:?}; (acted, shadow, redirects) = {evidence:?}"
     );
     bench_gate_open(c, &runtime, &daemon, &failing);
     bench_pending_redirect(c, &runtime, &daemon, &failing, &blind);
