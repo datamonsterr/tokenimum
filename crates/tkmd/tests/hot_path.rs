@@ -96,10 +96,18 @@ async fn tool_done_makes_no_network_call_and_touches_no_storage() {
         .unwrap()
         .modified()
         .unwrap();
+    #[cfg(target_os = "linux")]
+    let writes_before = thread_write_calls();
     for _ in 0..17 {
         let reply = daemon.handle_tool_done(&tool_done());
         assert_eq!(reply.stdout, "");
     }
+    #[cfg(target_os = "linux")]
+    assert_eq!(
+        thread_write_calls(),
+        writes_before,
+        "no handler-thread writes"
+    );
     assert_eq!(
         backing.opens(),
         opens_before,

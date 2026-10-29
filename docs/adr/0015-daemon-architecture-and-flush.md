@@ -53,6 +53,9 @@ Date: 2026-10-29. Status: accepted (epic E4.2).
 13. **Resolution lifetime.** Each in-memory session incarnation has a generation. Background
     resolution only applies to the unresolved incarnation that requested it, so a late result
     cannot reopen an ended session or overwrite a replacement.
+14. **Hot-path instrumentation.** Linux tests count the calling thread's write syscalls in
+    `/proc/thread-self/io`, along with backing opens and decider calls, including malformed
+    payloads and the call that enqueues a judge job.
 
 ## Sources checked 2026-10-29
 
