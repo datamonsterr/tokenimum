@@ -108,14 +108,16 @@ impl Actions for DaemonActions {
         Ok(format!("Changed {repo} to {preset}"))
     }
 }
-async fn resync_after_lag<E>(
+async fn resync_after_lag<E, F>(
     monitor: &std::sync::RwLock<tkm_ui::model::MonitorState>,
-    load: impl std::future::Future<Output = Result<tkm_ui::model::MonitorState, E>>,
-) {
+    mut load: impl FnMut() -> F,
+) where
+    F: std::future::Future<Output = Result<tkm_ui::model::MonitorState, E>>,
+{
     if let Ok(mut state) = monitor.write() {
         state.degraded = true;
     }
-    if let Ok(snapshot) = load.await
+    if let Ok(snapshot) = load().await
         && let Ok(mut state) = monitor.write()
     {
         *state = snapshot;
@@ -200,7 +202,8 @@ impl WebServer {
                         }
                     }
                     Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
-                        resync_after_lag(&feed_state.monitor, feed_state.reload_snapshot()).await;
+                        resync_after_lag(&feed_state.monitor, || feed_state.reload_snapshot())
+                            .await;
                     }
                     Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
                 }
@@ -360,9 +363,13 @@ mod tests {
         let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
         let shared = Arc::clone(&monitor);
         let task = tokio::spawn(async move {
-            resync_after_lag(&shared, async move {
-                let _ = ready_tx.send(());
-                rx.await
+            let mut channels = Some((ready_tx, rx));
+            resync_after_lag(&shared, || {
+                let (ready_tx, rx) = channels.take().unwrap();
+                async move {
+                    let _ = ready_tx.send(());
+                    rx.await
+                }
             })
             .await;
         });
@@ -387,5 +394,24 @@ mod tests {
         assert!(!state.degraded);
         assert_eq!(state.savings[0].cost, 2.0);
         Ok(())
+    }
+    #[tokio::test]
+    async fn lag_recovery_retries_failed_snapshot() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let monitor = std::sync::RwLock::new(tkm_ui::model::MonitorState::default());
+        let attempts = AtomicUsize::new(0);
+        resync_after_lag(&monitor, || {
+            let attempt = attempts.fetch_add(1, Ordering::SeqCst);
+            async move {
+                if attempt == 0 {
+                    Err(())
+                } else {
+                    Ok(tkm_ui::model::MonitorState::default())
+                }
+            }
+        })
+        .await;
+        assert_eq!(attempts.load(Ordering::SeqCst), 2);
+        assert!(!monitor.read().unwrap().degraded);
     }
 }
