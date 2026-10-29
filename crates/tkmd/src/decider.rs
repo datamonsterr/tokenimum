@@ -28,6 +28,16 @@ pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 pub trait Decider: Send + Sync {
     /// Runs one batched decision request. Never fails: failures are outcomes.
     fn decide(&self, request: DecideRequest) -> BoxFuture<'_, Outcome>;
+    /// Runs two independent models concurrently for consensus consumers. An implementation
+    /// without agreement support fails open; a single answer never supplies both votes.
+    fn decide_agreement(&self, _request: DecideRequest) -> BoxFuture<'_, (Outcome, Outcome)> {
+        Box::pin(async {
+            (
+                Outcome::NoDecision(NoDecisionReason::AllFailed),
+                Outcome::NoDecision(NoDecisionReason::AllFailed),
+            )
+        })
+    }
     /// Probe free slots on the same live client. Sources without models do nothing.
     fn reprobe_free(
         &self,
@@ -94,6 +104,9 @@ impl<T: Transport, C: crate::clock::Clock> ClientDecider<T, C> {
 impl<T: Transport + 'static, C: crate::clock::Clock + 'static> Decider for ClientDecider<T, C> {
     fn decide(&self, request: DecideRequest) -> BoxFuture<'_, Outcome> {
         Box::pin(async move { self.client.decide(request).await })
+    }
+    fn decide_agreement(&self, request: DecideRequest) -> BoxFuture<'_, (Outcome, Outcome)> {
+        Box::pin(async move { self.client.decide_agreement(request).await })
     }
     fn reprobe_free(
         &self,

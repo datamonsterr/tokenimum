@@ -153,6 +153,15 @@ fn redirect_kind(decision: &Decision) -> RedirectKind {
     }
 }
 
+fn matching_redirects(a: &Decision, b: &Decision) -> bool {
+    match (a.answers.get("redirect"), b.answers.get("redirect")) {
+        (Some(Answer::Choice { choice: a, .. }), Some(Answer::Choice { choice: b, .. })) => {
+            a == b && a.parse::<RedirectKind>().is_ok()
+        }
+        _ => false,
+    }
+}
+
 fn shadow_active(start: i64, count: u64, now: i64, days: u64, turns: u64) -> bool {
     let duration = i64::try_from(days.saturating_mul(86_400_000)).unwrap_or(i64::MAX);
     now.saturating_sub(start) < duration || count < turns
@@ -188,8 +197,15 @@ impl Daemon {
             state: state.clone(),
             questions: questions.clone(),
         };
-        let outcome = self.decider.decide(request).await;
-        let shadow = if matches!(outcome, Outcome::Decision(_)) {
+        let (outcome, peer) = if job.settings.decide.agreement {
+            let (first, second) = self.decider.decide_agreement(request).await;
+            (first, Some(second))
+        } else {
+            (self.decider.decide(request).await, None)
+        };
+        let shadow = if matches!(outcome, Outcome::Decision(_))
+            || matches!(peer, Some(Outcome::Decision(_)))
+        {
             // Persist earlier decisions before deriving the first decision time.
             self.flush_now().await;
             let backing = self.backing.clone();
@@ -215,7 +231,83 @@ impl Daemon {
         } else {
             true
         };
-        self.apply_outcome(&job, &questions, &state, outcome, shadow);
+        if let Some(peer) = peer {
+            self.apply_agreement(&job, &questions, &state, outcome, peer, shadow);
+        } else {
+            self.apply_outcome(&job, &questions, &state, outcome, shadow);
+        }
+    }
+
+    fn apply_agreement(
+        &self,
+        job: &JudgeJob,
+        questions: &BTreeMap<String, Question>,
+        digest: &str,
+        first: Outcome,
+        second: Outcome,
+        shadow: bool,
+    ) {
+        let consensus = match (&first, &second) {
+            (Outcome::Decision(a), Outcome::Decision(b)) if a.model_version != b.model_version => {
+                let verdict = |d: &Decision| {
+                    let t = tkm_decide::calibrate::CalibrationStore::get(
+                        self.calibration.as_ref(),
+                        &CalibrationKey {
+                            model_version: d.model_version.clone(),
+                            purpose: Purpose::LoopGuard.as_str().into(),
+                        },
+                    )?;
+                    let scores = JudgeScores {
+                        stuck: noul(d, "stuck")?,
+                        progress: noul(d, "progress")?,
+                    };
+                    Some(combine_verdict(
+                        scores,
+                        JudgeThresholds {
+                            t_stuck: t.t_stuck,
+                            t_progress: t.t_progress,
+                            t_low: t.t_low,
+                        },
+                    ))
+                };
+                verdict(a)
+                    .zip(verdict(b))
+                    .is_some_and(|(a_verdict, b_verdict)| {
+                        a_verdict != JudgeVerdict::Wait
+                            && a_verdict == b_verdict
+                            && (a_verdict != JudgeVerdict::Stuck || matching_redirects(a, b))
+                    })
+            }
+            _ => false,
+        };
+        let describe = |outcome: &Outcome| match outcome {
+            Outcome::Decision(d) => {
+                serde_json::json!({"model":d.model_version,"outcome":"decision","answers":d.answers})
+            }
+            Outcome::NoDecision(reason) => serde_json::json!({"outcome":format!("{reason:?}")}),
+            Outcome::CodeOnly(reason) => serde_json::json!({"outcome":format!("{reason:?}")}),
+        };
+        lock(&self.outbox).events.push_back(crate::persist::EventInsert {
+            key:job.key.clone(), kind:"decide.agreement".into(),
+            inputs:serde_json::json!({"consensus":consensus,"turn_idx":job.turn_idx,"call_index":job.request.call_index,"first":describe(&first),"second":describe(&second)}),
+            template:"redirect".into(), params:serde_json::json!({"event":"decide.agreement","detail":if consensus {"both calibrated models agreed"} else {"no consensus; code-only behavior"},"why":"agreement mode requires two independent calibrated verdicts","model_checks":"per-model thresholds and redirect consensus","cost":"both attempts count toward decision budgets","undo":""}),
+            created_at:tkm_core::model::Timestamp(i64::try_from(self.clock.now_ms()).unwrap_or(i64::MAX)),
+            evidence_ids:Vec::new(), decision_id:None,
+        });
+        if let Outcome::Decision(peer) = &second {
+            self.apply_decision(job, questions, digest, peer, shadow || !consensus, false);
+        }
+        match first {
+            Outcome::Decision(decision) => self.apply_decision(
+                job,
+                questions,
+                digest,
+                &decision,
+                shadow || !consensus,
+                true,
+            ),
+            other => self.apply_outcome(job, questions, digest, other, true),
+        }
     }
 
     fn apply_outcome(
@@ -228,7 +320,7 @@ impl Daemon {
     ) {
         match outcome {
             Outcome::Decision(decision) => {
-                self.apply_decision(job, questions, digest, &decision, shadow);
+                self.apply_decision(job, questions, digest, &decision, shadow, true);
             }
             Outcome::NoDecision(reason) => {
                 self.release_judge(job);
@@ -262,6 +354,7 @@ impl Daemon {
         digest: &str,
         decision: &Decision,
         shadow: bool,
+        deliver: bool,
     ) {
         let key = CalibrationKey {
             model_version: decision.model_version.clone(),
@@ -314,6 +407,15 @@ impl Daemon {
         }
         self.publish(|| MonitorMessage::Spend(self.spend_update(&job.settings)));
 
+        if !deliver {
+            if let Some(session) = lock(&self.state).sessions.get_mut(&job.tag)
+                && let Some(turn) = session.turn.as_mut().filter(|turn| turn.seq == job.seq)
+            {
+                turn.decision_evidence
+                    .push((evidence, job.request.call_index));
+            }
+            return;
+        }
         let (Some(stuck), Some(progress)) = (noul(decision, "stuck"), noul(decision, "progress"))
         else {
             self.release_judge(job);
