@@ -54,6 +54,37 @@ fn matrix_detects_and_falls_back_after_removal() {
         runtime.detect_now(dir.path());
         assert_eq!(runtime.otherskill_enabled(), skills);
         assert_eq!(runtime.superorchestrator_enabled(), orchestrator);
+        let config = tkm_core::prune::PruneConfig {
+            superorchestrator_adapter_enabled: runtime.superorchestrator_enabled(),
+            ..Default::default()
+        };
+        assert_eq!(
+            tkm_core::prune::is_protected(
+                "mcp__superorchestrator__report_progress",
+                Host::Claude,
+                &config
+            ),
+            orchestrator
+        );
+        let mut evidence = tkm_core::prune::PruneEvidence::default();
+        evidence.tools.insert(
+            "mcp__superorchestrator__report_progress".into(),
+            tkm_core::prune::ToolEvidence {
+                prompts: 20,
+                sessions: 5,
+                ..Default::default()
+            },
+        );
+        let result = tkm_core::prune::decide(
+            &evidence,
+            Host::Claude,
+            &config,
+            None,
+            tkm_core::model::Timestamp(0),
+        );
+        if orchestrator {
+            assert!(result.candidates.is_empty());
+        }
         let candidates = runtime.candidates(&RepoKey::default(), Host::Claude, "prompt");
         assert_eq!(candidates.len(), usize::from(skills));
         let env = BTreeMap::from([("SUPERORCHESTRATOR_RUN_ID".to_owned(), "run".to_owned())]);
