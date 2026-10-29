@@ -85,7 +85,7 @@ jobs:
         id: cargo-geiger-cache
         with:
           path: ~/.cargo/bin/cargo-geiger
-          key: cargo-geiger-0.14.0-${{ runner.os }}-rust-1.99.1
+          key: cargo-geiger-0.14.0-${{ runner.os }}-namespace-rust-1.99.1
       - run: cargo install cargo-geiger --version 0.14.0 --locked
         if: steps.cargo-geiger-cache.outputs.cache-hit != 'true'
       - uses: actions/cache/save@v6
