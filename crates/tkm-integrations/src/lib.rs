@@ -80,10 +80,11 @@ mod tests {
 
     #[test]
     fn defaults_do_nothing() {
-        assert!(
+        assert_eq!(
             NoSkills
                 .candidates(&RepoKey::default(), Host::Claude, "p")
-                .is_empty()
+                .len(),
+            0
         );
         assert!(!NoEscalator.handles(Host::Claude, "s"));
     }

@@ -197,7 +197,8 @@ fn stuck_loop_records_shadow_decisions_through_the_real_hook() {
     while hits.load(std::sync::atomic::Ordering::SeqCst) == 0 {
         assert!(
             std::time::Instant::now() < deadline,
-            "fake OpenRouter never called"
+            "fake OpenRouter never called; errors.log: {:?}",
+            std::fs::read_to_string(&daemon.env.paths.errors_log)
         );
         std::thread::sleep(Duration::from_millis(50));
     }

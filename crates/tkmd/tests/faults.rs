@@ -135,7 +135,7 @@ async fn openrouter_500_is_a_noop_with_one_errors_log_line() {
         1_500,
     )
     .await;
-    assert!(hits >= 1);
+    assert!(hits >= 1, "errors.log: {:?}", env.error_lines());
     assert_eq!(env.error_lines().len(), 1, "{:?}", env.error_lines());
 }
 
@@ -150,7 +150,7 @@ async fn openrouter_404_is_a_noop_with_one_errors_log_line() {
         1_500,
     )
     .await;
-    assert!(hits >= 1);
+    assert!(hits >= 1, "errors.log: {:?}", env.error_lines());
     assert_eq!(env.error_lines().len(), 1, "{:?}", env.error_lines());
 }
 
@@ -158,7 +158,7 @@ async fn openrouter_404_is_a_noop_with_one_errors_log_line() {
 async fn openrouter_timeout_is_a_noop_with_one_errors_log_line() {
     let env = Env::new();
     let hits = judge_against(&env, 200, &decision_body(), Duration::from_secs(3), 200).await;
-    assert!(hits >= 1);
+    assert!(hits >= 1, "errors.log: {:?}", env.error_lines());
     assert_eq!(env.error_lines().len(), 1, "{:?}", env.error_lines());
 }
 
