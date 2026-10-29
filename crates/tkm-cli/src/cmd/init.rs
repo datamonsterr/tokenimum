@@ -11,7 +11,7 @@ use std::process::ExitCode;
 use tkm_config::config::{ConfigFile, Layer};
 use tkm_config::repo::IdentitySource;
 use tkm_hosts::InstallReport;
-use tkm_hosts::fold_only::{IntegrationMode, instructions, mode_for, skill};
+use tkm_hosts::fold_only::{IntegrationMode, effective_mode, instructions, skill};
 use tkm_proto::Host;
 use tkm_store::InstallRecord;
 use tkmd::registry::AdapterRegistry;
@@ -267,7 +267,24 @@ fn target(
     home: PathBuf,
     no_shims: bool,
 ) -> Result<Target, CliError> {
-    let mode = mode_for(host, !no_shims);
+    let config = ctx.load_config()?;
+    let fallback = if ctx.paths.db.exists() {
+        let store = tkm_store::Store::from_read_only_connection(daemon::open_db(&ctx.paths)?)
+            .map_err(state::failure)?;
+        store.host_fold_only(host).map_err(state::failure)?
+    } else {
+        false
+    };
+    let mode = effective_mode(
+        host,
+        config
+            .get_str(&format!("hosts.{}.level", host.as_str()))
+            .unwrap_or("auto"),
+        config
+            .get_bool(&format!("hosts.{}.enabled", host.as_str()))
+            .unwrap_or(true),
+        fallback || (no_shims && matches!(host, Host::Opencode | Host::Pi)),
+    );
     let mut report = InstallReport {
         dry_run: true,
         ..InstallReport::default()

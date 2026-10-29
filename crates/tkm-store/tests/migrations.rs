@@ -109,6 +109,7 @@ fn schema_snapshot_includes_all_tables() {
             "envelopes",
             "events",
             "facts",
+            "host_health",
             "installs",
             "ledger",
             "repos",

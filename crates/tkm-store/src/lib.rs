@@ -24,6 +24,7 @@
 //! ```
 
 mod decisions;
+mod host_health;
 mod mechanisms;
 mod migrations;
 mod queries;
@@ -42,7 +43,7 @@ use std::time::Duration;
 
 use rusqlite::{Connection, ErrorCode, OpenFlags, TransactionBehavior};
 
-const SCHEMA_VERSION: i64 = 4;
+const SCHEMA_VERSION: i64 = 5;
 const DEFAULT_BUSY_TIMEOUT: Duration = Duration::from_secs(2);
 
 /// Store operations can fail because of I/O, SQLite, migration, or JSON errors.

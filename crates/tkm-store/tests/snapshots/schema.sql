@@ -67,6 +67,12 @@ CREATE TABLE facts (
     PRIMARY KEY(repo_key, fact_id)
 );
 
+-- table host_health
+CREATE TABLE host_health (
+    host TEXT PRIMARY KEY,
+    fold_only INTEGER NOT NULL CHECK (fold_only = 1)
+);
+
 -- table installs
 CREATE TABLE installs (
     host TEXT NOT NULL, -- harness identity

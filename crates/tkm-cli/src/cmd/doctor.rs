@@ -1,4 +1,4 @@
-//! Read-only installation diagnostics with bounded harness version checks.
+//! Installation diagnostics and durable health recovery with bounded harness version checks.
 
 mod models;
 
@@ -67,9 +67,20 @@ pub fn run(ctx: &mut Ctx<'_>, args: &DoctorArgs) -> Result<ExitCode, CliError> {
         match state::records(connection) {
             Ok(records) => {
                 let registry = AdapterRegistry::standard();
+                let store = daemon::open_db_for_write(&ctx.paths)?;
+                let mut health = std::collections::HashMap::new();
                 for record in &records {
                     match installed(ctx, &registry, connection, record) {
-                        Ok(healthy) => failed |= !healthy,
+                        Ok(healthy) => {
+                            failed |= !healthy;
+                            if state::metadata(record)?.mode == "fold-only" {
+                                continue;
+                            }
+                            health
+                                .entry(record.host)
+                                .and_modify(|ok| *ok &= healthy)
+                                .or_insert(healthy);
+                        }
                         Err(error) => {
                             line(
                                 ctx,
@@ -78,8 +89,14 @@ pub fn run(ctx: &mut Ctx<'_>, args: &DoctorArgs) -> Result<ExitCode, CliError> {
                                 &error.to_string(),
                             )?;
                             failed = true;
+                            health.insert(record.host, false);
                         }
                     }
+                }
+                for (host, healthy) in health {
+                    store
+                        .record_host_health(host, healthy)
+                        .map_err(state::failure)?;
                 }
             }
             Err(error) => {

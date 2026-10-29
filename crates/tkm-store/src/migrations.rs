@@ -119,7 +119,7 @@ CREATE TABLE installs (
 ";
 
 /// Migrations in schema version order.
-pub(crate) const MIGRATIONS: &[&str] = &[V001, V002, V003, V004];
+pub(crate) const MIGRATIONS: &[&str] = &[V001, V002, V003, V004, V005];
 
 /// Nullable reporting context; historical rows deliberately retain unknown times.
 pub(crate) const V004: &str = r"
@@ -219,7 +219,7 @@ mod report_schema_tests {
         let version: i64 = conn
             .pragma_query_value(None, "user_version", |row| row.get(0))
             .unwrap();
-        assert_eq!(version, 4);
+        assert_eq!(version, 5);
         let legacy = store
             .get_fact(&tkm_core::model::RepoKey("legacy".into()), "f")
             .unwrap()
@@ -253,3 +253,11 @@ mod report_schema_tests {
         }
     }
 }
+
+/// Doctor fallback overrides; absence means use configured integration level.
+pub(crate) const V005: &str = r"
+CREATE TABLE host_health (
+    host TEXT PRIMARY KEY,
+    fold_only INTEGER NOT NULL CHECK (fold_only = 1)
+);
+";
