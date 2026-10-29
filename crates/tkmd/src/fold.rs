@@ -1120,7 +1120,60 @@ mod tests {
         )
         .unwrap();
         assert_eq!(path, Path::new("/h/.claude/projects/-a-b-c/s1.jsonl"));
-        assert!(derived_log_path(Host::Codex, Path::new("/h"), Path::new("/a"), "s").is_none());
+    }
+
+    #[test]
+    fn discovers_host_session_files_from_fixture_homes() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let cwd = root.join("repo");
+        let cases = [
+            (
+                Host::Codex,
+                root.join(".codex"),
+                root.join(".codex/sessions/2026/01/02/rollout-2026_s.jsonl"),
+            ),
+            (
+                Host::Agy,
+                root.join(".gemini"),
+                root.join(
+                    ".gemini/antigravity-cli/brain/s/.system_generated/logs/transcript_full.jsonl",
+                ),
+            ),
+            (
+                Host::Cursor,
+                root.join(".cursor"),
+                root.join(".cursor/projects/project/agent-transcripts/s/s.jsonl"),
+            ),
+            (
+                Host::Kimi,
+                root.join(".kimi"),
+                tkm_hosts::kimi::session_dir(&root.join(".kimi"), cwd.to_str().unwrap(), "s")
+                    .join("context.jsonl"),
+            ),
+            (
+                Host::Deepseek,
+                root.join(".codewhale"),
+                root.join(".codewhale/sessions/s.json"),
+            ),
+            (
+                Host::Opencode,
+                root.join(".config/opencode"),
+                root.join(".local/share/opencode/opencode.db"),
+            ),
+            (
+                Host::Pi,
+                root.join(".pi/agent"),
+                root.join(".pi/agent/sessions/--project--/2026_s.jsonl"),
+            ),
+        ];
+        for (host, home, file) in cases {
+            std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+            std::fs::write(&file, "fixture").unwrap();
+            let found = derived_log_path(host, &home, &cwd, "s").unwrap();
+            assert_eq!(found, file, "{host:?}");
+        }
+        assert!(derived_log_path(Host::Codex, &root.join(".codex"), &cwd, "missing").is_none());
     }
 }
 
