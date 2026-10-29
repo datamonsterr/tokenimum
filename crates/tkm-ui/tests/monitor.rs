@@ -488,14 +488,14 @@ fn snapshot_retains_current_facts_and_recent_ledger_and_retirements() {
         .unwrap();
     for i in 0..105 {
         conn.execute(
-            "INSERT INTO facts VALUES ('repo',?1,'boundary','neutral','{}','retired',1,1,0,0,0)",
+            "INSERT INTO facts VALUES ('repo',?1,'boundary','neutral','{}','retired',1,1,0,0,0,NULL)",
             [format!("retired-{i}")],
         )
         .unwrap();
     }
     for state in ["active", "candidate"] {
         conn.execute(
-            "INSERT INTO facts VALUES ('repo',?1,'boundary','neutral','{}',?1,1,1,0,0,0)",
+            "INSERT INTO facts VALUES ('repo',?1,'boundary','neutral','{}',?1,1,1,0,0,0,NULL)",
             [state],
         )
         .unwrap();
