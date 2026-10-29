@@ -1,11 +1,78 @@
 {
-  "description": "TE oracle fact-formation output for the Claude Code fixture session (e928a2cf-e31b-4154-805b-919991d042ea.jsonl). Produced from TE's rules as ported into tkm-core/src/facts. Calls: Turn 0 has two Bash calls ('cat a.txt' exit 0, 'false' exit 1). Turn 1 has Write and Edit calls.",
-  "session_id": "e928a2cf-e31b-4154-805b-919991d042ea",
-  "host": "claude",
-  "turns": 2,
-  "te_fact_candidates": [],
-  "te_fact_active": [],
-  "tkm_agrees": true,
-  "differences": [],
-  "notes": "The fixture session has no repeating tool failure pattern that TE's classifiers detect (single 'false' exit 1 with no recognised error class, Write and Edit with no failure). TE extracts zero candidates; tokenimum also extracts zero candidates from this log. No difference."
+  "te_commit": "d0675a3",
+  "rules": "ported TE rules; scripts/te_parity_oracle.py",
+  "cases": [
+    {
+      "source": "fixtures/claude/sessions/e928a2cf-e31b-4154-805b-919991d042ea.jsonl",
+      "calls_per_turn": [
+        2,
+        3
+      ],
+      "candidate_ids": [],
+      "te_active_after_sessions": [
+        [],
+        [],
+        [],
+        []
+      ],
+      "code_only_active_after_sessions": [
+        [],
+        [],
+        [],
+        []
+      ],
+      "loops": [
+        {
+          "judge_calls": [],
+          "backstop_calls": []
+        },
+        {
+          "judge_calls": [],
+          "backstop_calls": []
+        }
+      ]
+    },
+    {
+      "source": "fixtures/claude/parity/behavior.jsonl",
+      "calls_per_turn": [
+        2,
+        21
+      ],
+      "candidate_ids": [
+        "form_repair:run_tests:pytest"
+      ],
+      "te_active_after_sessions": [
+        [],
+        [],
+        [
+          "form_repair:run_tests:pytest"
+        ],
+        [
+          "form_repair:run_tests:pytest"
+        ]
+      ],
+      "code_only_active_after_sessions": [
+        [],
+        [],
+        [],
+        [
+          "form_repair:run_tests:pytest"
+        ]
+      ],
+      "loops": [
+        {
+          "judge_calls": [],
+          "backstop_calls": []
+        },
+        {
+          "judge_calls": [
+            18
+          ],
+          "backstop_calls": [
+            21
+          ]
+        }
+      ]
+    }
+  ]
 }

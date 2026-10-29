@@ -1,206 +1,187 @@
-//! SPEC 16 Parity: for Claude Code and Codex fixtures, tokenimum's fact formation and loop gate
-//! agree with TE run over the same logs. TE is the oracle in M2; differences are documented.
-//!
-//! The oracle JSON files at `fixtures/golden/parity_<host>_oracle.json` record TE's expected
-//! output. This test runs tokenimum's ported TE rules over the same fixture session logs and
-//! asserts that they match the oracle. Any documented difference is recorded in docs/parity.md.
+// TE oracle rules derive from microsoft/TokenEconomizer commit d0675a3,
+// Copyright (c) Microsoft Corporation, Apache License 2.0; see NOTICE.
+//! SPEC 16 same-log parity, including positive fact formation and a waking loop gate.
+//! Oracle JSON is generated independently by scripts/te_parity_oracle.py, never blessed
+//! from tokenimum output. Every difference is asserted here and explained in docs/parity.md.
 #![forbid(unsafe_code)]
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::pedantic)]
 
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-use serde::{Deserialize, Serialize};
-use tkm_core::facts::{self, Candidate, FactsState, observe};
+use serde::Deserialize;
+use tkm_core::facts::{
+    self, DecisionScores, Decisions, FactsConfig, FactsState, SessionEvidence, lifecycle::Status,
+    observe,
+};
+use tkm_core::loopguard::{EscalationMode, LoopAction, LoopConfig, TurnGuard};
 use tkm_core::model::{RepoKey, Session};
 use tkm_hosts::{HostAdapter, SessionSource, claude::ClaudeAdapter, codex::CodexAdapter};
+use tkmd::fold::replay_fold;
 
-fn workspace_root() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../..")
-        .canonicalize()
-        .unwrap()
+fn root() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
 }
 
-#[derive(Debug, Deserialize, Serialize)]
-struct ParityOracle {
-    description: String,
-    session_id: String,
-    host: String,
-    turns: usize,
-    te_fact_candidates: Vec<String>,
-    te_fact_active: Vec<String>,
-    tkm_agrees: bool,
-    differences: Vec<String>,
-    notes: String,
+#[derive(Deserialize)]
+struct Oracle {
+    te_commit: String,
+    cases: Vec<Case>,
+}
+#[derive(Deserialize)]
+struct Case {
+    source: String,
+    calls_per_turn: Vec<usize>,
+    candidate_ids: Vec<String>,
+    te_active_after_sessions: Vec<Vec<String>>,
+    code_only_active_after_sessions: Vec<Vec<String>>,
+    loops: Vec<LoopOracle>,
+}
+#[derive(Debug, Deserialize, PartialEq, Eq)]
+struct LoopOracle {
+    judge_calls: Vec<usize>,
+    backstop_calls: Vec<usize>,
 }
 
-fn load_oracle(name: &str) -> ParityOracle {
-    let path = workspace_root()
-        .join("fixtures/golden")
-        .join(format!("parity_{name}_oracle.json"));
-    serde_json::from_str(&std::fs::read_to_string(&path).unwrap_or_else(|e| {
-        panic!("oracle file not found: {} ({e})", path.display())
-    }))
-    .unwrap()
+fn active(state: &FactsState) -> Vec<String> {
+    state
+        .facts
+        .iter()
+        .filter(|(_, fact)| fact.life.status == Status::Active)
+        .map(|(id, _)| id.clone())
+        .collect()
 }
 
-/// Run one session through tokenimum's ported TE fact-extraction rules.
-fn extract_candidate_ids(session: &Session) -> Vec<String> {
-    let observations = observe::observe(session);
-    let mut ids: Vec<String> = facts::extract::extract(&observations)
-        .into_iter()
-        .map(|c: Candidate| c.id)
+fn compare_facts(session: &Session, case: &Case) {
+    let candidates = facts::extract::extract(&observe::observe(session));
+    let mut ids: Vec<_> = candidates
+        .iter()
+        .map(|candidate| candidate.id.clone())
         .collect();
     ids.sort();
-    ids
-}
-
-fn claude_source() -> SessionSource {
-    SessionSource {
-        path: workspace_root()
-            .join("fixtures/claude/sessions/e928a2cf-e31b-4154-805b-919991d042ea.jsonl"),
-        cwd: "~/dev/example".into(),
-        session_id: "e928a2cf-e31b-4154-805b-919991d042ea".into(),
-        repo_key: RepoKey("parity-claude-repo".into()),
-        agent_home: "/synthetic/agent".into(),
-    }
-}
-
-fn codex_source() -> SessionSource {
-    SessionSource {
-        path: workspace_root().join(
-            "fixtures/codex/sessions/2026/10/29/rollout-2026-10-29T09-00-20-01a18562-fb1c-7522-9939-dda89fa83662.jsonl",
-        ),
-        cwd: "~/dev/example".into(),
-        session_id: "01a18562-fb1c-7522-9939-dda89fa83662".into(),
-        repo_key: RepoKey("parity-codex-repo".into()),
-        agent_home: "/synthetic/agent".into(),
-    }
-}
-
-#[test]
-fn parity_claude_fact_formation_matches_te_oracle() {
-    let oracle = load_oracle("claude");
-    let session = ClaudeAdapter::new()
-        .read_session(&claude_source())
-        .expect("claude fixture session reads");
-
-    assert_eq!(
-        session.turns.len(),
-        oracle.turns,
-        "expected {} turns in Claude fixture session",
-        oracle.turns
-    );
-
-    let mut tkm_candidates = extract_candidate_ids(&session);
-    tkm_candidates.sort();
-    let mut oracle_candidates = oracle.te_fact_candidates.clone();
-    oracle_candidates.sort();
-
-    if oracle.tkm_agrees {
+    assert_eq!(ids, case.candidate_ids, "{}: formation", case.source);
+    let mut te_state = FactsState::default();
+    let mut code_state = FactsState::default();
+    assert_eq!(case.te_active_after_sessions.len(), 4);
+    assert_eq!(case.code_only_active_after_sessions.len(), 4);
+    for index in 0..4 {
+        let mut session = session.clone();
+        // Four distinct sessions exercising exactly these logs. This is not an idempotent replay.
+        session.session_id = format!("parity-{}-{index}", case.source);
+        let decisions = Decisions {
+            t_low: 0.3,
+            t_high: 0.8,
+            scores: ids
+                .iter()
+                .map(|id| {
+                    (
+                        id.clone(),
+                        DecisionScores {
+                            stable: Some(1.0),
+                            safe: Some(1.0),
+                            contradicts: None,
+                        },
+                    )
+                })
+                .collect(),
+        };
+        te_state = facts::update(
+            te_state,
+            &SessionEvidence {
+                session: session.clone(),
+                injected_ids: BTreeSet::new(),
+                decisions: Some(decisions),
+            },
+            &FactsConfig::default(),
+        )
+        .0;
+        code_state = replay_fold(
+            &session,
+            code_state,
+            &BTreeSet::new(),
+            &FactsConfig::default(),
+        )
+        .facts;
         assert_eq!(
-            tkm_candidates, oracle_candidates,
-            "Claude parity: tokenimum candidates don't match TE oracle.\nSee docs/parity.md for documented differences.\ntkm: {tkm_candidates:?}\noracle: {oracle_candidates:?}"
+            active(&te_state),
+            case.te_active_after_sessions[index],
+            "{}: TE accepted filter, session {index}",
+            case.source
         );
-    } else {
-        // Documented differences; do not hard-fail.
-        eprintln!("Claude parity DOCUMENTED DIFFERENCES: {:?}", oracle.differences);
-        for diff in &oracle.differences {
-            eprintln!("  DIFF: {diff}");
-        }
-    }
-}
-
-#[test]
-fn parity_codex_fact_formation_matches_te_oracle() {
-    let oracle = load_oracle("codex");
-    let session = CodexAdapter::new()
-        .read_session(&codex_source())
-        .expect("codex fixture session reads");
-
-    assert_eq!(
-        session.turns.len(),
-        oracle.turns,
-        "expected {} turns in Codex fixture session",
-        oracle.turns
-    );
-
-    let mut tkm_candidates = extract_candidate_ids(&session);
-    tkm_candidates.sort();
-    let mut oracle_candidates = oracle.te_fact_candidates.clone();
-    oracle_candidates.sort();
-
-    if oracle.tkm_agrees {
         assert_eq!(
-            tkm_candidates, oracle_candidates,
-            "Codex parity: tokenimum candidates don't match TE oracle.\nSee docs/parity.md for documented differences.\ntkm: {tkm_candidates:?}\noracle: {oracle_candidates:?}"
+            active(&code_state),
+            case.code_only_active_after_sessions[index],
+            "{}: documented code-only difference, session {index}",
+            case.source
         );
-    } else {
-        eprintln!("Codex parity DOCUMENTED DIFFERENCES: {:?}", oracle.differences);
     }
 }
 
-#[test]
-fn parity_claude_loopguard_agrees_with_te_rules() {
-    use tkm_core::loopguard::{EscalationMode, LoopAction, LoopConfig, TurnGuard};
-
-    let oracle = load_oracle("claude");
-    let session = ClaudeAdapter::new()
-        .read_session(&claude_source())
-        .expect("claude fixture session reads");
-
-    // For the Claude fixture session, Turn 0 has only 2 bash calls (cat then false).
-    // TE's spiral rules require 18+ repeating error calls to open the judge gate.
-    // The fixture turn is far below that threshold.
-    if let Some(turn) = session.turns.first() {
-        let mut guard = TurnGuard::new(EscalationMode::DelegatedNoAdapter);
-        let cfg = LoopConfig::default();
-        let mut judge_requests = 0usize;
-        for call in &turn.calls {
-            for action in guard.on_tool_done(call, &cfg, None) {
-                if matches!(action, LoopAction::RequestJudge { .. }) {
-                    judge_requests += 1;
+fn compare_loops(session: &Session, case: &Case) {
+    let actual: Vec<_> = session
+        .turns
+        .iter()
+        .map(|turn| {
+            let mut guard = TurnGuard::new(EscalationMode::DelegatedNoAdapter);
+            let mut output = LoopOracle {
+                judge_calls: Vec::new(),
+                backstop_calls: Vec::new(),
+            };
+            for (index, call) in turn.calls.iter().enumerate() {
+                for action in guard.on_tool_done(call, &LoopConfig::default(), Some(8.0)) {
+                    match action {
+                        LoopAction::RequestJudge { .. } => output.judge_calls.push(index + 1),
+                        LoopAction::Redirect { .. } => output.backstop_calls.push(index + 1),
+                        other => panic!("unexpected action: {other:?}"),
+                    }
                 }
             }
-        }
-        if oracle.tkm_agrees {
-            assert_eq!(
-                judge_requests, 0,
-                "Claude loopguard parity: expected 0 judge requests on short fixture turn (2 calls)"
-            );
-        } else {
-            eprintln!("Claude loopguard parity DOCUMENTED DIFFERENCES: {:?}", oracle.differences);
-        }
+            output
+        })
+        .collect();
+    assert_eq!(actual, case.loops, "{}: all turns, envelope 8", case.source);
+}
+
+fn parity(host: &str, adapter: &dyn HostAdapter) {
+    let path = root().join(format!("fixtures/golden/parity_{host}_oracle.json"));
+    let oracle: Oracle = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+    assert_eq!(oracle.te_commit, "d0675a3");
+    assert_eq!(
+        oracle.cases.len(),
+        2,
+        "recorded and positive synthetic logs required"
+    );
+    for case in oracle.cases {
+        let session = adapter
+            .read_session(&SessionSource {
+                path: root().join(&case.source),
+                cwd: "/synthetic/repo".into(),
+                session_id: "parity".into(),
+                repo_key: RepoKey("parity-repo".into()),
+                agent_home: "/synthetic/agent".into(),
+            })
+            .unwrap();
+        assert!(!session.partial, "{}: partial", case.source);
+        assert_eq!(
+            session
+                .turns
+                .iter()
+                .map(|turn| turn.calls.len())
+                .collect::<Vec<_>>(),
+            case.calls_per_turn,
+            "{}: native decoding",
+            case.source
+        );
+        compare_facts(&session, &case);
+        compare_loops(&session, &case);
     }
 }
 
 #[test]
-fn parity_codex_loopguard_agrees_with_te_rules() {
-    use tkm_core::loopguard::{EscalationMode, LoopAction, LoopConfig, TurnGuard};
-
-    let oracle = load_oracle("codex");
-    let session = CodexAdapter::new()
-        .read_session(&codex_source())
-        .expect("codex fixture session reads");
-
-    if let Some(turn) = session.turns.first() {
-        let mut guard = TurnGuard::new(EscalationMode::DelegatedNoAdapter);
-        let cfg = LoopConfig::default();
-        let mut judge_requests = 0usize;
-        for call in &turn.calls {
-            for action in guard.on_tool_done(call, &cfg, None) {
-                if matches!(action, LoopAction::RequestJudge { .. }) {
-                    judge_requests += 1;
-                }
-            }
-        }
-        if oracle.tkm_agrees {
-            assert_eq!(
-                judge_requests, 0,
-                "Codex loopguard parity: expected 0 judge requests on short fixture turn"
-            );
-        } else {
-            eprintln!("Codex loopguard parity DOCUMENTED DIFFERENCES: {:?}", oracle.differences);
-        }
-    }
+fn parity_claude_fact_formation_and_loop_gate_match_te() {
+    parity("claude", &ClaudeAdapter::new());
+}
+#[test]
+fn parity_codex_fact_formation_and_loop_gate_match_te() {
+    parity("codex", &CodexAdapter::new());
 }

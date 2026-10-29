@@ -1,11 +1,78 @@
 {
-  "description": "TE oracle fact-formation output for the Codex fixture session (rollout-2026-10-29T09-00-20-01a18562-fb1c-7522-9939-dda89fa83662.jsonl). Produced from TE's rules as ported into tkm-core/src/facts. Calls: Turn 0 has Bash ('cat a.txt' exit 0), Bash ('false' exit 1), then apply_patch. Single failing command with no repeating error pattern.",
-  "session_id": "01a18562-fb1c-7522-9939-dda89fa83662",
-  "host": "codex",
-  "turns": 1,
-  "te_fact_candidates": [],
-  "te_fact_active": [],
-  "tkm_agrees": true,
-  "differences": [],
-  "notes": "The fixture session has a single 'false' exit 1 with no recognised error class or repeating pattern. TE extracts zero candidates; tokenimum also extracts zero candidates from this log. No difference. A second session would be required to warm the lifecycle; single-session fixtures show only the extraction gate, not promotion."
+  "te_commit": "d0675a3",
+  "rules": "ported TE rules; scripts/te_parity_oracle.py",
+  "cases": [
+    {
+      "source": "fixtures/codex/sessions/2026/10/29/rollout-2026-10-29T09-00-20-01a18562-fb1c-7522-9939-dda89fa83662.jsonl",
+      "calls_per_turn": [
+        2,
+        2
+      ],
+      "candidate_ids": [],
+      "te_active_after_sessions": [
+        [],
+        [],
+        [],
+        []
+      ],
+      "code_only_active_after_sessions": [
+        [],
+        [],
+        [],
+        []
+      ],
+      "loops": [
+        {
+          "judge_calls": [],
+          "backstop_calls": []
+        },
+        {
+          "judge_calls": [],
+          "backstop_calls": []
+        }
+      ]
+    },
+    {
+      "source": "fixtures/codex/parity/behavior.jsonl",
+      "calls_per_turn": [
+        2,
+        21
+      ],
+      "candidate_ids": [
+        "form_repair:run_tests:pytest"
+      ],
+      "te_active_after_sessions": [
+        [],
+        [],
+        [
+          "form_repair:run_tests:pytest"
+        ],
+        [
+          "form_repair:run_tests:pytest"
+        ]
+      ],
+      "code_only_active_after_sessions": [
+        [],
+        [],
+        [],
+        [
+          "form_repair:run_tests:pytest"
+        ]
+      ],
+      "loops": [
+        {
+          "judge_calls": [],
+          "backstop_calls": []
+        },
+        {
+          "judge_calls": [
+            18
+          ],
+          "backstop_calls": [
+            21
+          ]
+        }
+      ]
+    }
+  ]
 }
