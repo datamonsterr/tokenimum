@@ -338,7 +338,7 @@ impl Reader {
             // A structured result that carries metadata only (an exit code) must not hide the text.
             record
                 .get("toolUseResult")
-                .filter(|result| carries_text(result))
+                .filter(|result| !metadata_only(result))
                 .unwrap_or(content)
         };
         call.output_digest = digest::output_digest(output);
@@ -460,14 +460,13 @@ fn parse_usage(value: &Value) -> Usage {
     }
 }
 
-fn carries_text(result: &Value) -> bool {
-    match result {
-        Value::Object(object) => ["stdout", "stderr", "text", "content", "output", "file"]
-            .into_iter()
-            .any(|key| object.contains_key(key)),
-        Value::String(_) | Value::Array(_) => true,
-        _ => false,
-    }
+fn metadata_only(result: &Value) -> bool {
+    result.as_object().is_some_and(|object| {
+        !object.is_empty()
+            && object
+                .keys()
+                .all(|key| ["exit_code", "interrupted", "duration_ms"].contains(&key.as_str()))
+    })
 }
 
 #[cfg(test)]

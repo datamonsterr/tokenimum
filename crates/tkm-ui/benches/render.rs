@@ -14,11 +14,11 @@ use tkm_ui::{
 
 fn render_benches(c: &mut Criterion) {
     let mut state = MonitorState::default();
-    for i in 0..500 {
+    for i in 0_u64..500 {
         state.apply(MonitorMessage::Session(SessionUpdate {
             host: Host::Claude,
             session_id: format!("session-{i}"),
-            turn_id: Some(i as u64),
+            turn_id: Some(i),
             repo: Some("example/repo".into()),
             phase: "active".into(),
             turn_calls: 20,
