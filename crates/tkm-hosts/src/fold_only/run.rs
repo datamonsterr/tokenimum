@@ -37,6 +37,8 @@ pub struct RunPlan {
 pub struct RunOutcome {
     /// Exit code, or `None` when a signal ended the process.
     pub exit_code: Option<i32>,
+    /// Unix signal number if the child was terminated by a signal.
+    pub signal: Option<i32>,
     /// Time reported just after a successful spawn.
     pub started_at: Timestamp,
     /// Time reported just after the process exited.
@@ -92,11 +94,20 @@ pub fn execute(
         .spawn()?;
     let started_at = clock.now();
     observer.started(plan, started_at);
-    let exit_code = child.wait()?.code();
+    let status = child.wait()?;
+    let exit_code = status.code();
+    #[cfg(unix)]
+    let signal = {
+        use std::os::unix::process::ExitStatusExt;
+        status.signal()
+    };
+    #[cfg(not(unix))]
+    let signal = None;
     let ended_at = clock.now();
     observer.ended(plan, ended_at, exit_code);
     Ok(RunOutcome {
         exit_code,
+        signal,
         started_at,
         ended_at,
     })

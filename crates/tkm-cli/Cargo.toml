@@ -33,6 +33,9 @@ tkm-ui = { workspace = true }
 # Later installation commands render the daemon's existing service templates.
 tkmd = { workspace = true }
 
+[target.'cfg(unix)'.dependencies]
+tkm-hook = { workspace = true }
+
 [dev-dependencies]
 tempfile = { workspace = true }
 serde_json = { workspace = true }
