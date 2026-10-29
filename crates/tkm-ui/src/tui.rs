@@ -205,8 +205,18 @@ fn rows(state: &MonitorState, pane: Pane) -> Vec<String> {
         Pane::Spend => vec![state.spend.as_ref().map_or_else(
             || "Today: n/a (no timestamps); model share and 7-day trend unavailable".into(),
             |s| {
+                let trend = if state.spend_days.is_empty() {
+                    "n/a (no timestamps)".to_owned()
+                } else {
+                    state
+                        .spend_days
+                        .iter()
+                        .map(|(day, cost)| format!("{day}:${cost:.2}"))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                };
                 format!(
-                    "Today: ${:.6} / ${:.2}  session cap ${:.2}; 7-day trend n/a (no timestamps)",
+                    "Today: ${:.6} / ${:.2}  session cap ${:.2}; 7-day trend {trend}",
                     s.today_usd, s.daily_cap_usd, s.session_cap_usd
                 )
             },
@@ -367,6 +377,14 @@ impl WhySource for DatabaseWhy<'_> {
         Ok(tkm_core::explain::render(&explanation))
     }
 }
+fn subscribe_then_snapshot<F, S, E>(
+    subscribe: impl FnOnce() -> F,
+    snapshot: impl FnOnce() -> Result<S, E>,
+) -> Result<(F, S), E> {
+    let feed = subscribe();
+    let state = snapshot()?;
+    Ok((feed, state))
+}
 /// Run the terminal monitor against one initial snapshot and the live stream.
 ///
 /// # Errors
@@ -375,9 +393,14 @@ impl WhySource for DatabaseWhy<'_> {
 /// # Panics
 /// Panics if terminal initialization fails, as specified by `ratatui::init`.
 pub fn run(paths: &Paths) -> Result<(), Error> {
-    let feed = feed::connect(paths);
-    let conn = tkm_store::open_read_only(&paths.db)?;
-    let mut state = model::load_snapshot(&conn)?;
+    let (feed, (conn, mut state)) = subscribe_then_snapshot(
+        || feed::connect(paths),
+        || {
+            let conn = tkm_store::open_read_only(&paths.db)?;
+            let snapshot = model::load_snapshot(&conn)?;
+            Ok::<_, Error>((conn, snapshot))
+        },
+    )?;
     let mut view = ViewState {
         mode: feed.mode,
         ..ViewState::default()
@@ -391,11 +414,10 @@ pub fn run(paths: &Paths) -> Result<(), Error> {
             loop {
                 match feed.receiver.try_recv() {
                     Ok(message) => {
-                        if matches!(&message, tkm_proto::monitor::MonitorMessage::Session(update) if update.phase == "folded")
-                        {
-                            state.savings = model::load_snapshot(&conn)?.savings;
-                        }
-                        state.apply(message);
+                        state.apply_with_loader(message, || {
+                            let snapshot = model::load_snapshot(&conn)?;
+                            Ok::<_, Error>((snapshot.savings, snapshot.spend_days))
+                        })?;
                         view.last_message = Some(
                             SystemTime::now()
                                 .duration_since(UNIX_EPOCH)
@@ -432,4 +454,43 @@ pub fn run(paths: &Paths) -> Result<(), Error> {
     })();
     ratatui::restore();
     result
+}
+
+#[cfg(test)]
+mod ordering_tests {
+    use super::*;
+    use std::{cell::RefCell, rc::Rc};
+    #[test]
+    fn subscribe_precedes_snapshot_and_buffered_messages_apply_afterward() -> Result<(), ()> {
+        let trace = Rc::new(RefCell::new(Vec::new()));
+        let (buffer, mut snapshot) = subscribe_then_snapshot(
+            || {
+                trace.borrow_mut().push("subscribe");
+                vec![tkm_proto::monitor::MonitorMessage::Session(
+                    tkm_proto::monitor::SessionUpdate {
+                        host: tkm_proto::Host::Claude,
+                        session_id: "session".into(),
+                        repo: None,
+                        phase: "active".into(),
+                        turn_calls: 2,
+                        envelope: None,
+                        loop_state: "off".into(),
+                    },
+                )]
+            },
+            || {
+                trace.borrow_mut().push("snapshot");
+                Ok::<_, ()>(MonitorState::default())
+            },
+        )?;
+        for message in buffer {
+            snapshot.apply(message);
+        }
+        assert_eq!(*trace.borrow(), ["subscribe", "snapshot"]);
+        assert_eq!(
+            snapshot.sessions.first().map(|session| session.turn_calls),
+            Some(2)
+        );
+        Ok(())
+    }
 }

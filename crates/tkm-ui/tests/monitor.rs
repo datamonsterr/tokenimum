@@ -459,3 +459,79 @@ fn feed_overflow_requests_resynchronization() {
     assert!(feed.resync.load(Ordering::Acquire));
     server.join().unwrap();
 }
+
+#[test]
+fn snapshot_retains_current_facts_and_recent_ledger_and_retirements() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("bounds.db");
+    let _store = tkm_store::Store::open(&db).unwrap();
+    let conn = rusqlite::Connection::open(&db).unwrap();
+    conn.execute("INSERT INTO repos VALUES ('repo','repo',0,0,0)", [])
+        .unwrap();
+    for i in 0..105 {
+        conn.execute(
+            "INSERT INTO facts VALUES ('repo',?1,'boundary','neutral','{}','retired',1,1,0,0,0)",
+            [format!("retired-{i}")],
+        )
+        .unwrap();
+    }
+    for state in ["active", "candidate"] {
+        conn.execute(
+            "INSERT INTO facts VALUES ('repo',?1,'boundary','neutral','{}',?1,1,1,0,0,0)",
+            [state],
+        )
+        .unwrap();
+    }
+    for i in 0..1005 {
+        conn.execute("INSERT INTO sessions VALUES (?1,'claude','home',?2,'repo','/repo',?1,?1,'folded',0,'full')", rusqlite::params![i + 1, format!("s-{i}")]).unwrap();
+        conn.execute(
+            "INSERT INTO ledger VALUES (?1,0,0,0,0,?2,0,0)",
+            rusqlite::params![i + 1, f64::from(i)],
+        )
+        .unwrap();
+    }
+    let state = tkm_ui::model::load_snapshot(&conn).unwrap();
+    assert_eq!(state.facts.len(), 102);
+    assert_eq!(
+        state.facts.iter().filter(|f| f.state == "retired").count(),
+        100
+    );
+    assert!(state.facts.iter().any(|f| f.state == "active"));
+    assert!(state.facts.iter().any(|f| f.state == "candidate"));
+    assert_eq!(state.savings.len(), 1000);
+    assert_eq!(state.savings.first().unwrap().cost, 5.0);
+    assert_eq!(state.savings.last().unwrap().cost, 1004.0);
+}
+
+#[test]
+fn folded_session_refreshes_savings_with_fake_loader() {
+    use std::cell::Cell;
+    let mut state = MonitorState::default();
+    let loads = Cell::new(0);
+    let folded = MonitorMessage::Session(SessionUpdate {
+        host: Host::Claude,
+        session_id: "s".into(),
+        repo: Some("repo".into()),
+        phase: "folded".into(),
+        turn_calls: 0,
+        envelope: None,
+        loop_state: "off".into(),
+    });
+    state
+        .apply_with_loader(folded, || {
+            loads.set(loads.get() + 1);
+            Ok::<_, ()>((
+                vec![tkm_ui::model::Savings {
+                    repo: "repo".into(),
+                    host: "claude".into(),
+                    cost: 3.0,
+                    shadow: false,
+                }],
+                vec![("2026-10-29".into(), 3.0)],
+            ))
+        })
+        .unwrap();
+    assert_eq!(loads.get(), 1);
+    assert_eq!(state.savings[0].cost, 3.0);
+    assert_eq!(state.spend_days[0].1, 3.0);
+}

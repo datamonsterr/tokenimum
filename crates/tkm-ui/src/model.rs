@@ -49,6 +49,8 @@ pub struct MonitorState {
     pub decision_ids: VecDeque<Option<i64>>,
     /// Latest live spend and caps, when available.
     pub spend: Option<SpendUpdate>,
+    /// Daily ledger totals for the seven most recent days.
+    pub spend_days: Vec<(String, f64)>,
     /// Ledger cost samples.
     pub savings: Vec<Savings>,
     /// Facts and their lifecycle states.
@@ -67,6 +69,23 @@ fn push_bounded<T>(items: &mut VecDeque<T>, item: T) {
     items.push_back(item);
 }
 impl MonitorState {
+    /// Apply a message and refresh ledger-derived data after a folded session.
+    ///
+    /// # Errors
+    /// Returns the loader error without applying the message.
+    pub fn apply_with_loader<E>(
+        &mut self,
+        message: MonitorMessage,
+        load: impl FnOnce() -> Result<(Vec<Savings>, Vec<(String, f64)>), E>,
+    ) -> Result<(), E> {
+        if matches!(&message, MonitorMessage::Session(update) if update.phase == "folded") {
+            let (savings, spend_days) = load()?;
+            self.savings = savings;
+            self.spend_days = spend_days;
+        }
+        self.apply(message);
+        Ok(())
+    }
     /// Apply a daemon message without performing I/O or consulting a clock.
     pub fn apply(&mut self, message: MonitorMessage) {
         match message {
@@ -220,6 +239,10 @@ pub fn load_snapshot(conn: &Connection) -> Result<MonitorState, crate::Error> {
                 shadow: row.get(3)?,
             })
         })?
+        .collect::<rusqlite::Result<_>>()?;
+    let mut query = conn.prepare("SELECT day, cost FROM (SELECT date(s.started_at / 1000, 'unixepoch') AS day, sum(l.priced_cost) AS cost FROM ledger l JOIN sessions s ON s.id=l.session_id GROUP BY day ORDER BY day DESC LIMIT 7) ORDER BY day")?;
+    state.spend_days = query
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
         .collect::<rusqlite::Result<_>>()?;
     load_redirects(conn, &mut state)?;
     Ok(state)

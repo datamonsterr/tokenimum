@@ -45,6 +45,9 @@ fn render_benches(c: &mut Criterion) {
         daily_cap_usd: 10.0,
         session_cap_usd: 2.0,
     });
+    state.spend_days = (1..=7)
+        .map(|day| (format!("2026-10-{day:02}"), f64::from(day)))
+        .collect();
     for i in 0..500 {
         state.savings.push(Savings {
             repo: format!("repo-{}", i % 10),

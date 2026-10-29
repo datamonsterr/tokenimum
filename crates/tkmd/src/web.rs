@@ -108,6 +108,19 @@ impl Actions for DaemonActions {
         Ok(format!("Changed {repo} to {preset}"))
     }
 }
+async fn resync_after_lag<E>(
+    monitor: &std::sync::RwLock<tkm_ui::model::MonitorState>,
+    load: impl std::future::Future<Output = Result<tkm_ui::model::MonitorState, E>>,
+) {
+    if let Ok(mut state) = monitor.write() {
+        state.degraded = true;
+    }
+    if let Ok(snapshot) = load.await
+        && let Ok(mut state) = monitor.write()
+    {
+        *state = snapshot;
+    }
+}
 struct DiscoveryFile(PathBuf);
 impl Drop for DiscoveryFile {
     fn drop(&mut self) {
@@ -180,20 +193,14 @@ impl WebServer {
                             && let Ok(mut state) = feed_state.monitor.write()
                         {
                             state.savings = snapshot.savings;
+                            state.spend_days = snapshot.spend_days;
                         }
                         if let Ok(mut state) = feed_state.monitor.write() {
                             state.apply(message);
                         }
                     }
                     Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
-                        if let Ok(mut state) = feed_state.monitor.write() {
-                            state.degraded = true;
-                        }
-                        if let Ok(snapshot) = feed_state.reload_snapshot().await
-                            && let Ok(mut state) = feed_state.monitor.write()
-                        {
-                            *state = snapshot;
-                        }
+                        resync_after_lag(&feed_state.monitor, feed_state.reload_snapshot()).await;
                     }
                     Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
                 }
@@ -334,6 +341,51 @@ mod tests {
                 kind: "retired".into()
             })
         );
+        Ok(())
+    }
+    #[tokio::test]
+    async fn lag_marks_degraded_until_fake_snapshot_replaces_state()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let (sender, mut receiver) = tokio::sync::broadcast::channel(1);
+        sender.send(tkm_proto::monitor::MonitorMessage::Hello { version: 1 })?;
+        sender.send(tkm_proto::monitor::MonitorMessage::Hello { version: 1 })?;
+        assert!(matches!(
+            receiver.recv().await,
+            Err(tokio::sync::broadcast::error::RecvError::Lagged(_))
+        ));
+        let monitor = Arc::new(std::sync::RwLock::new(
+            tkm_ui::model::MonitorState::default(),
+        ));
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
+        let shared = Arc::clone(&monitor);
+        let task = tokio::spawn(async move {
+            resync_after_lag(&shared, async move {
+                let _ = ready_tx.send(());
+                rx.await
+            })
+            .await;
+        });
+        ready_rx.await?;
+        assert!(
+            monitor
+                .read()
+                .map_err(|_| std::io::Error::other("lock"))?
+                .degraded
+        );
+        let mut snapshot = tkm_ui::model::MonitorState::default();
+        snapshot.savings.push(tkm_ui::model::Savings {
+            repo: "repo".into(),
+            host: "claude".into(),
+            cost: 2.0,
+            shadow: false,
+        });
+        tx.send(snapshot)
+            .map_err(|_| std::io::Error::other("send"))?;
+        task.await?;
+        let state = monitor.read().map_err(|_| std::io::Error::other("lock"))?;
+        assert!(!state.degraded);
+        assert_eq!(state.savings[0].cost, 2.0);
         Ok(())
     }
 }

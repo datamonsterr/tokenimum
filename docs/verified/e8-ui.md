@@ -9,7 +9,7 @@ Checked 2026-10-29:
 
 ## Known gaps
 
-- Decisions have no timestamps, so read-only daily spend, model shares and a seven-day trend cannot be reconstructed accurately. Live spend is available from SpendUpdate.
+- Decisions have no timestamps, so read-only decision spend and model shares cannot be reconstructed accurately. Live decision spend is available from SpendUpdate; the seven-day ledger trend uses session start times.
 - Fact notices omit scores; the snapshot score is retained, and newly noticed facts have an unknown score until reload.
 - Live rows have no event IDs. Their why overlay asks for a reload; stored redirects are associated directly with their event IDs.
 - The current stream has no turn number, triggering call list, per-model spend breakdown, or ledger updates. Savings shows recent ledger costs and the most recent shadow baseline with sample counts; a statistical baseline estimate is not calculated.
