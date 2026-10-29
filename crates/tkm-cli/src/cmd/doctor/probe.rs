@@ -3,7 +3,7 @@
 use std::collections::BTreeSet;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode, Stdio};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -195,15 +195,39 @@ fn configure_recorders(paths: &[std::path::PathBuf], host: Host) -> Result<(), C
     Ok(())
 }
 
+/// Private scratch directory removed on drop; std-only so the release build needs no `tempfile`.
+struct Scratch(PathBuf);
+
+impl Scratch {
+    fn create() -> std::io::Result<Self> {
+        use std::os::unix::fs::DirBuilderExt;
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_or(0, |elapsed| elapsed.as_nanos());
+        let path =
+            std::env::temp_dir().join(format!("tkm-doctor-probe-{}-{nanos}", std::process::id()));
+        fs::DirBuilder::new().mode(0o700).create(&path)?;
+        Ok(Self(path))
+    }
+
+    fn path(&self) -> &Path {
+        &self.0
+    }
+}
+
+impl Drop for Scratch {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.0);
+    }
+}
+
 fn session(
     ctx: &Ctx<'_>,
     host: Host,
     binary: &Path,
     args: &[&str],
 ) -> Result<(BTreeSet<String>, bool), CliError> {
-    let scratch = tempfile::Builder::new()
-        .prefix("tkm-doctor-probe-")
-        .tempdir()?;
+    let scratch = Scratch::create()?;
     let home = scratch.path().join("home");
     let work = scratch.path().join("work");
     let bin = scratch.path().join("bin");
