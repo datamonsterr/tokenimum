@@ -169,7 +169,10 @@ fn te_envfacts_test_classify_forms_and_intents() {
         let o = observe::classify_command(cmd);
         assert_eq!((o[0].intent, o[0].form.as_str()), (intent, form), "{cmd}");
     }
-    assert!(observe::classify_command("git tag | tail -5").is_empty());
+    assert_eq!(
+        observe::classify_command("git tag | tail -5"),
+        Vec::<observe::Observation>::new()
+    );
     assert_eq!(
         observe::classify_command("git remote -v; git tag --contains HEAD | head; git log -3")
             .len(),
@@ -197,7 +200,7 @@ fn te_envfacts_test_error_classes_are_environmental_only() {
 #[test]
 fn te_envfacts_test_interpreter_fact_forms_fires_and_renders() {
     let s = stream(3, |_| broken());
-    assert!(text(&s).is_empty());
+    assert_eq!(text(&s), "");
     assert_eq!(first(&s, Family::FormRepair).life.status, Status::Active);
     let s = fold(s, 3, broken());
     assert!(text(&s).starts_with(render::HEADER));
@@ -212,7 +215,7 @@ fn te_envfacts_test_clean_environment_forms_nothing() {
         vec![sh("python -m pytest tests/test_a.py -q", "1 passed", 0)]
     });
     assert!(s.facts.is_empty());
-    assert!(text(&s).is_empty());
+    assert_eq!(text(&s), "");
 }
 #[test]
 fn te_envfacts_test_prevented_waste_still_counts_as_firing() {
@@ -224,7 +227,7 @@ fn te_envfacts_test_prevented_waste_still_counts_as_firing() {
     );
     let f = first(&s, Family::FormRepair);
     assert_eq!((f.life.fire_num, f.life.fire_den), (5, 5));
-    assert!(!text(&s).is_empty());
+    assert_ne!(text(&s), "");
 }
 #[test]
 fn te_envfacts_test_bare_runner_success_contradicts_and_retires() {
@@ -233,7 +236,7 @@ fn te_envfacts_test_bare_runner_success_contradicts_and_retires() {
         s = fold(s, i, vec![sh("python -m pytest -q", "1 passed", 0)]);
     }
     assert_eq!(first(&s, Family::FormRepair).life.status, Status::Retired);
-    assert!(text(&s).is_empty());
+    assert_eq!(text(&s), "");
 }
 #[test]
 fn te_envfacts_test_bare_one_liner_success_is_not_a_contradiction() {
@@ -261,7 +264,7 @@ fn te_envfacts_test_history_fact_forms_only_when_probes_return_nothing() {
             0,
         )]
     });
-    assert!(text(&s).is_empty());
+    assert_eq!(text(&s), "");
     assert_eq!(first(&s, Family::EmptyProbe).life.status, Status::Retired);
 }
 #[test]
@@ -315,7 +318,7 @@ fn te_envfacts_test_block_is_capped_in_facts_and_tokens() {
             .collect()
     });
     let t = text(&s);
-    assert!(!t.is_empty());
+    assert_ne!(t, "");
     assert!(t.chars().count() <= 600);
     assert!(t.matches("\n- ").count() <= 4);
 }
@@ -395,7 +398,7 @@ fn te_envfacts_test_a_named_form_that_stops_working_is_named_no_more() {
     let f = &first(&s, Family::FormRepair).candidate;
     assert_eq!(f.params.form_failures["python -m pytest"], 5);
     assert!(facts::extract::working_form(f).is_none());
-    assert!(render::claim(f).is_empty());
+    assert_eq!(render::claim(f), "");
 }
 #[test]
 fn te_envfacts_test_env_assignments_after_env_are_part_of_how_a_command_was_typed() {
@@ -441,8 +444,14 @@ fn te_envfacts_test_the_classifier_sees_through_rtks_command_prefix() {
             assert_eq!(signature(&format!("{pre}{bare}")), signature(bare));
         }
     }
-    assert!(observe::classify_command("rtkfoo pytest").is_empty());
-    assert!(observe::classify_command("rtk").is_empty());
+    assert_eq!(
+        observe::classify_command("rtkfoo pytest"),
+        Vec::<observe::Observation>::new()
+    );
+    assert_eq!(
+        observe::classify_command("rtk"),
+        Vec::<observe::Observation>::new()
+    );
 }
 #[test]
 fn te_envfacts_test_only_a_shape_rewrite_counts_as_a_repair() {
@@ -522,7 +531,7 @@ fn te_envfacts_test_a_plain_mistake_is_not_a_fact() {
         ]
     });
     assert!(s.facts.is_empty());
-    assert!(text(&s).is_empty());
+    assert_eq!(text(&s), "");
 }
 #[test]
 fn te_envfacts_test_a_prefixed_label_that_loads_contradicts_the_fact() {
@@ -608,7 +617,7 @@ fn te_envfacts_test_being_asked_for_the_variable_again_does_not_confirm_its_valu
         s = fold(s, i, vec![sh("python -c 'import app'", NEED, 1)]);
     }
     assert_eq!(first(&s, Family::EnvValue).life.status, Status::Candidate);
-    assert!(text(&s).is_empty());
+    assert_eq!(text(&s), "");
 }
 #[test]
 fn te_envfacts_test_mistyped_labels_do_not_teach_that_the_runner_fails() {
@@ -730,7 +739,10 @@ fn te_envfacts_test_a_command_stopped_by_its_own_cd_teaches_nothing() {
             1,
         )],
     );
-    assert!(observe::observe(&s).observations.is_empty());
+    assert_eq!(
+        observe::observe(&s).observations,
+        Vec::<observe::Observation>::new()
+    );
 }
 #[test]
 fn te_envfacts_test_a_runner_script_run_where_it_is_not_becomes_a_fact() {
@@ -837,12 +849,12 @@ fn te_generic_build_tool_repair_becomes_a_fact() {
 }
 #[test]
 fn te_injection_empty_render_before_formation_and_grounded_firing() {
-    assert!(text(&FactsState::default()).is_empty());
+    assert_eq!(text(&FactsState::default()), "");
     let s = stream(4, |_| clean());
     let f = first(&s, Family::FormRepair);
     assert_eq!(f.life.status, Status::Active);
     assert!(f.life.fire_den >= 4);
-    assert!(!text(&s).is_empty());
+    assert_ne!(text(&s), "");
 }
 #[test]
 fn decision_thresholds_code_only_and_events() {
@@ -955,12 +967,12 @@ fn rendered_text_uses_only_templates_and_validated_parameters() {
         let mut forged = first(&s, Family::FormRepair).candidate.clone();
         forged.params.bad_form = attack.into();
         assert!(!lint::validate(&forged));
-        assert!(render::claim(&forged).is_empty());
+        assert_eq!(render::claim(&forged), "");
     }
     let mut forged = first(&s, Family::FormRepair).candidate.clone();
     forged.params.forms = BTreeMap::from([("rm -rf .".into(), 5)]);
     assert!(!lint::validate(&forged));
-    assert!(render::claim(&forged).is_empty());
+    assert_eq!(render::claim(&forged), "");
 }
 #[test]
 fn parameter_validation_table_for_all_families() {
@@ -980,7 +992,7 @@ fn parameter_validation_table_for_all_families() {
     for state in states {
         let c = state.facts.values().next().unwrap().candidate.clone();
         assert!(lint::validate(&c));
-        assert!(!render::claim(&c).is_empty());
+        assert_ne!(render::claim(&c), "");
     }
     let s = stream(4, |_| env());
     for var in ["lowercase", "A;EVIL", "A\nB", "1BAD", "APP_SETTINGS`"] {
@@ -1068,8 +1080,8 @@ fn host_scope_and_neutral_scope_rendering() {
     for f in s.facts.values_mut() {
         f.candidate.scope = Scope::Host(Host::Claude);
     }
-    assert!(!text(&s).is_empty());
-    assert!(render::render(&s, Host::Codex, &FactsConfig::default()).is_empty());
+    assert_ne!(text(&s), "");
+    assert_eq!(render::render(&s, Host::Codex, &FactsConfig::default()), "");
 }
 #[test]
 fn conservative_attribution_and_reported_exit_codes() {
@@ -1200,6 +1212,6 @@ fn defaults_match_spec_and_zero_caps_fail_open() {
         },
         FactsConfig { max_facts: 0, ..c },
     ] {
-        assert!(render::render(&s, Host::Claude, &cfg).is_empty());
+        assert_eq!(render::render(&s, Host::Claude, &cfg), "");
     }
 }
