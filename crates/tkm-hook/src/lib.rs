@@ -295,12 +295,36 @@ pub enum ConnectResult {
 }
 
 /// Connect to a Unix stream socket with a bounded timeout in safe Rust.
+///
+/// Spawns a background thread running `connect_fn`, communicating via an `mpsc`
+/// channel with `recv_timeout(timeout)`. On timeout, returns `ConnectResult::DaemonBusy`
+/// and does not join the thread (the process exit terminates it).
 #[must_use]
-pub fn connect_bounded<F>(_timeout: Duration, _connect_fn: F) -> ConnectResult
+pub fn connect_bounded<F>(timeout: Duration, connect_fn: F) -> ConnectResult
 where
     F: FnOnce() -> io::Result<UnixStream> + Send + 'static,
 {
-    ConnectResult::DaemonDown
+    let (tx, rx) = std::sync::mpsc::channel();
+    let _ = std::thread::spawn(move || {
+        let res = connect_fn();
+        let _ = tx.send(res);
+    });
+
+    match rx.recv_timeout(timeout) {
+        Ok(Ok(stream)) => ConnectResult::Connected(stream),
+        Ok(Err(e))
+            if e.kind() == io::ErrorKind::NotFound
+                || e.kind() == io::ErrorKind::ConnectionRefused =>
+        {
+            ConnectResult::DaemonDown
+        }
+        Ok(Err(e)) if e.kind() == io::ErrorKind::WouldBlock => ConnectResult::DaemonBusy,
+        Ok(Err(e)) => ConnectResult::Error(format!("connect: {e}")),
+        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => ConnectResult::DaemonBusy,
+        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+            ConnectResult::Error("connect thread died".to_string())
+        }
+    }
 }
 
 /// Outcome of one hook exchange with the daemon.
@@ -317,30 +341,34 @@ pub enum ExchangeOutcome {
     Error(String),
 }
 
+/// Timeout bound for connecting to the daemon socket (10 ms).
+///
+/// Provides a small margin above the 2 ms `CONNECT_TIMEOUT` target to absorb
+/// thread spawn jitter on busy systems, while strictly bounding hook latency.
+const CONNECT_BOUND: Duration = Duration::from_millis(10);
+
+/// Floor for socket write timeout (50 ms).
+const WRITE_TIMEOUT_FLOOR: Duration = Duration::from_millis(50);
+
 /// Connect to the daemon socket and perform one synchronous exchange.
 ///
-/// On Linux Unix-domain stream sockets (unix(7)), `connect` returns immediately
-/// (in-kernel, no network hops):
-/// - `ENOENT` / `ECONNREFUSED` when the socket is absent or dead (`DaemonDown`).
-/// - `EAGAIN` / `EWOULDBLOCK` when the listen backlog is full (`DaemonBusy`).
-///
-/// After connecting, read timeout is enforced by `request.event.read_timeout()`.
+/// Bounded by `CONNECT_BOUND` (10 ms) on connect, `event.read_timeout().max(50 ms)`
+/// on write, and `event.read_timeout()` on read.
 #[must_use]
 pub fn connect_and_exchange(socket_path: &Path, request: &Request) -> ExchangeOutcome {
     let _ = CONNECT_TIMEOUT;
-    let mut stream = match UnixStream::connect(socket_path) {
-        Ok(s) => s,
-        Err(e)
-            if e.kind() == io::ErrorKind::NotFound
-                || e.kind() == io::ErrorKind::ConnectionRefused =>
-        {
-            return ExchangeOutcome::DaemonDown;
-        }
-        Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
-            return ExchangeOutcome::DaemonBusy;
-        }
-        Err(e) => return ExchangeOutcome::Error(format!("connect: {e}")),
+    let path = socket_path.to_path_buf();
+    let mut stream = match connect_bounded(CONNECT_BOUND, move || UnixStream::connect(&path)) {
+        ConnectResult::Connected(s) => s,
+        ConnectResult::DaemonDown => return ExchangeOutcome::DaemonDown,
+        ConnectResult::DaemonBusy => return ExchangeOutcome::DaemonBusy,
+        ConnectResult::Error(e) => return ExchangeOutcome::Error(e),
     };
+
+    let write_timeout = request.event.read_timeout().max(WRITE_TIMEOUT_FLOOR);
+    if let Err(e) = stream.set_write_timeout(Some(write_timeout)) {
+        return ExchangeOutcome::Error(format!("set_write_timeout: {e}"));
+    }
 
     if let Err(e) = tkm_proto::write_frame(&mut stream, request, MAX_REQUEST_FRAME) {
         return ExchangeOutcome::Error(format!("write_frame: {e}"));
