@@ -67,11 +67,23 @@ impl InMemoryLedger {
     }
 }
 impl SpendLedger for InMemoryLedger {
-    fn spent_today_usd(&self, _now_ms: u64) -> f64 {
-        0.0
+    fn spent_today_usd(&self, now_ms: u64) -> f64 {
+        self.rows
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .iter()
+            .filter(|row| row.ts_ms / 86_400_000 == now_ms / 86_400_000)
+            .filter_map(|row| known_cost(row.cost_usd))
+            .sum()
     }
-    fn spent_session_usd(&self, _session_id: &str) -> f64 {
-        0.0
+    fn spent_session_usd(&self, session_id: &str) -> f64 {
+        self.rows
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .iter()
+            .filter(|row| row.session_id == session_id)
+            .filter_map(|row| known_cost(row.cost_usd))
+            .sum()
     }
     fn record(&self, row: DecisionRow) {
         self.rows
@@ -82,6 +94,7 @@ impl SpendLedger for InMemoryLedger {
 }
 /// Result of checking the configured spend caps.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[allow(clippy::module_name_repetitions)] // Public names follow the decision-client contract.
 pub enum BudgetVerdict {
     /// Both limits have remaining capacity.
     Allowed,
@@ -93,27 +106,40 @@ pub enum BudgetVerdict {
 /// Independent UTC-day and session spend caps.
 #[derive(Clone, Copy, Debug)]
 pub struct Budget {
-    daily_cap_usd: f64,
-    session_cap_usd: f64,
+    daily_cap: f64,
+    session_cap: f64,
 }
 impl Budget {
     /// Set the two caps in USD.
     #[must_use]
     pub const fn new(daily_cap_usd: f64, session_cap_usd: f64) -> Self {
         Self {
-            daily_cap_usd,
-            session_cap_usd,
+            daily_cap: daily_cap_usd,
+            session_cap: session_cap_usd,
         }
     }
     /// Check existing spend; equality with a cap is already over budget.
     #[must_use]
     pub fn check<L: SpendLedger>(
         &self,
-        _ledger: &L,
-        _now_ms: u64,
-        _session_id: &str,
+        ledger: &L,
+        now_ms: u64,
+        session_id: &str,
     ) -> BudgetVerdict {
-        let _ = (self.daily_cap_usd, self.session_cap_usd);
-        BudgetVerdict::Allowed
+        let daily = ledger.spent_today_usd(now_ms);
+        let session = ledger.spent_session_usd(session_id);
+        if !self.daily_cap.is_finite() || !daily.is_finite() || daily >= self.daily_cap {
+            BudgetVerdict::OverDaily
+        } else if !self.session_cap.is_finite()
+            || !session.is_finite()
+            || session >= self.session_cap
+        {
+            BudgetVerdict::OverSession
+        } else {
+            BudgetVerdict::Allowed
+        }
     }
+}
+fn known_cost(cost: Option<f64>) -> Option<f64> {
+    cost.filter(|value| value.is_finite() && *value >= 0.0)
 }

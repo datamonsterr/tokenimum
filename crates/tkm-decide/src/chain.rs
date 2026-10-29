@@ -1,9 +1,12 @@
 //! Clock-injected model availability and failure windows.
 use crate::config::ChainModel;
 use std::{
-    sync::Arc,
+    collections::VecDeque,
+    sync::{Arc, Mutex},
     time::{SystemTime, UNIX_EPOCH},
 };
+const FAILURE_WINDOW_MS: u64 = 5 * 60 * 1000;
+const SKIP_MS: u64 = 15 * 60 * 1000;
 /// Millisecond clock shared by health, cache, and spend accounting.
 pub trait Clock: Send + Sync {
     /// Current Unix time in milliseconds.
@@ -24,45 +27,118 @@ impl Clock for SystemClock {
             .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
     }
 }
+struct Slot {
+    model: ChainModel,
+    active: bool,
+    promoted: bool,
+    failures: VecDeque<u64>,
+    skip_until_ms: u64,
+}
+impl Slot {
+    fn probe_only(&self) -> bool {
+        self.model.free_probe || self.model.slug.ends_with(":free")
+    }
+}
 /// Configured model slots and their health.
+#[allow(clippy::module_name_repetitions)] // Public names follow the decision-client contract.
 pub struct ModelChain<C: Clock> {
-    models: Vec<ChainModel>,
+    slots: Mutex<Vec<Slot>>,
     clock: C,
 }
 impl<C: Clock> ModelChain<C> {
     /// Create a chain, initially disabling probe-only slots.
     #[must_use]
     pub fn new(models: &[ChainModel], clock: C) -> Self {
+        let slots = models
+            .iter()
+            .map(|model| Slot {
+                active: !model.free_probe && !model.slug.ends_with(":free"),
+                model: model.clone(),
+                promoted: false,
+                failures: VecDeque::new(),
+                skip_until_ms: 0,
+            })
+            .collect();
         Self {
-            models: models.to_vec(),
+            slots: Mutex::new(slots),
             clock,
         }
     }
     /// Available model slugs in current priority order.
     #[must_use]
     pub fn active_models(&self) -> Vec<String> {
-        let _ = self.clock.now_ms();
-        self.models
+        let now = self.clock.now_ms();
+        let slots = self
+            .slots
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let available = |slot: &&Slot| slot.active && now >= slot.skip_until_ms;
+        slots
             .iter()
-            .filter(|m| !m.free_probe)
-            .map(|m| m.slug.clone())
+            .filter(available)
+            .filter(|s| s.promoted)
+            .chain(slots.iter().filter(available).filter(|s| !s.promoted))
+            .map(|s| s.model.slug.clone())
             .collect()
     }
     /// All configured probe-only model slugs.
     #[must_use]
     pub fn free_models(&self) -> Vec<String> {
-        self.models
+        self.slots
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .iter()
-            .filter(|m| m.free_probe)
-            .map(|m| m.slug.clone())
+            .filter(|s| s.probe_only())
+            .map(|s| s.model.slug.clone())
             .collect()
     }
     /// Record one failed model attempt.
-    pub fn record_failure(&self, _model: &str) {}
-    /// Record successful service by a model.
-    pub fn record_success(&self, _model: &str) {}
+    pub fn record_failure(&self, model: &str) {
+        let now = self.clock.now_ms();
+        let mut slots = self
+            .slots
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some(slot) = slots.iter_mut().find(|s| s.model.slug == model) {
+            slot.failures
+                .retain(|ts| now.saturating_sub(*ts) <= FAILURE_WINDOW_MS);
+            slot.failures.push_back(now);
+            if slot.failures.len() >= 3 {
+                slot.skip_until_ms = now.saturating_add(SKIP_MS);
+                slot.failures.clear();
+            }
+        }
+    }
+    /// Record successful service without discarding failures still in the rolling window.
+    pub fn record_success(&self, model: &str) {
+        let now = self.clock.now_ms();
+        let mut slots = self
+            .slots
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some(slot) = slots.iter_mut().find(|s| s.model.slug == model) {
+            slot.failures
+                .retain(|ts| now.saturating_sub(*ts) <= FAILURE_WINDOW_MS);
+        }
+    }
     /// Activate and prioritize a free slot only after a successful probe.
-    pub fn reprobe_free(&self, _model: &str, _succeeded: bool) {}
+    pub fn reprobe_free(&self, model: &str, succeeded: bool) {
+        let mut slots = self
+            .slots
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some(slot) = slots
+            .iter_mut()
+            .find(|s| s.model.slug == model && s.probe_only())
+        {
+            slot.active = succeeded;
+            slot.promoted = succeeded;
+            if succeeded {
+                slot.failures.clear();
+                slot.skip_until_ms = 0;
+            }
+        }
+    }
 }
 /// Whether another model cannot fix this request error.
 #[must_use]

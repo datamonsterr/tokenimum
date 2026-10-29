@@ -171,11 +171,70 @@ pub struct InvalidAnswer {
 /// # Errors
 /// Returns an error for missing, mismatched, or out-of-range answers.
 pub fn validate(
-    _questions: &BTreeMap<String, Question>,
-    _response: &DecisionsResponse,
+    questions: &BTreeMap<String, Question>,
+    response: &DecisionsResponse,
 ) -> Result<(), InvalidAnswer> {
-    Err(InvalidAnswer {
-        question: String::new(),
-        reason: "validation not yet available",
-    })
+    for (name, question) in questions {
+        let invalid = |reason| InvalidAnswer {
+            question: name.clone(),
+            reason,
+        };
+        let answer = response
+            .answers
+            .get(name)
+            .ok_or_else(|| invalid("missing answer"))?;
+        match (question, answer) {
+            (Question::Noul { .. }, Answer::Noul { .. }) => {}
+            (Question::Choice { criteria, .. }, Answer::Choice { choice, .. }) => {
+                if !criteria.contains_key(choice) {
+                    return Err(invalid("choice is not a criteria key"));
+                }
+            }
+            (Question::Score { criteria, .. }, Answer::Score { score, .. }) => {
+                // Bound the conversion so it is exact, even on 64-bit platforms.
+                let last = criteria
+                    .len()
+                    .checked_sub(1)
+                    .and_then(|n| u32::try_from(n).ok());
+                if !score.is_finite() || last.is_none_or(|n| !(0.0..=f64::from(n)).contains(score))
+                {
+                    return Err(invalid("score is outside the criteria range"));
+                }
+            }
+            _ => return Err(invalid("answer type does not match question")),
+        }
+    }
+    for (name, answer) in &response.answers {
+        if !probabilities_valid(answer) {
+            return Err(InvalidAnswer {
+                question: name.clone(),
+                reason: "unsupported answer or probability outside zero to one",
+            });
+        }
+    }
+    Ok(())
+}
+fn probability_valid(value: f64) -> bool {
+    value.is_finite() && (0.0..=1.0).contains(&value)
+}
+fn probabilities_valid(answer: &Answer) -> bool {
+    match answer {
+        Answer::Noul { noul } => probability_valid(*noul),
+        Answer::Choice {
+            confidence,
+            probabilities,
+            ..
+        }
+        | Answer::Score {
+            confidence,
+            probabilities,
+            ..
+        } => {
+            confidence.is_none_or(probability_valid)
+                && probabilities
+                    .as_ref()
+                    .is_none_or(|values| values.values().copied().all(probability_valid))
+        }
+        Answer::Unknown => false,
+    }
 }

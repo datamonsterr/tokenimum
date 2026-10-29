@@ -4,7 +4,11 @@ use crate::{
     chain::Clock,
 };
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+use std::{
+    collections::{BTreeMap, HashMap, hash_map::DefaultHasher},
+    hash::{Hash, Hasher},
+    sync::Mutex,
+};
 /// Stable purpose identifiers shared with spend and calibration storage.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -33,39 +37,93 @@ impl Purpose {
     /// Cache lifetime in milliseconds; changing workflow judgments are not cached.
     #[must_use]
     pub const fn ttl_ms(self) -> u64 {
-        0
+        match self {
+            Self::Relevance => 600_000,
+            Self::FactFilter => 86_400_000,
+            Self::LoopGuard | Self::Redirect => 0,
+        }
     }
 }
+struct Entry {
+    inserted_ms: u64,
+    expires_ms: u64,
+    response: DecisionsResponse,
+}
 /// A synchronized response cache using an injected clock.
+#[allow(clippy::module_name_repetitions)] // Public names follow the decision-client contract.
 pub struct DecisionCache<C: Clock> {
+    entries: Mutex<HashMap<u64, Entry>>,
     clock: C,
 }
 impl<C: Clock> DecisionCache<C> {
     /// Create an empty cache.
     #[must_use]
-    pub const fn new(clock: C) -> Self {
-        Self { clock }
+    pub fn new(clock: C) -> Self {
+        Self {
+            entries: Mutex::new(HashMap::new()),
+            clock,
+        }
     }
     /// Read an unexpired response for exactly this model, state and questions.
     #[must_use]
     pub fn get(
         &self,
-        _model: &str,
-        _state: &str,
-        _questions: &BTreeMap<String, Question>,
-        _purpose: Purpose,
+        model: &str,
+        state: &str,
+        questions: &BTreeMap<String, Question>,
+        purpose: Purpose,
     ) -> Option<DecisionsResponse> {
-        let _ = self.clock.now_ms();
-        None
+        if purpose.ttl_ms() == 0 {
+            return None;
+        }
+        let key = cache_key(model, state, questions)?;
+        let now = self.clock.now_ms();
+        let mut entries = self
+            .entries
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        entries.retain(|_, entry| now < entry.expires_ms);
+        let entry = entries.get(&key)?;
+        // A short-lived purpose must not inherit a longer TTL from another purpose.
+        if now < entry.inserted_ms || now.saturating_sub(entry.inserted_ms) >= purpose.ttl_ms() {
+            return None;
+        }
+        Some(entry.response.clone())
     }
     /// Store a successful response for the purpose's lifetime.
     pub fn insert(
         &self,
-        _model: &str,
-        _state: &str,
-        _questions: &BTreeMap<String, Question>,
-        _purpose: Purpose,
-        _response: DecisionsResponse,
+        model: &str,
+        state: &str,
+        questions: &BTreeMap<String, Question>,
+        purpose: Purpose,
+        response: DecisionsResponse,
     ) {
+        if purpose.ttl_ms() == 0 {
+            return;
+        }
+        let Some(key) = cache_key(model, state, questions) else {
+            return;
+        };
+        let now = self.clock.now_ms();
+        let mut entries = self
+            .entries
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        entries.retain(|_, entry| now < entry.expires_ms);
+        entries.insert(
+            key,
+            Entry {
+                inserted_ms: now,
+                expires_ms: now.saturating_add(purpose.ttl_ms()),
+                response,
+            },
+        );
     }
+}
+fn cache_key(model: &str, state: &str, questions: &BTreeMap<String, Question>) -> Option<u64> {
+    let questions_json = serde_json::to_string(questions).ok()?;
+    let mut hasher = DefaultHasher::new();
+    (model, state, questions_json).hash(&mut hasher);
+    Some(hasher.finish())
 }

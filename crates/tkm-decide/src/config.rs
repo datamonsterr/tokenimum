@@ -13,6 +13,7 @@ pub struct ChainModel {
 /// Decisions configuration with SPEC section 8 defaults.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
+#[allow(clippy::module_name_repetitions)] // Public names follow the decision-client contract.
 pub struct DecideConfig {
     /// Whether requests are enabled.
     pub enabled: bool,
@@ -35,7 +36,18 @@ impl Default for DecideConfig {
     fn default() -> Self {
         Self {
             enabled: true,
-            chain: Vec::new(),
+            chain: [
+                ("inception/mercury-decide:free", true),
+                ("inception/mercury-decide-20260930", false),
+                ("perplexity/pplx-decider-flash-v1.2-20261016", false),
+                ("typesafe/jev-1.14-20261014", false),
+            ]
+            .into_iter()
+            .map(|(slug, free_probe)| ChainModel {
+                slug: slug.into(),
+                free_probe,
+            })
+            .collect(),
             timeout_ms: 1500,
             daily_cap_usd: 0.50,
             session_cap_usd: 0.02,
@@ -48,13 +60,30 @@ impl Default for DecideConfig {
 /// Configuration rejected before requests can be sent.
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 #[error("decision model must use a pinned dated slug or a :free slot: {0}")]
-pub struct ConfigError(pub String);
+#[allow(clippy::module_name_repetitions)] // Public names follow the decision-client contract.
+pub struct ConfigError(
+    /// Model slug that violates pinning requirements.
+    pub String,
+);
 impl DecideConfig {
     /// Ensure model identifiers are pinned rather than moving aliases.
     ///
     /// # Errors
     /// Returns the first alias or undated non-free model.
     pub fn validate(&self) -> Result<(), ConfigError> {
+        for model in &self.chain {
+            let slug = &model.slug;
+            let dated = slug.rsplit_once('-').is_some_and(|(_, date)| {
+                date.len() == 8 && date.bytes().all(|byte| byte.is_ascii_digit())
+            });
+            let latest = slug
+                .split(':')
+                .next()
+                .is_some_and(|base| base.ends_with("-latest"));
+            if slug.starts_with('~') || latest || !(dated || slug.ends_with(":free")) {
+                return Err(ConfigError(slug.clone()));
+            }
+        }
         Ok(())
     }
 }
