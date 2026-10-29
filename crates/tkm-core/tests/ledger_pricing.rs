@@ -117,7 +117,7 @@ fn decision_overhead_table() {
 fn invalid_price_and_cost_boundaries() {
     for rate in ["nan", "inf", "-1.0"] {
         for key in ["input", "output", "cache_read", "cache_write"] {
-            let mut entries = vec![
+            let mut entries = [
                 "input=1.0".to_string(),
                 "output=1.0".to_string(),
                 "cache_read=1.0".to_string(),
