@@ -245,14 +245,23 @@ fn context_is_capped_at_ten_thousand_chars() {
 }
 
 #[test]
-fn injection_is_only_allowed_on_before_agent_start() {
+fn tool_results_deliver_redirects_as_steering_context() {
+    assert_eq!(
+        reply(
+            "tool_result_bash",
+            EventKind::ToolDone,
+            &ReplyAction::Inject {
+                text: "redirect".into()
+            }
+        ),
+        r#"{"steer":"redirect"}"#
+    );
     let both = ReplyAction::InjectAndNotice {
         inject: "ctx".into(),
         notice: "n".into(),
     };
     for (name, kind) in [
         ("session_start", EventKind::SessionStart),
-        ("tool_result_bash", EventKind::ToolDone),
         ("agent_end", EventKind::TurnEnd),
     ] {
         assert_eq!(reply(name, kind, &both), r#"{"notice":"n"}"#, "{name}");

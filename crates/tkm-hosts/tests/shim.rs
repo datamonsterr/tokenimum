@@ -147,3 +147,11 @@ fn shims_never_let_reply_handling_throw_and_opencode_clears_its_timer() {
     let catch_after = opencode[push..].find("catch").unwrap();
     assert!(try_before < push && catch_after > 0);
 }
+
+#[test]
+fn pi_shim_delivers_redirects_as_steering_messages() {
+    let text = String::from_utf8(render(Host::Pi, "1.0.0").unwrap()).unwrap();
+    assert!(text.contains("pi.sendMessage"));
+    assert!(text.contains("deliverAs: \"steer\""));
+    assert!(text.contains("reply.steer"));
+}
