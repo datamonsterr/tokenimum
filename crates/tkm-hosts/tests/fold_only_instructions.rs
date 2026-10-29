@@ -345,7 +345,7 @@ fn apply_allowed_for_tracked_file_when_opt_in() {
         ..Default::default()
     };
     let report = apply(&scratch.0, Host::Codex, "fact", opts).unwrap();
-    assert!(!report.changed_files.is_empty());
+    assert!(!report.changed_files.is_empty(), "unexpected report");
     let content = fs::read_to_string(&agents_md).unwrap();
     assert!(content.contains("fact"));
 }
@@ -357,7 +357,7 @@ fn apply_updates_existing_block() {
     let opts = ApplyOptions::default();
     apply(&scratch.0, Host::Codex, "first body", opts).unwrap();
     let report = apply(&scratch.0, Host::Codex, "second body", opts).unwrap();
-    assert!(!report.changed_files.is_empty());
+    assert!(!report.changed_files.is_empty(), "unexpected report");
     let content = fs::read_to_string(scratch.0.join("AGENTS.md")).unwrap();
     assert!(content.contains("second body"), "updated body missing");
     assert!(!content.contains("first body"), "old body still present");
@@ -443,7 +443,7 @@ fn remove_from_dry_run_writes_nothing() {
     };
     let report = remove_from(&scratch.0, Host::Codex, dry).unwrap();
     assert!(report.dry_run);
-    assert!(!report.changed_files.is_empty());
+    assert!(!report.changed_files.is_empty(), "unexpected report");
     let after = fs::read_to_string(scratch.0.join("AGENTS.md")).unwrap();
     assert_eq!(before, after, "dry-run remove must not modify the file");
 }
@@ -454,7 +454,7 @@ fn remove_from_noop_when_file_absent() {
     scratch.init_git();
     let opts = ApplyOptions::default();
     let report = remove_from(&scratch.0, Host::Codex, opts).unwrap();
-    assert!(report.changed_files.is_empty());
+    assert!(report.changed_files.is_empty(), "unexpected report");
 }
 
 // ─── End-to-end: apply twice, assert bytes outside block unchanged ─────────────
@@ -561,8 +561,8 @@ fn apply_unsupported_host_is_report_only() {
     let scratch = Scratch::new("apply-agy");
     scratch.init_git();
     let report = apply(&scratch.0, Host::Agy, "fact", ApplyOptions::default()).unwrap();
-    assert!(report.changed_files.is_empty());
-    assert!(!report.instructions.is_empty());
+    assert!(report.changed_files.is_empty(), "unexpected report");
+    assert!(!report.instructions.is_empty(), "unexpected report");
     assert!(!scratch.0.join("AGENTS.md").exists());
 }
 

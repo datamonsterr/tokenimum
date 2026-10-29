@@ -117,7 +117,7 @@ fn install_writes_file_and_is_idempotent() {
     assert_eq!(report.changed_files, vec![path.clone()]);
     assert_eq!(fs::read_to_string(&path).unwrap(), render(Host::Claude));
     let again = install(Host::Claude, &scratch.0, None, false).unwrap();
-    assert!(again.changed_files.is_empty());
+    assert!(again.changed_files.is_empty(), "unexpected report");
 }
 
 #[test]
@@ -144,8 +144,8 @@ fn install_project_scope_uses_repo_root() {
 fn install_unverified_harness_is_report_only() {
     let scratch = Scratch::new();
     let report = install(Host::Cursor, &scratch.0, None, false).unwrap();
-    assert!(report.changed_files.is_empty());
-    assert!(!report.instructions.is_empty());
+    assert!(report.changed_files.is_empty(), "unexpected report");
+    assert!(!report.instructions.is_empty(), "unexpected report");
     assert_eq!(fs::read_dir(&scratch.0).unwrap().count(), 0);
 }
 
@@ -205,23 +205,15 @@ fn uninstall_leaves_file_without_marker() {
     fs::create_dir_all(path.parent().unwrap()).unwrap();
     fs::write(&path, "---\nname: tokenimum\n---\nhand written\n").unwrap();
     let report = uninstall(Host::Claude, &scratch.0, None, false).unwrap();
-    assert!(report.changed_files.is_empty());
+    assert!(report.changed_files.is_empty(), "unexpected report");
     assert!(path.is_file());
 }
 
 #[test]
 fn uninstall_absent_and_unsupported_are_noops() {
     let scratch = Scratch::new();
-    assert!(
-        uninstall(Host::Claude, &scratch.0, None, false)
-            .unwrap()
-            .changed_files
-            .is_empty()
-    );
-    assert!(
-        uninstall(Host::Codex, &scratch.0, None, false)
-            .unwrap()
-            .changed_files
-            .is_empty()
-    );
+    for host in [Host::Claude, Host::Codex] {
+        let report = uninstall(host, &scratch.0, None, false).unwrap();
+        assert_eq!(report.changed_files, Vec::<PathBuf>::new());
+    }
 }

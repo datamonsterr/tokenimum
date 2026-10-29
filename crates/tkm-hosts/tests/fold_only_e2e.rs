@@ -10,7 +10,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use tkm_core::facts::render::claim;
 use tkm_core::facts::{FactsConfig, FactsState, SessionEvidence, update};
 use tkm_core::inject::{Config, InjectCandidate, Source, estimate_tokens, render, select};
-use tkm_core::model::{RepoKey, Session};
+use tkm_core::model::{Call, RepoKey, Session, Turn};
 use tkm_hosts::claude::ClaudeAdapter;
 use tkm_hosts::codex::CodexAdapter;
 use tkm_hosts::fold_only::instructions::{ApplyOptions, apply};
@@ -63,6 +63,38 @@ fn read(adapter: &dyn HostAdapter, relative: &str, session_id: &str) -> Session 
         .unwrap()
 }
 
+fn shell(command: &str, output: &str, exit_code: i32) -> Call {
+    Call {
+        tool: "Bash".into(),
+        args_digest: command.into(),
+        output_digest: output.into(),
+        exit_code: Some(exit_code),
+        ..Call::default()
+    }
+}
+
+/// A failing command repaired by the next call: the pattern the extractor learns from.
+fn repair_session() -> Session {
+    let mut session = Session::new(Host::Claude);
+    session.session_id = "synthetic-repair".into();
+    session.turns.push(Turn {
+        calls: vec![
+            shell(
+                "python -m pytest tests/test_a.py -q",
+                "python: No module named pytest",
+                1,
+            ),
+            shell(
+                ".venv/proj/bin/python -m pytest tests/test_a.py -q",
+                "1 passed in 0.2s",
+                0,
+            ),
+        ],
+        ..Turn::default()
+    });
+    session
+}
+
 fn fold(sessions: Vec<Session>) -> FactsState {
     let cfg = FactsConfig::default();
     sessions
@@ -100,6 +132,7 @@ fn no_shims_fold_produces_facts_and_regenerates_marker_block() {
     assert_eq!(mode_for(Host::Opencode, false), IntegrationMode::FoldOnly);
 
     let sessions = vec![
+        repair_session(),
         read(
             &ClaudeAdapter::new(),
             "claude/sessions/e928a2cf-e31b-4154-805b-919991d042ea.jsonl",
@@ -112,8 +145,15 @@ fn no_shims_fold_produces_facts_and_regenerates_marker_block() {
         ),
     ];
     let state = fold(sessions);
-    assert_eq!(state.processed.len(), 2, "both fixture sessions fold");
-    assert!(!state.facts.is_empty(), "fixtures yield candidate facts");
+    assert_eq!(
+        state.processed.len(),
+        3,
+        "fixture and synthetic sessions fold"
+    );
+    assert!(
+        !state.facts.is_empty(),
+        "repair session yields candidate facts"
+    );
 
     let first_body = body_for(&state);
     assert!(first_body.starts_with("# Context\n"), "{first_body:?}");
