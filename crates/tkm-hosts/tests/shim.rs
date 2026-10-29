@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 use sha2::{Digest, Sha256};
+use std::fmt::Write;
 use tkm_hosts::{
     AdapterError,
     shim::{ShimStatus, render, verify_shim},
@@ -10,8 +11,10 @@ use tkm_proto::Host;
 fn hex(bytes: &[u8]) -> String {
     Sha256::digest(bytes)
         .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect()
+        .fold(String::new(), |mut out, byte| {
+            write!(out, "{byte:02x}").unwrap();
+            out
+        })
 }
 
 fn after_second_line(bytes: &[u8]) -> &[u8] {
