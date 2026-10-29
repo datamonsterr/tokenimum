@@ -45,6 +45,9 @@ class PurityCheck(unittest.TestCase):
             "use std::{thread as worker}; fn f() { worker::spawn(|| ()); }",
             "use std::io::{self as console, Read};",
             "fn f() { io::stderr(); }",
+            "use std::{io::*};",
+            "use std::{self as library};",
+            "use std::io::prelude::*;",
         ]:
             with self.subTest(source=source):
                 self.assertNotEqual(self.check(source), 0)

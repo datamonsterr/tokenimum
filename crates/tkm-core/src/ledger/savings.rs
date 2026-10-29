@@ -44,9 +44,10 @@ pub struct SavingsEstimate {
 /// No first action means all sessions are baseline. Invalid or non-finite costs and
 /// arithmetic return `None`. With fewer than two samples per arm the band is absent.
 /// The 95% band uses the Welch-Satterthwaite degrees of freedom and a two-sided t
-/// critical value. Table values for integer df 1–30 and 40, 60, 120 are rounded to
-/// six decimals; linear interpolation between entries is approximate and conservative
-/// for the convex t-quantile curve. Above 120 an asymptotic expansion is used.
+/// critical value. For df below 100, numerical inversion of the regularized
+/// incomplete beta function is used; at df 100 and above a two-term asymptotic
+/// expansion is used. Regression checks require relative error below 0.5%, with
+/// tighter checks at the independently tabulated integer degrees of freedom.
 #[must_use]
 #[allow(clippy::cast_precision_loss)]
 pub fn estimate_savings(
@@ -132,54 +133,108 @@ pub fn checked_estimate_savings(
     estimate_savings(sessions, repo, host, first_action)
 }
 
-#[allow(clippy::cast_precision_loss)]
+// Invert the t distribution using its regularized incomplete beta tail;
+// DLMF 8.17.4 and 8.17.22: https://dlmf.nist.gov/8.17
+// Bisection on [0, 16] contains the 97.5th percentile for every df >= 1.
 fn t_critical(df: f64) -> f64 {
-    // Two-sided 95% t table, e.g. https://www2.stat.duke.edu/courses/Spring11/sta114/exams/114s11fe.pdf
-    const VALUES: [(f64, f64); 33] = [
-        (1.0, 12.706_205),
-        (2.0, 4.302_653),
-        (3.0, 3.182_446),
-        (4.0, 2.776_445),
-        (5.0, 2.570_582),
-        (6.0, 2.446_912),
-        (7.0, 2.364_624),
-        (8.0, 2.306_004),
-        (9.0, 2.262_157),
-        (10.0, 2.228_139),
-        (11.0, 2.200_985),
-        (12.0, 2.178_813),
-        (13.0, 2.160_369),
-        (14.0, 2.144_787),
-        (15.0, 2.131_450),
-        (16.0, 2.119_905),
-        (17.0, 2.109_816),
-        (18.0, 2.100_922),
-        (19.0, 2.093_024),
-        (20.0, 2.085_963),
-        (21.0, 2.079_614),
-        (22.0, 2.073_873),
-        (23.0, 2.068_658),
-        (24.0, 2.063_899),
-        (25.0, 2.059_539),
-        (26.0, 2.055_529),
-        (27.0, 2.051_831),
-        (28.0, 2.048_407),
-        (29.0, 2.045_230),
-        (30.0, 2.042_272),
-        (40.0, 2.021_075),
-        (60.0, 2.000_298),
-        (120.0, 1.979_930),
-    ];
-    for pair in VALUES.windows(2) {
-        let (x0, y0) = pair[0];
-        let (x1, y1) = pair[1];
-        if df <= x1 {
-            return y0 + (y1 - y0) * ((df - x0) / (x1 - x0)).clamp(0.0, 1.0);
+    if df >= 100.0 {
+        let z = 1.959_963_984_540_054_f64;
+        return z
+            + (z.powi(3) + z) / (4.0 * df)
+            + (5.0 * z.powi(5) + 16.0 * z.powi(3) + 3.0 * z) / (96.0 * df.powi(2));
+    }
+    let (mut lo, mut hi) = (0.0, 16.0);
+    for _ in 0..60 {
+        let mid = (lo + hi) / 2.0;
+        let x = df / (df + mid * mid);
+        if regularized_beta(x, df / 2.0, 0.5) > 0.05 {
+            lo = mid;
+        } else {
+            hi = mid;
         }
     }
-    let z = 1.959_963_984_540_054_f64;
-    z + (z.powi(3) + z) / (4.0 * df)
-        + (5.0 * z.powi(5) + 16.0 * z.powi(3) + 3.0 * z) / (96.0 * df.powi(2))
+    (lo + hi) / 2.0
+}
+
+// Lanczos approximation, g=7; valid for the positive arguments used here.
+#[allow(clippy::cast_precision_loss)]
+fn log_gamma(z: f64) -> f64 {
+    const C: [f64; 9] = [
+        0.999_999_999_999_809_9,
+        676.520_368_121_885_1,
+        -1_259.139_216_722_402_8,
+        771.323_428_777_653_1,
+        -176.615_029_162_140_6,
+        12.507_343_278_686_905,
+        -0.138_571_095_265_720_12,
+        9.984_369_578_019_572e-6,
+        1.505_632_735_149_311_6e-7,
+    ];
+    let v = z - 1.0;
+    let mut sum = C[0];
+    for (i, coefficient) in C.iter().enumerate().skip(1) {
+        sum += coefficient / (v + i as f64);
+    }
+    let t = v + 7.5;
+    0.918_938_533_204_672_7 + (v + 0.5) * t.ln() - t + sum.ln()
+}
+
+// Modified Lentz evaluation of the DLMF continued fraction, with symmetry to
+// select the rapidly convergent side. The domain here has a,b >= 0.5.
+#[allow(clippy::many_single_char_names)] // Standard continued-fraction notation.
+fn beta_fraction(a: f64, b: f64, x: f64) -> f64 {
+    const TINY: f64 = 1e-300;
+    let qab = a + b;
+    let qap = a + 1.0;
+    let qam = a - 1.0;
+    let mut c = 1.0;
+    let mut d = 1.0 - qab * x / qap;
+    if d.abs() < TINY {
+        d = TINY;
+    }
+    d = 1.0 / d;
+    let mut h = d;
+    for m in 1..=400_u32 {
+        let m = f64::from(m);
+        let m2 = 2.0 * m;
+        let aa = m * (b - m) * x / ((qam + m2) * (a + m2));
+        d = 1.0 + aa * d;
+        if d.abs() < TINY {
+            d = TINY;
+        }
+        c = 1.0 + aa / c;
+        if c.abs() < TINY {
+            c = TINY;
+        }
+        d = 1.0 / d;
+        h *= d * c;
+        let aa = -(a + m) * (qab + m) * x / ((a + m2) * (qap + m2));
+        d = 1.0 + aa * d;
+        if d.abs() < TINY {
+            d = TINY;
+        }
+        c = 1.0 + aa / c;
+        if c.abs() < TINY {
+            c = TINY;
+        }
+        d = 1.0 / d;
+        let delta = d * c;
+        h *= delta;
+        if (delta - 1.0).abs() < 1e-14 {
+            break;
+        }
+    }
+    h
+}
+
+fn regularized_beta(x: f64, a: f64, b: f64) -> f64 {
+    let factor =
+        (log_gamma(a + b) - log_gamma(a) - log_gamma(b) + a * x.ln() + b * (-x).ln_1p()).exp();
+    if x < (a + 1.0) / (a + b + 2.0) {
+        factor * beta_fraction(a, b, x) / a
+    } else {
+        1.0 - factor * beta_fraction(b, a, 1.0 - x) / b
+    }
 }
 
 #[cfg(test)]
@@ -198,7 +253,7 @@ mod tests {
         ] {
             let actual = t_critical(df);
             assert!(
-                (actual - expected).abs() / expected < 0.005,
+                (actual - expected).abs() / expected < 0.000_001,
                 "df={df}, got {actual}, expected {expected}"
             );
         }

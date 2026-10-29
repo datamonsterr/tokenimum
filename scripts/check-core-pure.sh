@@ -43,11 +43,57 @@ groups = re.compile(r"\bstd\s*::[^;]*\{[^;]*;", re.DOTALL)
 namespace_import = re.compile(r"\buse\s+std\s*::\s*(?:io|time)\s*(?:as\s+\w+\s*)?;")
 namespace_group = re.compile(r"\b(?:io|time)\s*(?:,|}|as\s+\w+)")
 forbidden_group = re.compile(r"\b(?:fs|net|process|env|thread|stdin|stdout|stderr|SystemTime|Instant)\b")
+streams = re.compile(r"\bio\s*::\s*(?:stdin|stdout|stderr)\b")
 other = re.compile(r"\b(?:File\s*::|SystemTime\s*::\s*now|Instant\s*::\s*now|tokio|reqwest|rusqlite)\b")
+# Parse use trees to distinguish safe std::io item imports from namespace
+# imports, self, globs and aliased module paths. No comment removal is performed.
+allowed_io = {"Read", "Write", "Error", "ErrorKind", "Result", "Cursor"}
+token = re.compile(r"::|[A-Za-z_][A-Za-z_0-9]*|[{},*]")
+
+def unsafe_imports(source):
+    for statement in re.finditer(r"\buse\s+([^;]+);", source):
+        tokens = token.findall(statement.group(1))
+        pos = 0
+        paths = []
+        def walk(prefix):
+            nonlocal pos
+            if pos >= len(tokens):
+                return
+            if tokens[pos] == "{":
+                pos += 1
+                while pos < len(tokens) and tokens[pos] != "}":
+                    if tokens[pos] == ",":
+                        pos += 1
+                    else:
+                        walk(prefix)
+                pos += 1
+                return
+            part = tokens[pos]
+            pos += 1
+            path = prefix + [part]
+            if pos < len(tokens) and tokens[pos] == "::":
+                pos += 1
+                walk(path)
+                return
+            if pos < len(tokens) and tokens[pos] == "as":
+                pos += 2
+            paths.append(path)
+        while pos < len(tokens):
+            if tokens[pos] == ",":
+                pos += 1
+            else:
+                walk([])
+        for path in paths:
+            if path in (["std"], ["std", "self"]):
+                return True
+            if path[:2] == ["std", "io"] and (len(path) != 3 or path[2] not in allowed_io):
+                return True
+    return False
+
 bad = False
 for path in Path("crates/tkm-core/src").rglob("*.rs"):
     source = path.read_text(encoding="utf-8")
-    if direct.search(source) or other.search(source) or namespace_import.search(source) or any(forbidden_group.search(match.group()) or namespace_group.search(match.group()) for match in groups.finditer(source)):
+    if direct.search(source) or other.search(source) or streams.search(source) or namespace_import.search(source) or unsafe_imports(source) or any(forbidden_group.search(match.group()) or namespace_group.search(match.group()) for match in groups.finditer(source)):
         print(f"forbidden I/O reference in {path}", file=sys.stderr)
         bad = True
 if bad:
