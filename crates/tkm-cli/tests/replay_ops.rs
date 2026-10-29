@@ -71,3 +71,30 @@ fn replay_session_id_uses_recorded_claude_source() {
     assert!(out.status.success(), "{out:?}");
     assert!(!out.stdout.is_empty());
 }
+
+#[test]
+fn bench_replay_matches_committed_report_without_network() {
+    let s = support_ops::Sandbox::new();
+    let fixtures = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/bench");
+    let report = std::fs::read(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../docs/reports/m0-decision-bench.md"
+    ))
+    .unwrap();
+    let first = s.run(&["replay", "--bench", fixtures]);
+    let second = s.run(&["replay", "--bench", fixtures]);
+    assert!(first.status.success(), "{first:?}");
+    assert_eq!(first.stdout, report);
+    assert_eq!(first.stdout, second.stdout);
+    let text = String::from_utf8(first.stdout).unwrap();
+    assert!(text.contains("50 sessions"));
+    assert!(text.contains("Claude Code") && text.contains("Codex"));
+    assert!(text.contains("precision") && text.contains("latency") && text.contains("cost"));
+}
+
+#[test]
+fn bench_rejects_missing_cached_responses() {
+    let s = support_ops::Sandbox::new();
+    let out = s.run(&["replay", "--bench", s.repo.to_str().unwrap()]);
+    assert!(!out.status.success());
+}
