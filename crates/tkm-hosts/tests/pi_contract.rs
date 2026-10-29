@@ -82,7 +82,7 @@ fn tool_result_maps_to_call() {
         .unwrap();
     assert!(failed.is_error);
     assert_eq!(failed.output_digest, "Command exited with code 1");
-    assert!(failed.edits.is_empty());
+    assert_eq!(failed.edits.len(), 0);
 }
 
 #[test]
@@ -112,14 +112,11 @@ fn write_and_edit_tools_map_to_repo_relative_edits() {
             via: EditVia::Tool
         }]
     );
-    assert!(
-        map("tool_result_edit_outside", EventKind::ToolDone)
-            .unwrap()
-            .call
-            .unwrap()
-            .edits
-            .is_empty()
-    );
+    let outside = map("tool_result_edit_outside", EventKind::ToolDone)
+        .unwrap()
+        .call
+        .unwrap();
+    assert_eq!(outside.edits.len(), 0);
 }
 
 #[test]

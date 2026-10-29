@@ -32,10 +32,10 @@ impl Scratch {
         ))
         .unwrap();
         let path = self.0.join("opencode.db");
-        Connection::open(&path)
-            .unwrap()
-            .execute_batch(&sql)
-            .unwrap();
+        let db = Connection::open(&path).unwrap();
+        // The dump lists tables alphabetically, children before their parents.
+        db.execute_batch("PRAGMA foreign_keys = OFF;").unwrap();
+        db.execute_batch(&sql).unwrap();
         path
     }
 }
@@ -133,7 +133,7 @@ fn second_turn_calls_cover_edits_errors_and_exit_codes() {
         }]
     );
     assert_eq!(calls[1].duration_ms, Some(60));
-    assert!(calls[2].edits.is_empty(), "path outside the repository");
+    assert_eq!(calls[2].edits.len(), 0, "path outside the repository");
     assert_eq!(
         calls[3],
         Call {
