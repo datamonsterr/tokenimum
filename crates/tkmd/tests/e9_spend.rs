@@ -102,3 +102,36 @@ fn slow_spend_sink_does_not_block_record() {
     ledger.record(row);
     assert!(start.elapsed() < std::time::Duration::from_millis(250));
 }
+
+#[test]
+fn spend_attempts_survive_restart_and_unknown_costs_are_counted() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("ledger.db");
+    let first = StoreLedger::default();
+    first.enable_persistence(path.clone()).unwrap();
+    let mut row = DecisionRow {
+        ts_ms: 86_400_001,
+        session_id: "claude:s".into(),
+        purpose: Purpose::LoopGuard,
+        requested_model: "fixture".into(),
+        model_version: None,
+        provider: None,
+        input_tokens: 4,
+        output_tokens: 1,
+        cost_usd: Some(0.25),
+        latency_ms: 1,
+        question_names: vec![],
+        outcome: "ok".into(),
+        cached: false,
+    };
+    first.record(row.clone());
+    row.cost_usd = None;
+    first.record(row);
+    first.flush();
+    drop(first);
+    let second = StoreLedger::default();
+    second.enable_persistence(path).unwrap();
+    assert_eq!(second.spent_today_usd(86_400_001), 0.25);
+    assert_eq!(second.spent_session_usd("claude:s"), 0.25);
+    assert_eq!(second.unknown_today(86_400_001), 1);
+}
