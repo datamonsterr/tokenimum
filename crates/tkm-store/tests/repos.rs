@@ -27,6 +27,31 @@ fn roundtrip_repos() {
     assert_eq!(store.list_repos().unwrap(), vec![value.clone()]);
     store.increment_delegated_runs(&value.repo_key).unwrap();
     value.delegated_runs += 1;
+    store.upsert_repo(&value).unwrap();
+    assert_eq!(store.get_repo(&value.repo_key).unwrap(), Some(value));
+}
+
+#[test]
+fn upsert_repo_keeps_first_seen_and_run_count() {
+    let store = Store::open_in_memory().unwrap();
+    let mut value = repo();
+    store.upsert_repo(&value).unwrap();
+    store.increment_delegated_runs(&value.repo_key).unwrap();
+    value.display_name = "updated".into();
+    value.first_seen = Timestamp(5);
+    value.last_seen = Timestamp(30);
+    value.delegated_runs = 99;
+    store.upsert_repo(&value).unwrap();
+    value.delegated_runs = 3;
+    assert_eq!(
+        store.get_repo(&value.repo_key).unwrap(),
+        Some(value.clone())
+    );
+    let mut later = value.clone();
+    later.first_seen = Timestamp(15);
+    later.last_seen = Timestamp(25);
+    later.delegated_runs = 0;
+    store.upsert_repo(&later).unwrap();
     assert_eq!(store.get_repo(&value.repo_key).unwrap(), Some(value));
 }
 

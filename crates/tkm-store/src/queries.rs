@@ -30,13 +30,13 @@ fn read_repo(row: &rusqlite::Row<'_>) -> rusqlite::Result<Repo> {
 }
 
 impl Store {
-    /// Insert or replace repository metadata.
+    /// Insert or update repository metadata, preserving the observation range and run count.
     ///
     /// # Errors
     /// Returns an error if the write fails.
     pub fn upsert_repo(&self, repo: &Repo) -> Result<(), StoreError> {
         self.conn.execute(
-            "INSERT INTO repos (repo_key, display_name, first_seen, last_seen, delegated_runs) VALUES (?1, ?2, ?3, ?4, ?5) ON CONFLICT(repo_key) DO UPDATE SET display_name = excluded.display_name, first_seen = excluded.first_seen, last_seen = excluded.last_seen, delegated_runs = excluded.delegated_runs",
+            "INSERT INTO repos (repo_key, display_name, first_seen, last_seen, delegated_runs) VALUES (?1, ?2, ?3, ?4, ?5) ON CONFLICT(repo_key) DO UPDATE SET display_name = excluded.display_name, first_seen = MIN(repos.first_seen, excluded.first_seen), last_seen = MAX(repos.last_seen, excluded.last_seen)",
             params![repo.repo_key.0, repo.display_name, repo.first_seen.0, repo.last_seen.0, repo.delegated_runs],
         )?;
         Ok(())

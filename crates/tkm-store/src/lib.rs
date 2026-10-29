@@ -60,6 +60,9 @@ pub enum StoreError {
     /// The requested state transition is not permitted.
     #[error("invalid fact transition")]
     InvalidTransition,
+    /// A token count exceeds the range of a SQLite integer.
+    #[error("token count exceeds SQLite integer range")]
+    TokenOverflow,
     /// SQLite failed.
     #[error(transparent)]
     Sqlite(rusqlite::Error),
