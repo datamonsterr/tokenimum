@@ -199,7 +199,9 @@ pub fn apply(store: &Store, batch: &mut FlushBatch) -> Result<(), StoreError> {
         batch.sessions.pop_front();
     }
     for _ in 0..batch.turns.len() {
-        let Some(turn) = batch.turns.front() else { break };
+        let Some(turn) = batch.turns.front() else {
+            break;
+        };
         if let Some(id) = session_id(store, &mut ids, &turn.key)? {
             store.upsert_turn(&TurnRecord {
                 session_id: id,
@@ -215,7 +217,9 @@ pub fn apply(store: &Store, batch: &mut FlushBatch) -> Result<(), StoreError> {
         }
     }
     for _ in 0..batch.events.len() {
-        let Some(event) = batch.events.front() else { break };
+        let Some(event) = batch.events.front() else {
+            break;
+        };
         if let Some(id) = session_id(store, &mut ids, &event.key)? {
             store.insert_event(&NewEvent {
                 kind: event.kind.clone(),
@@ -321,12 +325,30 @@ mod tests {
     fn unresolved_session_rows_are_retained_until_session_exists() {
         let store = Store::open_in_memory().unwrap();
         let mut batch = FlushBatch::default();
-        batch.push_turn(TurnUpsert { key: key("late"), turn_idx: 0, calls: 1, ended_well: false, escalated: false });
-        batch.events.push_back(EventInsert { key: key("late"), kind: "loop.redirect".into(), inputs: serde_json::json!({}), template: "redirect".into(), params: serde_json::json!({}) });
+        batch.push_turn(TurnUpsert {
+            key: key("late"),
+            turn_idx: 0,
+            calls: 1,
+            ended_well: false,
+            escalated: false,
+        });
+        batch.events.push_back(EventInsert {
+            key: key("late"),
+            kind: "loop.redirect".into(),
+            inputs: serde_json::json!({}),
+            template: "redirect".into(),
+            params: serde_json::json!({}),
+        });
         apply(&store, &mut batch).unwrap();
         assert_eq!(batch.turns.len(), 1);
         assert_eq!(batch.events.len(), 1);
-        batch.push_repo(Repo { repo_key: RepoKey("r".into()), display_name: "r".into(), first_seen: Timestamp(1), last_seen: Timestamp(1), delegated_runs: 0 });
+        batch.push_repo(Repo {
+            repo_key: RepoKey("r".into()),
+            display_name: "r".into(),
+            first_seen: Timestamp(1),
+            last_seen: Timestamp(1),
+            delegated_runs: 0,
+        });
         batch.push_session(session("late", "open"));
         apply(&store, &mut batch).unwrap();
         assert!(batch.is_empty());

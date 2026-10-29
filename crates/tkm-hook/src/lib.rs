@@ -507,7 +507,14 @@ pub fn run_hook_with_stdin<I, S, E, F>(
     E: IntoIterator<Item = (String, String)>,
     F: FnOnce() -> Vec<u8>,
 {
-    run_hook_with_fallible_stdin(args, env_iter, || Ok(read_stdin()), socket_path, log_path, out);
+    run_hook_with_fallible_stdin(
+        args,
+        env_iter,
+        || Ok(read_stdin()),
+        socket_path,
+        log_path,
+        out,
+    );
 }
 
 /// Like [`run_hook_with_stdin`], but a stdin failure logs once and returns the host's no-op.

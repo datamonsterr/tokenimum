@@ -42,7 +42,9 @@ async fn undelivered_redirect_does_not_leak_into_next_turn() {
     env.seed_envelope(FIXTURE_REPO, Host::Claude, &[5; 5]);
     let decider = ScriptedDecider::new(stuck_decision());
     let daemon = daemon_with(&env, redirect_settings(), decider);
-    daemon.adapters().register(Box::new(ToolBlind(tkm_hosts::claude::ClaudeAdapter::new())));
+    daemon
+        .adapters()
+        .register(Box::new(ToolBlind(tkm_hosts::claude::ClaudeAdapter::new())));
     daemon.start_workers();
     calibrate(&daemon);
     daemon.handle(session_start()).await;

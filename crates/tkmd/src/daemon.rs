@@ -748,13 +748,13 @@ impl Daemon {
             (None, None) => ReplyAction::Nothing,
         };
         let (reply, delivered) = Self::render(request, adapter, action);
-        if !delivered {
-            // The host cannot show it on this event: keep it for the next injectable one.
-            if let Some(session) = lock(&self.state).sessions.get_mut(&tag) {
-                session.pending_inject = join_text(inject_text, session.pending_inject.take());
-                if let Some(turn) = session.turn.as_mut() && turn.seq == turn_seq_now {
-                    turn.pending_redirect = join_text(redirect_text, turn.pending_redirect.take());
-                }
+        // The host cannot show it on this event: keep it for the next injectable one.
+        if !delivered && let Some(session) = lock(&self.state).sessions.get_mut(&tag) {
+            session.pending_inject = join_text(inject_text, session.pending_inject.take());
+            if let Some(turn) = session.turn.as_mut()
+                && turn.seq == turn_seq_now
+            {
+                turn.pending_redirect = join_text(redirect_text, turn.pending_redirect.take());
             }
         }
         Ok(reply)
@@ -774,7 +774,10 @@ impl Daemon {
                 return noop_reply(request.host);
             };
             let seq = session.turn.as_ref().map(|turn| turn.seq);
-            let redirect = session.turn.as_mut().and_then(|turn| turn.pending_redirect.take());
+            let redirect = session
+                .turn
+                .as_mut()
+                .and_then(|turn| turn.pending_redirect.take());
             (session.pending_inject.take(), redirect, seq)
         };
         let Some(text) = join_text(pending.clone(), redirect.clone()) else {
@@ -784,7 +787,9 @@ impl Daemon {
             Self::render(request, adapter, ReplyAction::Inject { text: text.clone() });
         if !delivered && let Some(session) = lock(&self.state).sessions.get_mut(&tag) {
             session.pending_inject = join_text(pending, session.pending_inject.take());
-            if let Some(turn) = session.turn.as_mut() && Some(turn.seq) == seq {
+            if let Some(turn) = session.turn.as_mut()
+                && Some(turn.seq) == seq
+            {
                 turn.pending_redirect = join_text(redirect, turn.pending_redirect.take());
             }
         }

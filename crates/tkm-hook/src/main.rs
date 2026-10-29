@@ -30,7 +30,11 @@ fn read_stdin(event: EventKind) -> Result<Vec<u8>, String> {
         let _ = sender.send(result);
     });
     receiver
-        .recv_timeout(event.read_timeout().max(std::time::Duration::from_millis(100)))
+        .recv_timeout(
+            event
+                .read_timeout()
+                .max(std::time::Duration::from_millis(100)),
+        )
         .map_err(|error| format!("stdin: {error}"))?
 }
 

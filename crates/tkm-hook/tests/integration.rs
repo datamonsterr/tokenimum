@@ -9,8 +9,8 @@
 //! process to avoid touching the real user environment.
 
 use std::io::{Read, Write};
-use std::os::unix::net::{UnixListener, UnixStream};
 use std::os::unix::ffi::OsStringExt;
+use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::Arc;
@@ -431,7 +431,13 @@ fn test_cursor_invalid_event_returns_cursor_noop() {
         .unwrap();
     assert_eq!(output.status.code(), Some(0));
     assert_eq!(output.stdout, b"{}");
-    assert_eq!(std::fs::read_to_string(errors_log_path(&tmp)).unwrap().lines().count(), 1);
+    assert_eq!(
+        std::fs::read_to_string(errors_log_path(&tmp))
+            .unwrap()
+            .lines()
+            .count(),
+        1
+    );
 }
 
 #[test]

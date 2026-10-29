@@ -173,7 +173,11 @@ mod tests {
 
     #[tokio::test]
     async fn timed_out_probe_never_authorizes_socket_removal() {
-        let probe = tokio::time::timeout(Duration::ZERO, std::future::pending::<io::Result<UnixStream>>()).await;
+        let probe = tokio::time::timeout(
+            Duration::ZERO,
+            std::future::pending::<io::Result<UnixStream>>(),
+        )
+        .await;
         assert!(!probe_is_refused(&probe));
         let would_block = Ok(Err(io::Error::from(io::ErrorKind::WouldBlock)));
         assert!(!probe_is_refused(&would_block));
