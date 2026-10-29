@@ -170,7 +170,7 @@ fn edit_preserves_comments_explains_and_diffs() {
     assert!(!text.contains("level"));
     let c = load(&i).unwrap();
     assert!(explain(&c, "loop.mode").unwrap().contains("redirect"));
-    assert!(diff_from_preset(&c).is_empty());
+    assert_eq!(diff_from_preset(&c), Vec::<String>::new());
     let mut repo = ConfigFile::load(t.0.join(".tokenimum.toml"), Layer::Repo).unwrap();
     assert!(
         matches!(repo.set("prune.mode", "apply"), Err(ConfigError::RestrictedInRepo { key }) if key == "prune.mode")
@@ -242,7 +242,7 @@ fn trusted_layers_can_set_restricted_values() {
             }
             let c = load(&i).unwrap();
             assert_eq!(c.source(key), Some(layer));
-            assert!(c.errors.is_empty());
+            assert!(matches!(c.errors.as_slice(), []), "{:?}", c.errors);
         }
     }
 }
@@ -309,7 +309,7 @@ fn float_keys_accept_integers() {
     let c = load(&i).unwrap();
     assert_eq!(c.get_float("facts.fire_gate"), Some(1.0));
     assert_eq!(c.get_float("decide.budget_daily_usd"), Some(1.0));
-    assert!(c.errors.is_empty());
+    assert!(matches!(c.errors.as_slice(), []), "{:?}", c.errors);
     i.env.push(("TKM_FACTS_FIRE_GATE".into(), "0".into()));
     i.flags.push("decide.budget_daily_usd=2".into());
     let c = load(&i).unwrap();
