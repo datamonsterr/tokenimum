@@ -169,6 +169,20 @@ impl SkillSource for Integrations {
     }
 }
 impl Escalator for Integrations {
+    fn forget_session(&self, host: Host, session_id: &str) {
+        self.escalator.forget_session(host, session_id);
+    }
+    fn delegated_run_for(
+        &self,
+        host: Host,
+        session_id: &str,
+    ) -> Option<crate::superorchestrator::DelegatedRun> {
+        if self.superorchestrator_enabled() {
+            self.escalator.delegated_run_for(host, session_id)
+        } else {
+            None
+        }
+    }
     fn delegated_run(&self, cwd: &Path, env: &BTreeMap<String, String>) -> Option<String> {
         Self::delegated_run(self, cwd, env)
     }
@@ -208,5 +222,12 @@ impl Escalator for Integrations {
     }
     fn try_escalate(&self, event: &EscalationEvent) -> bool {
         self.superorchestrator_enabled() && self.escalator.try_escalate(event)
+    }
+    fn try_escalate_with_run(
+        &self,
+        event: &EscalationEvent,
+        run: Option<&crate::superorchestrator::DelegatedRun>,
+    ) -> bool {
+        self.superorchestrator_enabled() && self.escalator.try_escalate_with_run(event, run)
     }
 }

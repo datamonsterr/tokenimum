@@ -127,6 +127,16 @@ pub trait Escalator: Send + Sync {
         _env: &BTreeMap<String, String>,
     ) {
     }
+    /// Removes authentication context when a live session ends.
+    fn forget_session(&self, _host: Host, _session_id: &str) {}
+    /// Captures the delegated run for an escalation queued during this session.
+    fn delegated_run_for(
+        &self,
+        _host: Host,
+        _session_id: &str,
+    ) -> Option<superorchestrator::DelegatedRun> {
+        None
+    }
     /// Returns a cached delegated run identifier, if available.
     fn delegated_run(&self, _cwd: &Path, _env: &BTreeMap<String, String>) -> Option<String> {
         None
@@ -149,6 +159,14 @@ pub trait Escalator: Send + Sync {
     fn try_escalate(&self, event: &EscalationEvent) -> bool {
         self.escalate(event);
         true
+    }
+    /// Attempts delivery using the run captured when the job was queued.
+    fn try_escalate_with_run(
+        &self,
+        event: &EscalationEvent,
+        _run: Option<&superorchestrator::DelegatedRun>,
+    ) -> bool {
+        self.try_escalate(event)
     }
 }
 

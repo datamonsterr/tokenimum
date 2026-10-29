@@ -51,6 +51,7 @@ pub(crate) struct EscalationJob {
     pub calls: Vec<Call>,
     pub repo_root: PathBuf,
     pub with_adapter: bool,
+    pub delegated_run: Option<tkm_integrations::superorchestrator::DelegatedRun>,
     pub command: Option<String>,
     pub secrets: BTreeMap<String, String>,
 }
@@ -295,7 +296,8 @@ impl Daemon {
 
     /// Delivers an escalation of a delegated run (adapter call or user command).
     pub(crate) async fn run_escalation(self: &Arc<Self>, job: EscalationJob) {
-        let use_adapter = job.with_adapter && self.escalator.handles(job.host, &job.session_id);
+        let use_adapter = job.with_adapter
+            && (job.delegated_run.is_some() || self.escalator.handles(job.host, &job.session_id));
         let mut suggest = Suggest::Redirect;
         let mut suggest_probs = BTreeMap::new();
         if use_adapter {
@@ -362,19 +364,26 @@ impl Daemon {
         let me = self.clone();
         let joined = tokio::task::spawn_blocking(move || {
             if use_adapter
-                && me.escalator.try_escalate(&EscalationEvent {
-                    host: job.host,
-                    session_id: job.session_id.clone(),
-                    repo: job.repo.clone(),
-                    turn_calls: job.turn_calls,
-                    run_id: me.escalator.run_id(job.host, &job.session_id),
-                    envelope: job.envelope,
-                    stuck: job.scores.map_or(0.0, |scores| scores.0),
-                    progress: job.scores.map_or(0.0, |scores| scores.1),
-                    redirect_given: job.redirect_given.clone(),
-                    suggest,
-                    suggest_probs,
-                })
+                && me.escalator.try_escalate_with_run(
+                    &EscalationEvent {
+                        host: job.host,
+                        session_id: job.session_id.clone(),
+                        repo: job.repo.clone(),
+                        turn_calls: job.turn_calls,
+                        run_id: job
+                            .delegated_run
+                            .as_ref()
+                            .map(|run| run.run_id.clone())
+                            .or_else(|| me.escalator.run_id(job.host, &job.session_id)),
+                        envelope: job.envelope,
+                        stuck: job.scores.map_or(0.0, |scores| scores.0),
+                        progress: job.scores.map_or(0.0, |scores| scores.1),
+                        redirect_given: job.redirect_given.clone(),
+                        suggest,
+                        suggest_probs,
+                    },
+                    job.delegated_run.as_ref(),
+                )
             {
                 return Ok(());
             }

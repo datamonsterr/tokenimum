@@ -343,6 +343,18 @@ impl Daemon {
         tasks.push(crate::fold::spawn_log_watcher(self.clone()));
     }
 
+    /// Refreshes integration-dependent settings on all live sessions after detection.
+    pub fn refresh_integration_settings(&self) {
+        let enabled = self.escalator.superorchestrator_enabled();
+        for session in lock(&self.state).sessions.values_mut() {
+            if session.settings.prune.superorchestrator_adapter_enabled != enabled {
+                Arc::make_mut(&mut session.settings)
+                    .prune
+                    .superorchestrator_adapter_enabled = enabled;
+            }
+        }
+    }
+
     /// Final flush and worker shutdown.
     pub async fn shutdown(self: &Arc<Self>) {
         self.settle().await;
@@ -801,6 +813,9 @@ impl Daemon {
                                             mode,
                                             EscalationMode::DelegatedWithAdapter
                                         ),
+                                        delegated_run: self
+                                            .escalator
+                                            .delegated_run_for(session.host, &session.session_id),
                                         command: settings.escalate_command.clone(),
                                         secrets: request
                                             .env

@@ -360,6 +360,18 @@ impl SuperorchestratorEscalator {
     }
 }
 impl Escalator for SuperorchestratorEscalator {
+    fn forget_session(&self, host: Host, session_id: &str) {
+        if let Ok(mut sessions) = self.sessions.lock() {
+            sessions.remove(&(host, session_id.to_owned()));
+        }
+    }
+    fn delegated_run_for(&self, host: Host, session_id: &str) -> Option<DelegatedRun> {
+        self.sessions
+            .lock()
+            .ok()?
+            .get(&(host, session_id.to_owned()))
+            .cloned()
+    }
     fn observe_session(
         &self,
         host: Host,
@@ -396,18 +408,17 @@ impl Escalator for SuperorchestratorEscalator {
         let _ = self.try_escalate(event);
     }
     fn try_escalate(&self, event: &EscalationEvent) -> bool {
+        let run = self.delegated_run_for(event.host, &event.session_id);
+        self.try_escalate_with_run(event, run.as_ref())
+    }
+    fn try_escalate_with_run(&self, event: &EscalationEvent, run: Option<&DelegatedRun>) -> bool {
         if self.health.in_backoff() {
             return false;
         }
-        let run = self
-            .sessions
-            .lock()
-            .ok()
-            .and_then(|s| s.get(&(event.host, event.session_id.clone())).cloned());
         let Some(run) = run.filter(|r| r.token.is_some()) else {
             return false;
         };
-        if self.send(&run, event).is_err() {
+        if self.send(run, event).is_err() {
             self.health
                 .report_failure("superorchestrator escalation failed");
             tracing::warn!("superorchestrator escalation failed");

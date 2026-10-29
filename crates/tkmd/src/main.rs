@@ -100,24 +100,6 @@ async fn main() -> ExitCode {
     ));
     integrations.redetect_if_due(&cwd);
     write_integration_status(&paths, &integrations);
-    let worker_integrations = integrations.clone();
-    let worker_paths = paths.clone();
-    tokio::spawn(async move {
-        let mut interval = tokio::time::interval(std::time::Duration::from_mins(1));
-        interval.tick().await;
-        loop {
-            interval.tick().await;
-            let integrations = worker_integrations.clone();
-            let paths = worker_paths.clone();
-            let cwd = cwd.clone();
-            let _ = tokio::task::spawn_blocking(move || {
-                integrations.redetect_if_due(&cwd);
-                integrations.refresh_runs();
-                write_integration_status(&paths, &integrations);
-            })
-            .await;
-        }
-    });
     let mut options = DaemonOptions::new(paths.clone());
     options.skills = integrations.clone();
     options.escalator = integrations.clone();
@@ -127,7 +109,7 @@ async fn main() -> ExitCode {
                 .data_dir
                 .join("integrations/superorchestrator-spend.jsonl"),
         )),
-        integrations,
+        integrations.clone(),
     );
     options.settings = Arc::new(FileSettings::new(paths.clone(), config_env.clone()));
     options.env = env.clone();
@@ -149,6 +131,27 @@ async fn main() -> ExitCode {
         options.decider = build_decider(decide, key, endpoint.as_deref(), options.ledger.clone());
     }
     let daemon = Daemon::new(options);
+
+    let worker_integrations = integrations.clone();
+    let worker_paths = paths.clone();
+    let worker_daemon = daemon.clone();
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(std::time::Duration::from_mins(1));
+        interval.tick().await;
+        loop {
+            interval.tick().await;
+            let integrations = worker_integrations.clone();
+            let paths = worker_paths.clone();
+            let cwd = cwd.clone();
+            let _ = tokio::task::spawn_blocking(move || {
+                integrations.redetect_if_due(&cwd);
+                integrations.refresh_runs();
+                write_integration_status(&paths, &integrations);
+            })
+            .await;
+            worker_daemon.refresh_integration_settings();
+        }
+    });
 
     let server = match Server::bind(daemon.clone()).await {
         Ok(Bind::Bound(server)) => server,

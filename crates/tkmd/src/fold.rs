@@ -404,6 +404,8 @@ impl Daemon {
             let Some(session) = sessions.remove(tag) else {
                 return;
             };
+            self.escalator
+                .forget_session(session.host, &session.session_id);
             turn_bases.insert(tag.clone(), session.next_turn_idx);
             let now = i64::try_from(self.clock.now_ms()).unwrap_or(i64::MAX);
             let ended_ms = if ended {
