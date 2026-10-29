@@ -19,10 +19,13 @@ fn skills_is_not_available_without_json() {
 }
 
 #[test]
-fn skills_json_is_an_empty_array() {
+fn skills_json_is_an_empty_ranking_prior() {
     let output = common::tkm(&["skills", "--json"]);
     assert!(output.status.success(), "{output:?}");
-    assert_eq!(output.stdout, b"[]\n");
+    assert_eq!(
+        output.stdout,
+        b"{\"version\":1,\"source\":\"tokenimum\",\"skills\":[]}\n"
+    );
     assert!(output.stderr.is_empty());
 }
 
