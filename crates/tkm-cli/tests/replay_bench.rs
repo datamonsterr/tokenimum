@@ -134,3 +134,64 @@ fn comparison_requires_ten_controls_outcomes_and_saving_above_variance() {
         .regression
     );
 }
+
+#[test]
+fn cli_accepts_requested_host_spelling_without_changing_hook_protocol() {
+    use clap::Parser;
+    assert!(
+        tkm_cli::cli::Cli::try_parse_from([
+            "tkm",
+            "init",
+            "--host",
+            "claude-code",
+            "--home",
+            "/synthetic/.claude",
+            "--yes"
+        ])
+        .is_ok()
+    );
+    assert!("claude-code".parse::<tkm_proto::Host>().is_err());
+}
+
+#[test]
+fn report_contains_only_aggregates_and_counts_decision_overhead() {
+    use tkm_cli::replay_bench::{Measurement, Measurements, write_report};
+    let transcript =
+        load_transcript(&spec("private-session-sentinel", "main.jsonl", None)).unwrap();
+    let mut baseline = account(&[transcript], &prices()).unwrap();
+    let original = baseline.sessions["private-session-sentinel"].clone();
+    let measurement = Measurement {
+        metrics: original.clone(),
+        outcome: Outcome {
+            tests_passed: true,
+            changed_file_overlap: 1.0,
+        },
+        decision_tokens: 123,
+        decision_cost_usd: 0.25,
+        ..Measurement::default()
+    };
+    let mut control = BTreeMap::new();
+    for i in 0..10 {
+        let id = format!("private-control-{i}");
+        baseline.sessions.insert(id.clone(), original.clone());
+        control.insert(
+            id,
+            Measurement {
+                decision_cost_usd: 0.0,
+                ..measurement.clone()
+            },
+        );
+    }
+    let measurements = Measurements {
+        mode: "anchored".into(),
+        replay: BTreeMap::from([("private-session-sentinel".into(), measurement)]),
+        control,
+    };
+    let mut output = Vec::new();
+    write_report(&baseline, &measurements, &mut output).unwrap();
+    let output = String::from_utf8(output).unwrap();
+    assert!(!output.contains("private-session-sentinel"));
+    assert!(!output.contains("Create a synthetic widget"));
+    assert!(output.contains("123 tokens, $0.250000"));
+    assert!(output.contains("Qualifying total saving: false"));
+}
