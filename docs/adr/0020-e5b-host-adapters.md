@@ -100,7 +100,8 @@ Each module also exports `pub const EXPECTED_EVENTS: &[probe::ExpectedEvent]` an
 ### Codewhale
 
 - Install: `<agent_home>/config.toml` (`agent_home` = `CODEWHALE_HOME` or `~/.codewhale`), user
-  scope only. One `[[hooks.hooks]]` table per event with `event`, `command`,
+  scope or `<repo>/.codewhale/hooks.toml` in project scope. Project files use `[[hooks]]` and
+  require workspace trust and `/hooks approve <digest>`. One user `[[hooks.hooks]]` table per event with `event`, `command`,
   `name = "tokenimum-<event>"`, `timeout_secs`, `continue_on_error = true` (never false: a failed
   foreground hook with `false` denies the tool call). `[hooks]` is created when absent; its
   `enabled` and `default_timeout_secs` are never changed; if `enabled = false` the report says

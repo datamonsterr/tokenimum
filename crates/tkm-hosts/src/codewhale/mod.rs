@@ -2,6 +2,7 @@
 
 mod install;
 mod map;
+mod project_install;
 mod reader;
 mod reply;
 
@@ -99,11 +100,19 @@ impl HostAdapter for CodewhaleAdapter {
     }
 
     fn install(&self, context: &InstallContext) -> Result<InstallReport, AdapterError> {
-        install::install(context)
+        if context.repo_root.is_some() {
+            project_install::install(context)
+        } else {
+            install::install(context)
+        }
     }
 
     fn uninstall(&self, context: &InstallContext) -> Result<InstallReport, AdapterError> {
-        install::uninstall(context)
+        if context.repo_root.is_some() {
+            project_install::uninstall(context)
+        } else {
+            install::uninstall(context)
+        }
     }
 
     fn prune_target(&self) -> PruneTarget {
