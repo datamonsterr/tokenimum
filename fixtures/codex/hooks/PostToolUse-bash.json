@@ -11,5 +11,5 @@
   "tool_input": {
     "command": "cat a.txt"
   },
-  "tool_response": "hello\n"
+  "tool_response": "{\"chunk_id\":\"6a289c\",\"wall_time_seconds\":0.000004338,\"exit_code\":0,\"original_token_count\":2,\"output\":\"hello\\n\"}"
 }

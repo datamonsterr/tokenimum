@@ -11,5 +11,5 @@
   "tool_input": {
     "command": "false"
   },
-  "tool_response": "Process exited with code 1\n"
+  "tool_response": "{\"chunk_id\":\"62afc9\",\"wall_time_seconds\":0.000002835,\"exit_code\":1,\"original_token_count\":0,\"output\":\"\"}"
 }

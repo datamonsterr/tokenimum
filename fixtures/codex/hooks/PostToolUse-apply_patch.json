@@ -11,5 +11,5 @@
   "tool_input": {
     "command": "*** Begin Patch\n*** Add File: c.txt\n+x\n*** End Patch\n"
   },
-  "tool_response": "Success. Updated the following files:\nA c.txt\n"
+  "tool_response": "Success. Updated the following files:\nA ~/dev/example/c.txt\n"
 }
