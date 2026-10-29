@@ -316,14 +316,65 @@ fn a_directory_source_uses_opencode_db_inside_it() {
 }
 
 #[test]
-fn legacy_storage_directories_are_unsupported() {
+fn legacy_json_tree_loads_session_messages_and_parts() {
     let scratch = Scratch::new();
-    fs::create_dir_all(scratch.0.join("storage/session")).unwrap();
-    let error = OpencodeAdapter::new()
-        .read_session(&source(&scratch.0, "ses_example1"))
-        .unwrap_err();
-    assert!(
-        matches!(error, AdapterError::Unsupported { .. }),
-        "{error:?}"
-    );
+    let storage = scratch.0.join("storage");
+    for dir in [
+        "session/project",
+        "message/ses_legacy",
+        "part/msg_1",
+        "part/msg_2",
+    ] {
+        fs::create_dir_all(storage.join(dir)).unwrap();
+    }
+    fs::write(
+        storage.join("session/project/ses_legacy.json"),
+        r#"{"id":"ses_legacy","time":{"created":1,"updated":2}}"#,
+    )
+    .unwrap();
+    fs::write(
+        storage.join("message/ses_legacy/msg_1.json"),
+        r#"{"id":"msg_1","role":"user","time":{"created":1}}"#,
+    )
+    .unwrap();
+    fs::write(storage.join("message/ses_legacy/msg_2.json"), r#"{"id":"msg_2","role":"assistant","time":{"created":2},"modelID":"model","tokens":{"input":7,"output":3}}"#).unwrap();
+    fs::write(
+        storage.join("part/msg_1/prt_1.json"),
+        r#"{"type":"text","text":"hello"}"#,
+    )
+    .unwrap();
+    fs::write(storage.join("part/msg_2/prt_2.json"), r#"{"type":"tool","tool":"bash","state":{"status":"completed","input":{"command":"true"},"output":"ok"}}"#).unwrap();
+    let session = read(&scratch.0, "ses_legacy");
+    assert_eq!(session.turns.len(), 1);
+    assert_eq!(session.turns[0].prompt, "hello");
+    assert_eq!(session.turns[0].calls[0].tool, "bash");
+    assert_eq!(session.usage.input, 7);
+}
+
+#[cfg(unix)]
+#[test]
+fn export_fallback_invokes_fake_opencode() {
+    use std::os::unix::fs::PermissionsExt;
+    let scratch = Scratch::new();
+    let script = scratch.0.join("opencode");
+    fs::write(&script, "#!/bin/sh\n[ \"$1\" = export ] && [ \"$2\" = ses_export ] || exit 2\nprintf '%s' '{\"info\":{\"id\":\"ses_export\",\"time\":{\"created\":1,\"updated\":2}},\"messages\":[{\"info\":{\"role\":\"user\"},\"parts\":[{\"type\":\"text\",\"text\":\"from export\"}]}]}'\n").unwrap();
+    fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
+    let status = std::process::Command::new(std::env::current_exe().unwrap())
+        .arg("--exact")
+        .arg("export_fallback_child")
+        .arg("--nocapture")
+        .env("PATH", &scratch.0)
+        .env("TKM_TEST_EXPORT_DIR", &scratch.0)
+        .status()
+        .unwrap();
+    assert!(status.success());
+}
+
+#[test]
+fn export_fallback_child() {
+    let Some(dir) = std::env::var_os("TKM_TEST_EXPORT_DIR") else {
+        return;
+    };
+    let session = read(Path::new(&dir), "ses_export");
+    assert_eq!(session.turns[0].prompt, "from export");
 }
