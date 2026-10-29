@@ -1,15 +1,46 @@
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
-//! `tkm-hook` client library (E4.1) - TDD stub.
+//! `tkm-hook` client library (E4.1).
 //!
-//! Minimal compilation stubs for the TDD red phase.
+//! All hook logic lives here so that integration and unit tests can exercise
+//! it without a real daemon. The binary `src/main.rs` is a thin wrapper.
+//!
+//! ## Architecture
+//!
+//! ```text
+//! main()
+//!   └─ catch_unwind(run_inner())
+//!        ├─ parse_args()          – hand-rolled, no clap
+//!        ├─ check_disable()       – TKM_DISABLE early exit
+//!        ├─ read_stdin()          – JSON or null
+//!        ├─ build_env()           – allowlisted env keys only
+//!        ├─ build_request()       – fills Request struct (payload cwd beats process cwd)
+//!        ├─ connect_and_exchange()– sync Unix-domain socket (bounds: connect 2 ms, read timeout)
+//!        │    ├─ on miss: spawn_daemon_detached() guarded by 2s marker
+//!        │    └─ on reply: verify version, print stdout verbatim
+//!        └─ on any error: log, print host noop, exit 0
+//! ```
 
 use std::collections::BTreeMap;
-use std::io::{Read, Write};
-use std::path::Path;
-use tkm_proto::{EventKind, Host, Reply, Request};
+use std::io::{self, Read, Write};
+use std::os::unix::net::UnixStream;
+use std::path::{Path, PathBuf};
+use std::time::{Duration, SystemTime};
 
-/// Exact variable names that are always forwarded.
+use tkm_config::paths::{ERRORS_LOG_MAX_BYTES, ErrorLog};
+use tkm_proto::{
+    CONNECT_TIMEOUT, EventKind, Host, MAX_REPLY_FRAME, MAX_REQUEST_FRAME, PROTOCOL_VERSION, Reply,
+    Request,
+};
+
+// ── Env allowlist ─────────────────────────────────────────────────────────────
+
+/// Exact variable names that are always forwarded (case-sensitive).
+///
+/// Documented in ADR 0014. The list is intentionally small; only variables
+/// that the daemon adapter actually uses to reproduce session context are
+/// included. Any `TKM_*` variable whose name contains `KEY`, `TOKEN`, or
+/// `SECRET` (case-insensitive) is silently dropped by the prefix rule below.
 pub const ENV_ALLOWLIST: &[&str] = &[
     "CLAUDE_PROJECT_DIR",
     "CLAUDE_CONFIG_DIR",
@@ -17,17 +48,43 @@ pub const ENV_ALLOWLIST: &[&str] = &[
     "TERM_PROGRAM",
 ];
 
+/// Prefix rule: forward `TKM_*` unless the name contains a secret marker.
+const TKM_PREFIX: &str = "TKM_";
+
+/// Secret markers: any `TKM_*` key whose name (uppercased) contains one of
+/// these substrings is suppressed.
+const SECRET_MARKERS: &[&str] = &["KEY", "TOKEN", "SECRET"];
+
+/// Prefix for SUPERORCHESTRATOR vars (forwarded as documented in SPEC 9.3).
+const SO_PREFIX: &str = "SUPERORCHESTRATOR_";
+
 /// Returns `true` when an env key should be forwarded.
 #[must_use]
-pub fn is_allowed_env_key(_key: &str) -> bool {
+pub fn is_allowed_env_key(key: &str) -> bool {
+    if ENV_ALLOWLIST.contains(&key) {
+        return true;
+    }
+    let upper = key.to_ascii_uppercase();
+    if upper.starts_with(TKM_PREFIX) {
+        return !SECRET_MARKERS.iter().any(|m| upper.contains(m));
+    }
+    if upper.starts_with(SO_PREFIX) {
+        return true;
+    }
     false
 }
 
+// ── Disable check ─────────────────────────────────────────────────────────────
+
 /// Returns `true` when `TKM_DISABLE` is set to a truthy value.
+///
+/// Truthy values (case-insensitive): `1`, `true`, `yes`.
 #[must_use]
-pub fn is_disabled(_val: &str) -> bool {
-    false
+pub fn is_disabled(val: &str) -> bool {
+    matches!(val.to_ascii_lowercase().as_str(), "1" | "true" | "yes")
 }
+
+// ── Argument parsing ──────────────────────────────────────────────────────────
 
 /// Parsed hook command-line arguments.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -38,33 +95,76 @@ pub struct HookArgs {
     pub event: EventKind,
 }
 
-/// Parse `--host <host> --event <event>` from raw args.
+/// Parse `--host <host> --event <event>` from raw args (without program name).
+///
+/// Returns `None` if either argument is missing or unrecognized.
 #[must_use]
-pub fn parse_args<I, S>(_args: I) -> Option<HookArgs>
+pub fn parse_args<I, S>(args: I) -> Option<HookArgs>
 where
     I: IntoIterator<Item = S>,
     S: AsRef<str>,
 {
-    None
+    let (host, event) = parse_host_and_event(args);
+    Some(HookArgs {
+        host: host?,
+        event: event?,
+    })
 }
 
 /// Parse host and event independently from raw args.
+///
+/// Returns `(Some(Host), ...)` if `--host <valid>` is present, even if
+/// `--event` is missing or invalid.
 #[must_use]
-pub fn parse_host_and_event<I, S>(_args: I) -> (Option<Host>, Option<EventKind>)
+pub fn parse_host_and_event<I, S>(args: I) -> (Option<Host>, Option<EventKind>)
 where
     I: IntoIterator<Item = S>,
     S: AsRef<str>,
 {
-    (None, None)
+    let args: Vec<String> = args.into_iter().map(|s| s.as_ref().to_owned()).collect();
+    let mut host: Option<Host> = None;
+    let mut event: Option<EventKind> = None;
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--host" => {
+                i += 1;
+                if i < args.len() {
+                    host = args[i].parse::<Host>().ok();
+                }
+            }
+            "--event" => {
+                i += 1;
+                if i < args.len() {
+                    event = args[i].parse::<EventKind>().ok();
+                }
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    (host, event)
 }
 
-/// Read all bytes from `reader`.
+// ── Stdin reading ─────────────────────────────────────────────────────────────
+
+/// Read all bytes from `reader`. Returns `serde_json::Value::Null` for empty
+/// input; returns `Null` on non-UTF-8 or non-JSON input (fail open).
 #[must_use]
-pub fn read_payload<R: Read>(_reader: R) -> serde_json::Value {
-    serde_json::Value::Null
+pub fn read_payload<R: Read>(mut reader: R) -> serde_json::Value {
+    let mut buf = Vec::new();
+    if reader.read_to_end(&mut buf).is_err() || buf.is_empty() {
+        return serde_json::Value::Null;
+    }
+    serde_json::from_slice(&buf).unwrap_or(serde_json::Value::Null)
 }
+
+// ── Request building ──────────────────────────────────────────────────────────
 
 /// Build the `Request` from parsed args, payload, and filtered env.
+///
+/// Working directory resolution:
+/// Payload `cwd` string takes precedence; process cwd is only used as a fallback.
 #[must_use]
 pub fn build_request(
     host: Host,
@@ -73,75 +173,313 @@ pub fn build_request(
     env: BTreeMap<String, String>,
     fallback_cwd: Option<String>,
 ) -> Request {
+    let host_event = payload
+        .as_object()
+        .and_then(|o| o.get("hook_event_name"))
+        .and_then(|v| v.as_str())
+        .map(str::to_owned);
+
+    let cwd = payload
+        .as_object()
+        .and_then(|o| o.get("cwd"))
+        .and_then(|v| v.as_str())
+        .map(str::to_owned)
+        .or(fallback_cwd);
+
     Request {
-        version: 0,
+        version: PROTOCOL_VERSION,
         host,
         event,
-        host_event: None,
+        host_event,
         payload,
         env,
-        cwd: fallback_cwd,
+        cwd,
     }
 }
 
+// ── Spawn storm guard ─────────────────────────────────────────────────────────
+
+/// Age threshold under which a spawn marker is considered "fresh" (2 seconds).
+const SPAWN_MARKER_MAX_AGE: Duration = Duration::from_secs(2);
+
+/// Path of the spawn-storm guard marker file.
+#[must_use]
+fn spawn_marker_path(socket_path: &Path) -> PathBuf {
+    socket_path
+        .parent()
+        .unwrap_or(Path::new("/tmp"))
+        .join("tkmd.spawn")
+}
+
+/// Returns `true` when a spawn attempt was recorded in the last 2 seconds.
+#[must_use]
+fn spawn_recently(socket_path: &Path) -> bool {
+    let marker = spawn_marker_path(socket_path);
+    std::fs::metadata(&marker)
+        .ok()
+        .and_then(|m| m.modified().ok())
+        .and_then(|t| SystemTime::now().duration_since(t).ok())
+        .is_some_and(|age| age < SPAWN_MARKER_MAX_AGE)
+}
+
+/// Touch the spawn marker so subsequent invocations within 2 s skip spawning.
+fn touch_spawn_marker(socket_path: &Path) {
+    let marker = spawn_marker_path(socket_path);
+    if let Some(parent) = marker.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let _ = std::fs::write(&marker, b"");
+}
+
+// ── Daemon spawning ───────────────────────────────────────────────────────────
+
+/// Resolve the `tkmd` binary path:
+/// 1. `TKM_TKMD_BIN` env (for tests).
+/// 2. Same directory as `current_exe()`.
+/// 3. `tkmd` on PATH (fallback).
+#[must_use]
+fn resolve_tkmd_bin() -> PathBuf {
+    if let Ok(v) = std::env::var("TKM_TKMD_BIN") {
+        return PathBuf::from(v);
+    }
+    if let Ok(exe) = std::env::current_exe()
+        && let Some(dir) = exe.parent()
+    {
+        let candidate = dir.join("tkmd");
+        if candidate.exists() {
+            return candidate;
+        }
+    }
+    PathBuf::from("tkmd")
+}
+
+/// Spawn `tkmd` detached, not waiting for it.
+///
+/// Uses `process_group(0)` so the daemon survives hook process exit.
+/// Stdin/stdout/stderr are all set to `Stdio::null()`.
+///
+/// Returns `true` if the spawn succeeded.
+#[must_use]
+pub fn spawn_daemon_detached(socket_path: &Path) -> bool {
+    use std::os::unix::process::CommandExt;
+    use std::process::{Command, Stdio};
+
+    if spawn_recently(socket_path) {
+        return false;
+    }
+    touch_spawn_marker(socket_path);
+
+    let bin = resolve_tkmd_bin();
+    let result = Command::new(bin)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .process_group(0)
+        .spawn();
+    result.is_ok()
+}
+
+// ── Connect and exchange ──────────────────────────────────────────────────────
+
 /// Outcome of one hook exchange with the daemon.
 pub enum ExchangeOutcome {
-    /// Valid reply.
+    /// Daemon replied with a valid, version-matching reply.
     Reply(Reply),
-    /// Protocol version mismatch.
+    /// Daemon replied but version did not match; fall back to noop.
     VersionMismatch,
-    /// Daemon not running.
+    /// Socket missing or connection refused; caller should invoke spawner.
     DaemonDown,
-    /// Daemon busy.
+    /// Daemon is busy (listen backlog full / `WouldBlock`); caller should not spawn.
     DaemonBusy,
-    /// Exchange error.
+    /// I/O or frame error during exchange.
     Error(String),
 }
 
 /// Connect to the daemon socket and perform one synchronous exchange.
+///
+/// On Linux Unix-domain stream sockets (unix(7)), `connect` returns immediately
+/// (in-kernel, no network hops):
+/// - `ENOENT` / `ECONNREFUSED` when the socket is absent or dead (`DaemonDown`).
+/// - `EAGAIN` / `EWOULDBLOCK` when the listen backlog is full (`DaemonBusy`).
+///
+/// After connecting, read timeout is enforced by `request.event.read_timeout()`.
 #[must_use]
-pub fn connect_and_exchange(_socket_path: &Path, _request: &Request) -> ExchangeOutcome {
-    ExchangeOutcome::DaemonDown
+pub fn connect_and_exchange(socket_path: &Path, request: &Request) -> ExchangeOutcome {
+    let _ = CONNECT_TIMEOUT;
+    let mut stream = match UnixStream::connect(socket_path) {
+        Ok(s) => s,
+        Err(e)
+            if e.kind() == io::ErrorKind::NotFound
+                || e.kind() == io::ErrorKind::ConnectionRefused =>
+        {
+            return ExchangeOutcome::DaemonDown;
+        }
+        Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
+            return ExchangeOutcome::DaemonBusy;
+        }
+        Err(e) => return ExchangeOutcome::Error(format!("connect: {e}")),
+    };
+
+    if let Err(e) = tkm_proto::write_frame(&mut stream, request, MAX_REQUEST_FRAME) {
+        return ExchangeOutcome::Error(format!("write_frame: {e}"));
+    }
+    if let Err(e) = stream.flush() {
+        return ExchangeOutcome::Error(format!("flush: {e}"));
+    }
+
+    let timeout = request.event.read_timeout();
+    if let Err(e) = stream.set_read_timeout(Some(timeout)) {
+        return ExchangeOutcome::Error(format!("set_read_timeout: {e}"));
+    }
+
+    let reply: Reply = match tkm_proto::read_frame(&mut stream, MAX_REPLY_FRAME) {
+        Ok(r) => r,
+        Err(e) => return ExchangeOutcome::Error(format!("read_frame: {e}")),
+    };
+
+    if reply.version != PROTOCOL_VERSION {
+        return ExchangeOutcome::VersionMismatch;
+    }
+    ExchangeOutcome::Reply(reply)
 }
 
-/// Spawn `tkmd` detached, not waiting for it.
-#[must_use]
-pub fn spawn_daemon_detached(_socket_path: &Path) -> bool {
-    false
+// ── Error logging ─────────────────────────────────────────────────────────────
+
+/// Append one line to the error log at `log_path` using `ErrorLog` (best-effort, never panics).
+pub fn append_error_log(log_path: &Path, message: &str) {
+    let log = ErrorLog::new(log_path.to_path_buf(), ERRORS_LOG_MAX_BYTES);
+    let _ = log.append(&format!("tkm-hook: {message}"));
 }
 
-/// Append one line to the error log.
-pub fn append_error_log(_log_path: &Path, _message: &str) {}
+// ── Panic guard ───────────────────────────────────────────────────────────────
 
-/// Run `f`, catching any panic.
-pub fn run_with_panic_guard<F, W>(_host: Host, f: F, _out: &mut W)
+/// Run `f`, catching any panic. On panic, write the host's noop reply to `out`.
+///
+/// Replaces the default panic hook with a no-op hook so that no panic trace
+/// escapes to stderr.
+pub fn run_with_panic_guard<F, W>(host: Host, f: F, out: &mut W)
 where
     F: FnOnce(),
     W: Write,
 {
-    f();
+    let prev = std::panic::take_hook();
+    std::panic::set_hook(Box::new(|_| {}));
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(f));
+    std::panic::set_hook(prev);
+
+    if result.is_err() {
+        let _ = out.write_all(host.noop_reply().as_bytes());
+        let _ = out.flush();
+    }
 }
 
-/// Collect filtered env vars from an iterator.
+// ── Main logic ────────────────────────────────────────────────────────────────
+
+/// Collect filtered env vars from an iterator of `(key, value)` pairs.
 #[must_use]
-pub fn collect_env<I>(_iter: I) -> BTreeMap<String, String>
+pub fn collect_env<I>(iter: I) -> BTreeMap<String, String>
 where
     I: IntoIterator<Item = (String, String)>,
 {
-    BTreeMap::new()
+    iter.into_iter()
+        .filter(|(k, _)| is_allowed_env_key(k))
+        .collect()
 }
 
-/// Core hook logic.
+/// Core hook logic. Injectable for testing.
+///
+/// # Parameters
+/// - `args`: raw argument strings (without the program name).
+/// - `env_iter`: iterator over `(key, value)` env pairs.
+/// - `stdin_bytes`: raw stdin bytes.
+/// - `socket_path`: path to the daemon socket (if resolved).
+/// - `log_path`: path to the error log (if resolved).
+/// - `out`: where to write the reply or noop.
 pub fn run_hook<I, S, E>(
-    _args: I,
-    _env_iter: E,
-    _stdin_bytes: &[u8],
-    _socket_path: Option<&Path>,
-    _log_path: Option<&Path>,
-    _out: &mut dyn Write,
+    args: I,
+    env_iter: E,
+    stdin_bytes: &[u8],
+    socket_path: Option<&Path>,
+    log_path: Option<&Path>,
+    out: &mut dyn Write,
 ) where
     I: IntoIterator<Item = S>,
     S: AsRef<str>,
     E: IntoIterator<Item = (String, String)>,
 {
+    let args: Vec<String> = args.into_iter().map(|s| s.as_ref().to_owned()).collect();
+    let env: Vec<(String, String)> = env_iter.into_iter().collect();
+
+    let (parsed_host, parsed_event) = parse_host_and_event(&args);
+
+    let (host, event) = match (parsed_host, parsed_event) {
+        (Some(h), Some(e)) => (h, e),
+        (Some(h), None) => {
+            if let Some(log) = log_path {
+                append_error_log(log, "missing or invalid --event argument");
+            }
+            let _ = out.write_all(h.noop_reply().as_bytes());
+            return;
+        }
+        (None, _) => {
+            if let Some(log) = log_path {
+                append_error_log(log, "unknown host or invalid arguments");
+            }
+            let _ = out.write_all(b"");
+            return;
+        }
+    };
+
+    let disabled = env
+        .iter()
+        .find(|(k, _)| k == "TKM_DISABLE")
+        .is_some_and(|(_, v)| is_disabled(v));
+
+    if disabled {
+        let _ = out.write_all(host.noop_reply().as_bytes());
+        return;
+    }
+
+    let Some(socket_path) = socket_path else {
+        let _ = out.write_all(host.noop_reply().as_bytes());
+        return;
+    };
+
+    let payload = read_payload(std::io::Cursor::new(stdin_bytes));
+    let filtered_env = collect_env(env);
+    let process_cwd = std::env::current_dir()
+        .ok()
+        .and_then(|p| p.to_str().map(str::to_owned));
+    let request = build_request(host, event, payload, filtered_env, process_cwd);
+
+    match connect_and_exchange(socket_path, &request) {
+        ExchangeOutcome::Reply(reply) => {
+            let _ = out.write_all(reply.stdout.as_bytes());
+        }
+        ExchangeOutcome::VersionMismatch => {
+            if let Some(log) = log_path {
+                append_error_log(log, "version mismatch in daemon reply");
+            }
+            let _ = out.write_all(host.noop_reply().as_bytes());
+        }
+        ExchangeOutcome::DaemonDown => {
+            if let Some(log) = log_path {
+                append_error_log(log, "daemon not running; spawning");
+            }
+            let _ = spawn_daemon_detached(socket_path);
+            let _ = out.write_all(host.noop_reply().as_bytes());
+        }
+        ExchangeOutcome::DaemonBusy => {
+            if let Some(log) = log_path {
+                append_error_log(log, "daemon busy (listen queue full)");
+            }
+            let _ = out.write_all(host.noop_reply().as_bytes());
+        }
+        ExchangeOutcome::Error(msg) => {
+            if let Some(log) = log_path {
+                append_error_log(log, &msg);
+            }
+            let _ = out.write_all(host.noop_reply().as_bytes());
+        }
+    }
 }
