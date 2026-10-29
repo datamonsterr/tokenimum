@@ -548,7 +548,17 @@ impl Daemon {
                 var("CLAUDE_CONFIG_DIR").map_or_else(|| home.join(".claude"), PathBuf::from)
             }
             Host::Codex => var("CODEX_HOME").map_or_else(|| home.join(".codex"), PathBuf::from),
-            other => home.join(format!(".{}", other.as_str())),
+            Host::Agy => home.join(".gemini"),
+            Host::Cursor => home.join(".cursor"),
+            Host::Kimi => var("KIMI_SHARE_DIR").map_or_else(|| home.join(".kimi"), PathBuf::from),
+            Host::Deepseek => {
+                var("CODEWHALE_HOME").map_or_else(|| home.join(".codewhale"), PathBuf::from)
+            }
+            Host::Opencode => home.join(".config/opencode"),
+            Host::Pi => {
+                var("PI_CODING_AGENT_DIR").map_or_else(|| home.join(".pi/agent"), PathBuf::from)
+            }
+            _ => home.join(".tokenimum-unknown"),
         }
     }
 

@@ -492,7 +492,11 @@ fn fold_inner(
     job: &FoldJob,
     context: Option<&FoldDecider<'_>>,
 ) -> HResult<FoldReport> {
-    let Some(path) = job.log_path.clone() else {
+    let Some(path) = job
+        .log_path
+        .clone()
+        .or_else(|| derived_log_path(job.host, &job.agent_home, &job.cwd, &job.key.session_id))
+    else {
         store.set_session_fold_status(record.id, "skipped")?;
         return Ok(FoldReport {
             status: "skipped",
@@ -624,20 +628,113 @@ fn derived_log_path(
     cwd: &Path,
     session_id: &str,
 ) -> Option<PathBuf> {
-    if host != Host::Claude {
+    // IDs enter from host payloads; never let them escape a session store.
+    if session_id.is_empty()
+        || session_id.contains(['/', '\\'])
+        || session_id == "."
+        || session_id == ".."
+    {
         return None;
     }
-    let slug: String = cwd
-        .to_string_lossy()
-        .chars()
-        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
-        .collect();
-    Some(
-        agent_home
-            .join("projects")
-            .join(slug)
-            .join(format!("{session_id}.jsonl")),
-    )
+    let file = |path: PathBuf| path.is_file().then_some(path);
+    match host {
+        Host::Claude => {
+            let slug: String = cwd
+                .to_string_lossy()
+                .chars()
+                .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+                .collect();
+            Some(
+                agent_home
+                    .join("projects")
+                    .join(slug)
+                    .join(format!("{session_id}.jsonl")),
+            )
+        }
+        Host::Codex => find_session(&agent_home.join("sessions"), session_id, 4, Host::Codex),
+        Host::Agy => file(
+            agent_home
+                .join("antigravity-cli/brain")
+                .join(session_id)
+                .join(".system_generated/logs/transcript_full.jsonl"),
+        ),
+        Host::Cursor => find_session(&agent_home.join("projects"), session_id, 5, Host::Cursor),
+        Host::Kimi => file(
+            tkm_hosts::kimi::session_dir(agent_home, &cwd.to_string_lossy(), session_id)
+                .join("context.jsonl"),
+        ),
+        Host::Deepseek => file(
+            agent_home
+                .join("sessions")
+                .join(format!("{session_id}.json")),
+        ),
+        Host::Opencode => agent_home
+            .parent()
+            .and_then(Path::parent)
+            .and_then(|home| file(home.join(".local/share/opencode/opencode.db"))),
+        Host::Pi => find_session(&agent_home.join("sessions"), session_id, 2, Host::Pi),
+        _ => None,
+    }
+}
+
+fn find_session(root: &Path, session_id: &str, depth: usize, host: Host) -> Option<PathBuf> {
+    fn collect(
+        root: &Path,
+        session_id: &str,
+        depth: usize,
+        host: Host,
+        matches: &mut Vec<PathBuf>,
+    ) {
+        if depth == 0 || matches.len() > 1 {
+            return;
+        }
+        let Ok(entries) = std::fs::read_dir(root) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let Ok(kind) = entry.file_type() else {
+                continue;
+            };
+            let path = entry.path();
+            if kind.is_dir() {
+                collect(&path, session_id, depth - 1, host, matches);
+            } else if kind.is_file() {
+                let name = entry.file_name();
+                let name = name.to_string_lossy();
+                let is_match = match host {
+                    Host::Codex => {
+                        name.starts_with("rollout-")
+                            && [
+                                format!("-{session_id}.jsonl"),
+                                format!("-{session_id}.jsonl.zst"),
+                            ]
+                            .iter()
+                            .any(|suffix| name.ends_with(suffix))
+                    }
+                    Host::Cursor => {
+                        name == format!("{session_id}.jsonl")
+                            && path
+                                .parent()
+                                .and_then(Path::file_name)
+                                .is_some_and(|name| name == session_id)
+                    }
+                    Host::Pi => name.ends_with(&format!("_{session_id}.jsonl")),
+                    _ => false,
+                };
+                if is_match {
+                    matches.push(path);
+                }
+            }
+        }
+    }
+    let mut matches = Vec::new();
+    collect(root, session_id, depth, host, &mut matches);
+    // An ambiguous ID must not fold another session.
+    if matches.len() == 1 {
+        matches.pop()
+    } else {
+        None
+    }
 }
 
 impl Daemon {
@@ -1131,7 +1228,7 @@ mod tests {
             (
                 Host::Codex,
                 root.join(".codex"),
-                root.join(".codex/sessions/2026/01/02/rollout-2026_s.jsonl"),
+                root.join(".codex/sessions/2026/01/02/rollout-2026-s.jsonl"),
             ),
             (
                 Host::Agy,
