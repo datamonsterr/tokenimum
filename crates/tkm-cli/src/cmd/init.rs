@@ -130,7 +130,7 @@ pub fn run(ctx: &mut Ctx<'_>, args: &InitArgs) -> Result<ExitCode, CliError> {
     } else {
         key::interactive(ctx, choice)?
     };
-    let key_reuse = super::init_integrations::consent(ctx, &config, args.yes)?;
+    let key_reuse = super::init_integrations::consent(ctx, args.yes)?;
     let store = daemon::open_db_for_write(&ctx.paths)?;
     key::apply(ctx, &choice, &mut global)?;
     if key_reuse {

@@ -94,7 +94,13 @@ pub fn run(ctx: &mut Ctx<'_>, args: &UninstallArgs) -> Result<ExitCode, CliError
                     writeln!(ctx.stderr, "fail service uninstall: {error}")?;
                     // Preserve a recovery anchor when service removal fails after host reversal.
                     if let (Some(store), Some(record)) = (&store, &last_removed) {
-                        store.upsert_install(record).map_err(state::failure)?;
+                        let mut record = record.clone();
+                        let mut metadata = state::metadata(&record)?;
+                        metadata.adapter = false;
+                        metadata.skill = false;
+                        metadata.instructions_repos.clear();
+                        state::set_metadata(&mut record, &metadata)?;
+                        store.upsert_install(&record).map_err(state::failure)?;
                     }
                     failed = true;
                 }
@@ -111,6 +117,7 @@ pub fn run(ctx: &mut Ctx<'_>, args: &UninstallArgs) -> Result<ExitCode, CliError
     })
 }
 
+#[allow(clippy::too_many_lines)] // Verify the complete home before reversing any of its effects.
 fn remove(
     ctx: &mut Ctx<'_>,
     registry: &AdapterRegistry,
@@ -119,6 +126,21 @@ fn remove(
     dry_run: bool,
 ) -> Result<(), CliError> {
     let metadata = state::metadata(record)?;
+    // Service recovery rows have already reversed all host effects, even if the home is gone.
+    if !metadata.adapter
+        && !metadata.skill
+        && metadata.instructions_repos.is_empty()
+        && metadata.service.is_some()
+    {
+        return Ok(());
+    }
+    if !record.agent_home.try_exists()? {
+        return Err(state::failure(format!(
+            "recorded home does not exist: {}",
+            record.agent_home.display()
+        )));
+    }
+    let mut reversible = false;
     // Verify every adapter target before changing any part of this home. An edited shim
     // prevents removal of its skill and retains the complete record for recovery.
     if metadata.adapter {
@@ -126,12 +148,13 @@ fn remove(
             .get(record.host)
             .uninstall(&state::context(&record.agent_home, true))
             .map_err(state::adapter_error)?;
+        reversible |= !report.changed_files.is_empty();
         for path in report.changed_files {
             writeln!(ctx.stdout, "  remove: {}", path.display())?;
         }
     }
     if metadata.skill {
-        skill::uninstall(
+        let report = skill::uninstall(
             record.host,
             &record.agent_home,
             None,
@@ -141,6 +164,7 @@ fn remove(
             },
         )
         .map_err(state::adapter_error)?;
+        reversible |= !report.changed_files.is_empty();
     }
     let mut repos = Vec::new();
     for repo in &metadata.instructions_repos {
@@ -152,9 +176,10 @@ fn remove(
                     .is_ok_and(|metadata| metadata.instructions_repos.contains(repo))
             });
         if shared {
+            reversible = true; // Another recorded home retains ownership of the shared block.
             continue;
         }
-        instructions::remove_from(
+        let report = instructions::remove_from(
             repo,
             record.host,
             instructions::ApplyOptions {
@@ -163,7 +188,18 @@ fn remove(
             },
         )
         .map_err(state::adapter_error)?;
+        reversible |= !report.changed_files.is_empty();
         repos.push(repo);
+    }
+    if !reversible
+        && (!record.files_written.is_empty()
+            || !record.entry_ids.is_empty()
+            || !record.backup_paths.is_empty()
+            || !record.shim_hashes.is_empty())
+    {
+        return Err(state::failure(
+            "nothing could be reversed in the recorded home",
+        ));
     }
     if dry_run {
         return Ok(());

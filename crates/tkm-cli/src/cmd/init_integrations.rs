@@ -7,7 +7,7 @@ use std::{
     io::{BufRead, Write},
     path::PathBuf,
 };
-use tkm_config::config::EffectiveConfig;
+use tkm_config::config::{EffectiveConfig, LoadInputs};
 use tkm_integrations::{
     detect::{AdapterState, Mode, Probe},
     superorchestrator::{self, AccountHome},
@@ -68,6 +68,7 @@ pub(crate) fn account_homes(ctx: &Ctx<'_>, args: &InitArgs) -> Result<Vec<Accoun
         },
         |path| Ok(PathBuf::from(path)),
     )?;
+    let directory = ctx.cwd.join(directory);
     let mut homes = superorchestrator::account_homes(&directory);
     homes.retain(|account| {
         account.enabled
@@ -76,7 +77,7 @@ pub(crate) fn account_homes(ctx: &Ctx<'_>, args: &InitArgs) -> Result<Vec<Accoun
                     && args.host.is_none_or(|selected| selected == host)
             })
     });
-    let home = state::home(ctx)?;
+    let home = ctx.cwd.join(state::home(ctx)?);
     for account in &mut homes {
         if let Ok(relative) = account.home.strip_prefix("~") {
             account.home = home.join(relative);
@@ -91,11 +92,12 @@ pub(crate) fn account_homes(ctx: &Ctx<'_>, args: &InitArgs) -> Result<Vec<Accoun
     Ok(homes)
 }
 
-pub(crate) fn consent(
-    ctx: &mut Ctx<'_>,
-    config: &EffectiveConfig,
-    yes: bool,
-) -> Result<bool, CliError> {
+pub(crate) fn consent(ctx: &mut Ctx<'_>, yes: bool) -> Result<bool, CliError> {
+    // Only the user's file records prior approval; merged repository/env values cannot.
+    let config = tkm_config::config::load(&LoadInputs {
+        global_path: ctx.paths.global_config.clone(),
+        ..LoadInputs::default()
+    })?;
     if config.get_bool("integrations.otherskill_key_reuse") == Some(true) {
         return Ok(true);
     }
