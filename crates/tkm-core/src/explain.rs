@@ -41,13 +41,75 @@ pub struct Params {
     /// Undo command or explanation.
     pub undo: String,
 }
+macro_rules! action_params {
+    ($(($name:ident, $variant:ident, $description:literal)),+ $(,)?) => {
+        $(#[doc = $description]
+        #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+        pub struct $name(
+            /// Shared evidence, action detail, model, cost and undo fields.
+            pub Params,
+        );)+
+        /// Action-specific parameters stored alongside a template identifier.
+        #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+        #[serde(tag = "kind", content = "values", rename_all = "snake_case")]
+        pub enum ActionParams {
+            $(#[doc = $description]
+            $variant($name),)+
+        }
+        impl ActionParams {
+            fn fields_and_kind(&self) -> (&Params, ActionKind) {
+                match self { $(Self::$variant(value) => (&value.0, ActionKind::$variant),)+ }
+            }
+        }
+    };
+}
+action_params!(
+    (
+        FactInjectedParams,
+        FactInjected,
+        "Parameters for fact injection."
+    ),
+    (
+        FactPromotedParams,
+        FactPromoted,
+        "Parameters for fact promotion."
+    ),
+    (
+        FactRetiredParams,
+        FactRetired,
+        "Parameters for fact retirement."
+    ),
+    (RedirectParams, Redirect, "Parameters for a redirect."),
+    (EscalationParams, Escalation, "Parameters for escalation."),
+    (
+        DenyListProposalParams,
+        DenyListProposal,
+        "Parameters for a deny-list proposal."
+    ),
+    (
+        DenyListWriteParams,
+        DenyListWrite,
+        "Parameters for a deny-list write."
+    ),
+    (RestoreParams, Restore, "Parameters for restoration."),
+    (
+        BudgetReachedParams,
+        BudgetReached,
+        "Parameters for a reached budget."
+    ),
+    (
+        AdapterDisabledParams,
+        AdapterDisabled,
+        "Parameters for adapter disablement."
+    ),
+);
 /// Stored template identity and parameters.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Explanation {
     /// Stable action template ID.
     pub template_id: ActionKind,
     /// Typed template parameters.
-    pub params: Params,
+    pub params: ActionParams,
 }
 // Limit each supplied field to one line and 512 Unicode characters. Treat all
 // controls and whitespace as separators, so parameters cannot forge sections.
@@ -80,9 +142,13 @@ fn wrap(prefix: &str, text: &str) -> String {
 }
 /// Render the five SPEC 11.5 sections from a code-owned action template.
 /// Parameter fields are collapsed to one line and capped at 512 characters.
+/// A mismatched template ID and parameter kind renders an empty string.
 #[must_use]
 pub fn render(explanation: &Explanation) -> String {
-    let p = &explanation.params;
+    let (p, kind) = explanation.params.fields_and_kind();
+    if explanation.template_id != kind {
+        return String::new();
+    }
     let action = match explanation.template_id {
         ActionKind::FactInjected => "tokenimum added a short note to the agent's context",
         ActionKind::FactPromoted => "tokenimum promoted a repository fact",

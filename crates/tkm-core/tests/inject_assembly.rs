@@ -102,3 +102,75 @@ fn cache_ttl_and_candidate_change() {
             .contains("alpha")
     );
 }
+
+#[test]
+fn fallback_memory_and_fact_limits() {
+    let mut items = (0..5)
+        .map(|n| {
+            item(
+                &n.to_string(),
+                &format!("fact {n}"),
+                Source::Facts,
+                1,
+                false,
+            )
+        })
+        .collect::<Vec<_>>();
+    items.push(item("s", "skill", Source::Skills, 1, false));
+    items.push(item("m", "memory", Source::Memory, 1, false));
+    let selected = inject::select(
+        &items,
+        None,
+        Config {
+            memory: true,
+            ..Config::default()
+        },
+    );
+    assert_eq!(
+        selected
+            .iter()
+            .map(|item| item.id.as_str())
+            .collect::<Vec<_>>(),
+        ["0", "1", "2", "3", "m"]
+    );
+}
+
+#[test]
+fn cache_roundtrip_and_default_invalidation() {
+    let mut cache = Cache::default();
+    let mut items = vec![item("a", "alpha", Source::Facts, 1, false)];
+    let key = inject::cache_key("prompt", &items);
+    cache.insert(key, Timestamp(10), "stored".into());
+    assert!(
+        cache
+            .default_block(&items, Config::default())
+            .contains("alpha")
+    );
+    let json = serde_json::to_string(&cache).unwrap();
+    let mut cache: Cache = serde_json::from_str(&json).unwrap();
+    assert_eq!(cache.get(key, Timestamp(11)), Some("stored"));
+    items[0].text = "beta".into();
+    assert_ne!(key, inject::cache_key("prompt", &items));
+    assert!(
+        cache
+            .default_block(&items, Config::default())
+            .contains("beta")
+    );
+}
+
+#[test]
+fn score_ties_sort_by_id_and_invalid_scores_are_ignored() {
+    let items = vec![
+        item("b", "beta", Source::Facts, 1, false),
+        item("a", "alpha", Source::Skills, 1, false),
+        item("c", "gamma", Source::Facts, 1, false),
+    ];
+    let scores = BTreeMap::from([("a".into(), 2.0), ("b".into(), 2.0), ("c".into(), f64::NAN)]);
+    assert_eq!(
+        inject::select(&items, Some(&scores), Config::default())
+            .iter()
+            .map(|item| item.id.as_str())
+            .collect::<Vec<_>>(),
+        ["a", "b"]
+    );
+}
