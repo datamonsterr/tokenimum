@@ -88,3 +88,17 @@ fn run_accepts_harness_binary_aliases() {
         assert_eq!(output.stdout, canonical.as_bytes());
     }
 }
+
+#[test]
+fn run_leaves_sigterm_and_sighup_at_default_disposition() {
+    use std::os::unix::process::ExitStatusExt;
+    for (name, number) in [("TERM", 15), ("HUP", 1)] {
+        let harness = Harness::new();
+        harness.script(
+            "claude",
+            &format!("kill -{name} $PPID; /bin/sleep 0.2; exit 7"),
+        );
+        let output = harness.run(&["run", "claude"]);
+        assert_eq!(output.status.signal(), Some(number), "{output:?}");
+    }
+}

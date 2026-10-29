@@ -257,3 +257,25 @@ fn init_reuses_key_file_and_writes_selected_preset() {
     assert!(!stdout(&output).contains("fixture-reused-secret"));
     assert!(!String::from_utf8_lossy(&output.stderr).contains("fixture-reused-secret"));
 }
+
+#[test]
+fn init_environment_key_keeps_decisions_enabled_without_copying_secret() {
+    let fixture = Fixture::new();
+    let secret = "sk-or-v1-environment-fixture-secret";
+    let output = fixture
+        .command(&["init", "--yes", "--only", "claude"])
+        .env("OPENROUTER_API_KEY", secret)
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{output:?}");
+    assert!(
+        stdout(&output).contains("key: from environment"),
+        "{output:?}"
+    );
+    assert!(!stdout(&output).contains(secret));
+    assert!(!String::from_utf8_lossy(&output.stderr).contains(secret));
+    let config = fs::read_to_string(&fixture.paths.global_config).unwrap();
+    assert!(config.contains("enabled = true"), "{config}");
+    assert!(!config.contains(secret));
+    assert!(!tkm_decide::key::default_key_file(&fixture.home).exists());
+}

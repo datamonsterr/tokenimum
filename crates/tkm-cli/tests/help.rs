@@ -59,3 +59,12 @@ fn version() {
         concat!("tkm ", env!("CARGO_PKG_VERSION"), "\n")
     );
 }
+
+#[test]
+fn why_help_shows_optional_event_and_last_default() {
+    let output = common::tkm(&["why", "--help"]);
+    assert!(output.status.success(), "{output:?}");
+    let help = String::from_utf8(output.stdout).unwrap();
+    assert!(help.contains("[EVENT]"), "{help}");
+    assert!(help.contains("[default: last]"), "{help}");
+}

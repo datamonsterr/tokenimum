@@ -167,3 +167,65 @@ pub(crate) fn apply(
     }
     Ok(())
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+    use tkm_config::{config::Layer, paths::Paths, repo::repo_identity};
+
+    #[test]
+    fn uninstall_deletes_only_key_created_by_init() {
+        for existing in [false, true] {
+            let home = tempfile::tempdir().unwrap();
+            let paths = Paths::from_dirs(home.path(), None, None, None);
+            let key = default_key_file(home.path());
+            if existing {
+                fs::create_dir_all(key.parent().unwrap()).unwrap();
+                fs::write(&key, "OPENROUTER_API_KEY=fixture-reused\n").unwrap();
+            }
+            let repo = repo_identity(home.path(), "", Some(home.path()));
+            let (mut stdout, mut stderr) = (Vec::new(), Vec::new());
+            let mut ctx = Ctx::new(
+                paths.clone(),
+                home.path().into(),
+                repo,
+                &mut stdout,
+                &mut stderr,
+            );
+            ctx.env
+                .push(("HOME".into(), home.path().display().to_string()));
+            daemon_for_test(&ctx);
+            let mut global = ConfigFile::load(paths.global_config.clone(), Layer::Global).unwrap();
+            let choice = if existing {
+                Choice::Reuse(key.clone())
+            } else {
+                Choice::Enter("fixture-new-secret".into())
+            };
+            apply(&ctx, &choice, &mut global).unwrap();
+            global.save().unwrap();
+            assert!(key.is_file());
+            let exit = crate::cmd::uninstall::run(
+                &mut ctx,
+                &crate::cli::UninstallArgs {
+                    host: None,
+                    dry_run: false,
+                },
+            )
+            .unwrap();
+            assert_eq!(exit, std::process::ExitCode::SUCCESS);
+            assert_eq!(key.exists(), existing);
+            assert!(!paths.global_config.exists());
+            if existing {
+                assert_eq!(
+                    fs::read(&key).unwrap(),
+                    b"OPENROUTER_API_KEY=fixture-reused\n"
+                );
+            }
+        }
+    }
+
+    fn daemon_for_test(ctx: &Ctx<'_>) {
+        crate::daemon::open_db_for_write(&ctx.paths).unwrap();
+    }
+}

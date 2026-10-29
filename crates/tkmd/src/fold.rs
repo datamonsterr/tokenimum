@@ -840,10 +840,46 @@ mod replay_tests {
             &BTreeSet::new(),
             &settings.facts,
         );
+        assert!(
+            !expected.events.is_empty(),
+            "fixture must train fact lifecycle events"
+        );
+        assert!(!expected.facts.facts.is_empty());
         let record = store.get_session(id).unwrap().unwrap();
         let actual = fold_inner(&store, &record, &ClaudeAdapter::new(), &job).unwrap();
         assert_eq!(actual.events, expected.events);
         let persisted = store.list_facts(&repo, None).unwrap();
         assert_eq!(persisted.len(), expected.facts.facts.len());
+        for record in persisted {
+            let fact = fact_from_record(&record).unwrap();
+            let replayed = &expected.facts.facts[&record.fact_id];
+            assert_eq!(fact.life, replayed.life);
+            assert_eq!(fact.candidate.params, replayed.candidate.params);
+        }
+        assert_prune_matches(&store, &repo, &expected.prune);
+    }
+
+    fn assert_prune_matches(store: &Store, repo: &RepoKey, expected: &PruneEvidence) {
+        assert!(!expected.used_tools.is_empty());
+        assert!(!expected.tools.is_empty());
+        let rows = store.list_tool_evidence(repo, Host::Claude).unwrap();
+        let names: BTreeSet<_> = expected
+            .tools
+            .keys()
+            .chain(expected.used_tools.iter())
+            .collect();
+        assert_eq!(rows.len(), names.len());
+        for row in rows {
+            if expected.used_tools.contains(&row.tool) {
+                assert_eq!(row.last_used, Some(Timestamp(1)));
+                assert_eq!(row.prompts_unused, 0);
+                assert_eq!(row.sessions_unused, 0);
+            } else {
+                let evidence = &expected.tools[&row.tool];
+                assert_eq!(u64::from(row.prompts_unused), evidence.prompts);
+                assert_eq!(u64::from(row.sessions_unused), evidence.sessions);
+                assert_eq!(row.last_used, None);
+            }
+        }
     }
 }
