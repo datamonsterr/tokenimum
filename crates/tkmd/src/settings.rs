@@ -451,6 +451,51 @@ mod tests {
     }
 
     #[test]
+    fn all_host_switches_and_levels_are_independent() {
+        let dir = std::env::temp_dir().join("tkmd-settings-all-hosts-test-nonexistent");
+        let paths = Paths::from_dirs(&dir, Some(&dir), Some(&dir), Some(&dir));
+        let hosts = [
+            tkm_proto::Host::Claude,
+            tkm_proto::Host::Codex,
+            tkm_proto::Host::Agy,
+            tkm_proto::Host::Cursor,
+            tkm_proto::Host::Kimi,
+            tkm_proto::Host::Deepseek,
+            tkm_proto::Host::Opencode,
+            tkm_proto::Host::Pi,
+        ];
+        let levels = ["auto", "hooks", "shim", "fold-only"];
+        for level in levels {
+            let env = hosts
+                .iter()
+                .flat_map(|host| {
+                    [
+                        (
+                            format!("TKM_HOSTS_{}_ENABLED", host.as_str().to_uppercase()),
+                            "false".into(),
+                        ),
+                        (
+                            format!("TKM_HOSTS_{}_LEVEL", host.as_str().to_uppercase()),
+                            level.into(),
+                        ),
+                    ]
+                })
+                .collect();
+            let settings = Settings::load(&paths, None, env);
+            for host in hosts {
+                assert!(!settings.host(host).enabled, "{}", host.as_str());
+                let expected = match level {
+                    "hooks" => HostLevel::Hooks,
+                    "shim" => HostLevel::Shim,
+                    "fold-only" => HostLevel::FoldOnly,
+                    _ => HostLevel::Auto,
+                };
+                assert_eq!(settings.effective_host_level(host), expected);
+            }
+        }
+    }
+
+    #[test]
     fn environment_overrides_loop_mode_and_decide_switch() {
         let dir = std::env::temp_dir().join("tkmd-settings-test-nonexistent");
         let paths = Paths::from_dirs(&dir, Some(&dir), Some(&dir), Some(&dir));

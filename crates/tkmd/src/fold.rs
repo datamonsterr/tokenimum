@@ -393,6 +393,13 @@ fn decide_facts(
                 row.thresholds.get("t_high")?.as_f64()?,
             ))
         });
+        let thresholds = thresholds.filter(|(low, high)| {
+            low.is_finite()
+                && high.is_finite()
+                && (0.0..=1.0).contains(low)
+                && (0.0..=1.0).contains(high)
+                && low <= high
+        });
         let valid = questions.keys().all(|key| matches!(decision.answers.get(key), Some(Answer::Noul { noul }) if noul.is_finite() && (0.0..=1.0).contains(noul)));
         let acting = thresholds.is_some() && !shadow && valid;
         let item = tkm_store::NewDecision {
