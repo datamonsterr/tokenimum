@@ -35,8 +35,6 @@ fn other_commands_dispatch_to_stubs() {
         (vec!["why", "last"], "why"),
         (vec!["facts"], "facts"),
         (vec!["facts", "forget", "f-1"], "facts"),
-        (vec!["models"], "models"),
-        (vec!["models", "probe"], "models"),
         (vec!["calibrate"], "calibrate"),
         (vec!["replay", "fixture.json"], "replay"),
         (vec!["run", "claude", "--model", "y"], "run"),
