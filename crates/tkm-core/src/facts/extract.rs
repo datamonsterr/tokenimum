@@ -282,7 +282,9 @@ pub(super) fn merge(a: &mut Candidate, b: Candidate) {
 /// Selects a working form with a positive record, preferring forms that preserve cwd.
 #[must_use]
 pub fn working_form(candidate: &Candidate) -> Option<&str> {
-    let p = &candidate.params;
+    working_from(&candidate.params)
+}
+fn working_from(p: &Params) -> Option<&str> {
     let positive: Vec<_> = p
         .forms
         .iter()
@@ -312,6 +314,8 @@ pub(super) fn best(counts: &BTreeMap<String, u32>) -> Option<&str> {
 pub(super) enum Verdict {
     Confirm,
     Contradict,
+    // SPEC 7.1: a named working form failed, distinct from TE's tentative bare-runner success.
+    ContradictWorking,
 }
 #[derive(Debug, Clone, Copy, Default)]
 pub(super) struct Exercise {
@@ -330,6 +334,7 @@ pub(super) fn exercise(fact: &mut Fact, input: &Observations, injected: bool) ->
     }
 }
 fn exercise_form(p: &mut Params, input: &Observations, injected: bool) -> Exercise {
+    let recommended = working_from(p).map(str::to_owned);
     let seq: Vec<_> = input
         .observations
         .iter()
@@ -345,6 +350,9 @@ fn exercise_form(p: &mut Params, input: &Observations, injected: bool) -> Exerci
         .filter(|o| observe::form_failed(o) && !o.assigned && !ok.contains(o.form.as_str()))
         .map(|o| o.form.as_str())
         .collect();
+    let recommended_failed = recommended
+        .as_deref()
+        .is_some_and(|form| failed.contains(form));
     if let Some(intent) = p.intent {
         for form in ok {
             if repairs(form, &p.bad_form, intent) {
@@ -370,7 +378,9 @@ fn exercise_form(p: &mut Params, input: &Observations, injected: bool) -> Exerci
     Exercise {
         exercised: !seq.is_empty(),
         fired: a_failed || (injected && b_ran),
-        verdict: if a_failed || (b_ran && !a_runner_ok) {
+        verdict: if recommended_failed {
+            Some(Verdict::ContradictWorking)
+        } else if a_failed || (b_ran && !a_runner_ok) {
             Some(Verdict::Confirm)
         } else if a_runner_ok {
             Some(Verdict::Contradict)

@@ -30,7 +30,7 @@ pub struct Lifecycle {
     pub fire_num: u32,
     /// All exercised sessions.
     pub fire_den: u32,
-    /// Consecutive exercised form contradictions (TE requires two).
+    /// Consecutive exercised successes of the formerly failing bare runner (TE requires two).
     pub contradiction_streak: u32,
 }
 impl Lifecycle {
@@ -89,7 +89,7 @@ pub(super) fn fold(
             life.score += 1.0;
             events.push(event(FactEventKind::Confirmed));
         }
-        Some(Verdict::Contradict) => {
+        Some(Verdict::Contradict | Verdict::ContradictWorking) => {
             life.contradictions = life.contradictions.saturating_add(1);
             life.score -= cfg.contradiction_weight;
             events.push(event(FactEventKind::Contradicted));

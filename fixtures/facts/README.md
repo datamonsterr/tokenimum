@@ -84,6 +84,7 @@ Fixtures are synthetic Rust Session/Call builders in `crates/tkm-core/tests/fact
 ## Adaptations and boundaries
 
 - TE absolute interpreter fixtures (`/opt/env/...`) and home paths are replaced by equivalent repository-relative `.venv/...`/`.local/...` paths. Classification can observe absolute forms, but candidate validation/rendering rejects them per SPEC 13.4.
+- SPEC 7.1 strengthens TE: failure of the currently recommended working form is an immediate code contradiction, even when a model rates contradiction low. The TE two-exercised-session streak applies to the formerly failing bare runner now succeeding, and does not suppress failure of a promised working form.
 - Fetch reachability is stricter than TE for unrelated `echo`, `printf`, or `cat` segments: their output cannot prove a fetch succeeded. The pass-through probe rule is retained.
 - Exact template wording is retained from TE. Generic header is used; header, bullets and final newline all count under the four-characters-per-token cap. Relative cd forms render as subshells.
 - Environment setting values must match the test-label grammar; arbitrary strings, paths outside the repo and shell expressions are rejected. Errors render through a closed enum, never raw output.
@@ -162,6 +163,7 @@ Fixtures are synthetic Rust Session/Call builders in `crates/tkm-core/tests/fact
 | `facts_safety.rs::invalid_thresholds_use_code_only_and_invalid_config_abstains` | E2.5 lifecycle / decisions / firing / scope / persistence |
 | `facts_safety.rs::boundary_success_with_failure_in_same_session_never_promotes` | E2.5 lifecycle / decisions / firing / scope / persistence |
 | `facts_safety.rs::code_contradictions_apply_configured_recency_weight_despite_low_model_score` | E2.5 lifecycle / decisions / firing / scope / persistence |
+| `facts_safety.rs::failure_of_the_recommended_form_is_always_a_code_contradiction` | E2.5 SPEC code contradiction precedence / retirement |
 
 ## API documentation checked
 
