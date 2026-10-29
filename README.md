@@ -20,6 +20,14 @@ failure loop.
 **E0 foundation in progress:** workspace, contracts, and CI. Read the [specification](SPEC.md),
 [implementation plan](docs/plan/EPICS.md), and [contribution guide](CONTRIBUTING.md).
 
+## Install
+
+Download the Linux musl archive for your machine (`x86_64` or `aarch64`) from the
+[GitHub Releases](https://github.com/datamonsterr/tokenimum/releases), verify its `.sha256` file,
+and install the three binaries in `~/.local/bin`. Then run `tkm init` to configure detected
+harnesses. See the [release installation guide](docs/release.md) for the full commands and
+checksum details.
+
 ## Repository layout
 
 | Path | Content |
