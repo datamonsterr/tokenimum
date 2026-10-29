@@ -48,12 +48,10 @@ async fn subscriber_gets_hello_then_session_and_decision_messages() {
     tokio::spawn(monitor.run(daemon.clone()));
 
     let mut stream = connect(&env).await;
-    assert_eq!(
+    assert!(matches!(
         next_message(&mut stream).await,
-        Some(MonitorMessage::Hello {
-            version: PROTOCOL_VERSION
-        })
-    );
+        Some(MonitorMessage::Hello { version: PROTOCOL_VERSION, daemon_version: Some(version), started_at_ms: Some(_), .. }) if version == env!("CARGO_PKG_VERSION")
+    ));
     assert!(eventually(5, || daemon.subscriber_count() == 1).await);
 
     daemon.handle(session_start()).await;

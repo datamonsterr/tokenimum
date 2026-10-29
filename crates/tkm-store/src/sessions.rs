@@ -108,6 +108,9 @@ pub struct EventRecord {
     pub explanation_template_id: String,
     /// Explanation parameters.
     pub params: serde_json::Value,
+    /// Action time in Unix milliseconds, absent for historical writes.
+    #[serde(default)]
+    pub created_at: Option<Timestamp>,
 }
 /// Session usage and cost accounting.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -126,7 +129,7 @@ pub struct LedgerRecord {
 
 const SESSION_COLUMNS: &str = "id, host, agent_home, session_id, repo_key, cwd, started_at, ended_at, fold_status, shadow, integration_level";
 const EVENT_COLUMNS: &str =
-    "id, kind, session_id, inputs, evidence_ids, explanation_template_id, params";
+    "id, kind, session_id, inputs, evidence_ids, explanation_template_id, params, created_at";
 
 fn read_session(row: &rusqlite::Row<'_>) -> rusqlite::Result<SessionRecord> {
     let host: String = row.get(1)?;
@@ -175,6 +178,7 @@ fn read_event(row: &rusqlite::Row<'_>) -> rusqlite::Result<EventRecord> {
         evidence_ids: read_json(row, 4)?,
         explanation_template_id: row.get(5)?,
         params: read_json(row, 6)?,
+        created_at: row.get::<_, Option<i64>>(7)?.map(Timestamp),
     })
 }
 fn read_u64(row: &rusqlite::Row<'_>, index: usize) -> rusqlite::Result<u64> {
@@ -197,6 +201,14 @@ fn read_ledger(row: &rusqlite::Row<'_>) -> rusqlite::Result<LedgerRecord> {
     })
 }
 impl Store {
+    fn event_columns(&self) -> &'static str {
+        if self.schema_version < 2 {
+            "id, kind, session_id, inputs, evidence_ids, explanation_template_id, params, NULL AS created_at"
+        } else {
+            EVENT_COLUMNS
+        }
+    }
+
     /// Insert or update a session, preserving its original start time.
     ///
     /// # Errors
@@ -312,10 +324,24 @@ impl Store {
     /// # Errors
     /// Returns an error if encoding or writing fails.
     pub fn insert_event(&self, event: &NewEvent) -> Result<i64, StoreError> {
+        self.insert_event_with_time(event, None)
+    }
+    /// Insert an action with its daemon-supplied Unix-millisecond timestamp.
+    ///
+    /// # Errors
+    /// Returns an error if encoding or writing fails.
+    pub fn insert_event_at(&self, event: &NewEvent, at: Timestamp) -> Result<i64, StoreError> {
+        self.insert_event_with_time(event, Some(at))
+    }
+    fn insert_event_with_time(
+        &self,
+        event: &NewEvent,
+        at: Option<Timestamp>,
+    ) -> Result<i64, StoreError> {
         let inputs = serde_json::to_string(&event.inputs)?;
         let evidence = serde_json::to_string(&event.evidence_ids)?;
         let parameters = serde_json::to_string(&event.params)?;
-        Ok(self.conn.query_row("INSERT INTO events (kind, session_id, inputs, evidence_ids, explanation_template_id, params) VALUES (?1, ?2, ?3, ?4, ?5, ?6) RETURNING id", params![event.kind, event.session_id, inputs, evidence, event.explanation_template_id, parameters], |row| row.get(0))?)
+        Ok(self.conn.query_row("INSERT INTO events (kind, session_id, inputs, evidence_ids, explanation_template_id, params, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7) RETURNING id", params![event.kind, event.session_id, inputs, evidence, event.explanation_template_id, parameters, at.map(|t| t.0)], |row| row.get(0))?)
     }
     /// Find an event by identifier.
     ///
@@ -325,7 +351,7 @@ impl Store {
         Ok(self
             .conn
             .query_row(
-                &format!("SELECT {EVENT_COLUMNS} FROM events WHERE id=?1"),
+                &format!("SELECT {} FROM events WHERE id=?1", self.event_columns()),
                 [id],
                 read_event,
             )
@@ -337,7 +363,8 @@ impl Store {
     /// Returns an error if querying or decoding fails.
     pub fn list_events_by_session(&self, session_id: i64) -> Result<Vec<EventRecord>, StoreError> {
         let mut stmt = self.conn.prepare(&format!(
-            "SELECT {EVENT_COLUMNS} FROM events WHERE session_id=?1 ORDER BY id"
+            "SELECT {} FROM events WHERE session_id=?1 ORDER BY id",
+            self.event_columns()
         ))?;
         let rows = stmt.query_map([session_id], read_event)?;
         Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
@@ -348,7 +375,8 @@ impl Store {
     /// Returns an error if querying or decoding fails.
     pub fn list_recent_events(&self, limit: i64) -> Result<Vec<EventRecord>, StoreError> {
         let mut stmt = self.conn.prepare(&format!(
-            "SELECT {EVENT_COLUMNS} FROM events ORDER BY id DESC LIMIT ?1"
+            "SELECT {} FROM events ORDER BY id DESC LIMIT ?1",
+            self.event_columns()
         ))?;
         let rows = stmt.query_map([limit], read_event)?;
         Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)

@@ -1,0 +1,13 @@
+Event 4812, 2026-11-03 14:22, Claude Code, repo github.com/acme/api
+
+What happened: tokenimum added a short note to the agent's context:
+  "Run tests with `python -m pytest` (`pytest` fails here: ImportError)."
+
+Why: in 4 of the last 5 sessions in this repository, `pytest` failed with an
+ImportError and `python -m pytest` then worked. The fact was confirmed in 3
+sessions (needed: 3) and never contradicted.
+
+Model checks: inception/mercury-decide-20260930 rated it stable (0.94) and safe (0.97).
+Cost of those checks: $0.000006.
+
+Undo: tkm facts forget f-17

@@ -24,12 +24,15 @@ use tkm_proto::monitor::{DecisionNotice, MonitorMessage};
 use tkm_store::NewDecision;
 
 use crate::daemon::{Daemon, lock};
+use crate::persist::DecisionInsert;
 use crate::settings::{LoopMode, Settings};
 use crate::state::Tag;
 
 /// A queued judge request: a snapshot of the turn, owned by the worker.
 pub(crate) struct JudgeJob {
     pub tag: Tag,
+    pub repo: RepoKey,
+    pub key: tkm_store::SessionKey,
     pub seq: u64,
     pub request: JudgeRequest,
     pub prompt: String,
@@ -152,21 +155,22 @@ impl Daemon {
         let request = DecideRequest {
             purpose: Purpose::LoopGuard,
             session_id: format!("{}:{}", job.tag.0.as_str(), job.tag.1),
-            state,
+            state: state.clone(),
             questions: questions.clone(),
         };
         let outcome = self.decider.decide(request).await;
-        self.apply_outcome(&job, &questions, outcome);
+        self.apply_outcome(&job, &questions, &state, outcome);
     }
 
     fn apply_outcome(
         &self,
         job: &JudgeJob,
         questions: &BTreeMap<String, Question>,
+        digest: &str,
         outcome: Outcome,
     ) {
         match outcome {
-            Outcome::Decision(decision) => self.apply_decision(job, questions, &decision),
+            Outcome::Decision(decision) => self.apply_decision(job, questions, digest, &decision),
             Outcome::NoDecision(reason) => {
                 self.release_judge(job);
                 if reason != NoDecisionReason::Disabled {
@@ -196,6 +200,7 @@ impl Daemon {
         &self,
         job: &JudgeJob,
         questions: &BTreeMap<String, Question>,
+        digest: &str,
         decision: &Decision,
     ) {
         let key = CalibrationKey {
@@ -207,21 +212,39 @@ impl Daemon {
         let acting = job.settings.loop_mode == LoopMode::Redirect && calibrated.is_some();
         let thresholds = calibrated.unwrap_or_default();
 
-        lock(&self.outbox).decisions.push_back(NewDecision {
-            model: decision.model_version.clone(),
-            purpose: key.purpose.clone(),
-            questions: serde_json::to_value(questions).unwrap_or_default(),
-            answers: serde_json::to_value(&decision.answers).unwrap_or_default(),
-            cost_usd: decision.usage.cost.unwrap_or(0.0),
-            latency_ms: u32::try_from(decision.latency_ms).unwrap_or(u32::MAX),
-            shadow: !acting,
+        let evidence = Arc::new(std::sync::atomic::AtomicI64::new(0));
+        lock(&self.outbox).decisions.push_back(DecisionInsert {
+            evidence_id: evidence.clone(),
+            created_at: tkm_core::model::Timestamp(
+                i64::try_from(self.clock.now_ms()).unwrap_or(i64::MAX),
+            ),
+            repo: Some(job.repo.clone()),
+            key: Some(job.key.clone()),
+            digest: Some(digest.to_owned()),
+            decision: NewDecision {
+                model: decision.model_version.clone(),
+                purpose: key.purpose.clone(),
+                questions: serde_json::to_value(questions).unwrap_or_default(),
+                answers: serde_json::to_value(&decision.answers).unwrap_or_default(),
+                cost_usd: if decision.cached {
+                    0.0
+                } else {
+                    decision.usage.cost.unwrap_or(0.0)
+                },
+                latency_ms: u32::try_from(decision.latency_ms).unwrap_or(u32::MAX),
+                shadow: !acting,
+            },
         });
         self.publish(|| {
             MonitorMessage::Decision(DecisionNotice {
                 purpose: key.purpose.clone(),
                 model: decision.model_version.clone(),
                 latency_ms: decision.latency_ms,
-                cost_usd: decision.usage.cost.unwrap_or(0.0),
+                cost_usd: if decision.cached {
+                    0.0
+                } else {
+                    decision.usage.cost.unwrap_or(0.0)
+                },
                 shadow: !acting,
                 answers: serde_json::to_value(&decision.answers).unwrap_or_default(),
             })
@@ -248,6 +271,7 @@ impl Daemon {
         };
         let mut shadow_stuck = false;
         if let Some(turn) = session.turn.as_mut().filter(|t| t.seq == job.seq) {
+            session.loop_evidence = Some(evidence);
             turn.judging = false;
             if let Some(turn_guard) = turn.guard.as_mut() {
                 if acting {

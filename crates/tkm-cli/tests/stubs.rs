@@ -27,19 +27,6 @@ fn skills_json_is_an_empty_array() {
 }
 
 #[test]
-fn other_commands_dispatch_to_stubs() {
-    for (args, name) in [
-        (vec!["status", "--json"], "status"),
-        (vec!["why", "last"], "why"),
-        (vec!["facts"], "facts"),
-        (vec!["facts", "forget", "f-1"], "facts"),
-        (vec!["export", "--show-digests"], "export"),
-    ] {
-        assert_unavailable(&args, name);
-    }
-}
-
-#[test]
 fn usage_error_exits_two() {
     let output = common::tkm(&["calibrate", "--purpose", "unknown"]);
     assert_eq!(output.status.code(), Some(2));
