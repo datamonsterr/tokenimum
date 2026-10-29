@@ -26,3 +26,8 @@ Date: 2026-10-29. Status: accepted (epic E8.2).
    inline SVG drawn by the page script. A test scans the embedded assets for `http://`,
    `https://` and protocol-relative `//host` URLs. Responses carry
    `Content-Security-Policy: default-src 'self'; frame-ancestors 'none'`.
+
+7. **Action resource limits.** Action JSON is limited to 16 KiB, each input field to 4 KiB,
+   and outstanding confirmations to 32. Expired confirmations are removed on state, prepare,
+   and confirm requests. Presets must be one of the config presets, and restore checkouts must
+   be absolute and recorded in the deny-list table.

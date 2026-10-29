@@ -35,3 +35,8 @@ Facts, Redirects. The TUI works read-only from the database when the daemon is d
 
 Details of the web security model are in ADR 0036; TUI layout and keys in ADR 0037; the CI memory
 and render budgets in ADR 0038.
+
+7. **Resynchronization.** Clients subscribe before loading their initial snapshot and apply buffered
+   messages afterward. The TUI bounds its socket queue at 1,024 messages and reloads the snapshot
+   after overflow. The web dashboard marks its state degraded while reloading after broadcast lag.
+   A folded session triggers a refresh of ledger savings rows.

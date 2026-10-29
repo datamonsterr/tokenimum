@@ -1,5 +1,9 @@
 //! Background reader for the daemon's monitor socket.
-use std::sync::mpsc::{self, Receiver};
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+    mpsc::{self, Receiver, TrySendError},
+};
 use tkm_config::paths::Paths;
 use tkm_proto::{
     PROTOCOL_VERSION,
@@ -20,11 +24,14 @@ pub struct Feed {
     pub mode: Mode,
     /// Received messages.
     pub receiver: Receiver<MonitorMessage>,
+    /// Set when messages were dropped and the snapshot needs reloading.
+    pub resync: Arc<AtomicBool>,
 }
 /// Connect and validate the first frame; connection or protocol failure falls back to read-only.
 #[must_use]
 pub fn connect(paths: &Paths) -> Feed {
-    let (sender, receiver) = mpsc::channel();
+    let (sender, receiver) = mpsc::sync_channel(1024);
+    let resync = Arc::new(AtomicBool::new(false));
     #[cfg(unix)]
     {
         use std::{os::unix::net::UnixStream, time::Duration};
@@ -35,16 +42,20 @@ pub fn connect(paths: &Paths) -> Feed {
             if matches!(tkm_proto::read_frame::<_, MonitorMessage>(&mut stream, MONITOR_MAX_FRAME), Ok(MonitorMessage::Hello { version }) if version == PROTOCOL_VERSION)
             {
                 let _ = stream.set_read_timeout(None);
+                let overflow = Arc::clone(&resync);
                 std::thread::spawn(move || {
                     while let Ok(message) = tkm_proto::read_frame(&mut stream, MONITOR_MAX_FRAME) {
-                        if sender.send(message).is_err() {
-                            break;
+                        match sender.try_send(message) {
+                            Ok(()) => {}
+                            Err(TrySendError::Full(_)) => overflow.store(true, Ordering::Release),
+                            Err(TrySendError::Disconnected(_)) => break,
                         }
                     }
                 });
                 return Feed {
                     mode: Mode::Live,
                     receiver,
+                    resync,
                 };
             }
         }
@@ -54,5 +65,6 @@ pub fn connect(paths: &Paths) -> Feed {
     Feed {
         mode: Mode::ReadOnly,
         receiver,
+        resync,
     }
 }

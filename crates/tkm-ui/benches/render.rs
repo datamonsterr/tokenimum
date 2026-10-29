@@ -3,10 +3,12 @@ use criterion::{Criterion, criterion_group, criterion_main};
 use ratatui::{Terminal, backend::TestBackend};
 use tkm_proto::{
     Host,
-    monitor::{DecisionNotice, FactNotice, MonitorMessage, SessionUpdate},
+    monitor::{
+        DecisionNotice, FactNotice, MonitorMessage, RedirectNotice, SessionUpdate, SpendUpdate,
+    },
 };
 use tkm_ui::{
-    model::MonitorState,
+    model::{MonitorState, Savings},
     tui::{self, Pane, ViewState},
 };
 
@@ -36,6 +38,28 @@ fn render_benches(c: &mut Criterion) {
             cost_usd: 0.0001,
             shadow: false,
             answers: serde_json::json!({"safe": true}),
+        }));
+    }
+    state.spend = Some(SpendUpdate {
+        today_usd: 1.0,
+        daily_cap_usd: 10.0,
+        session_cap_usd: 2.0,
+    });
+    for i in 0..500 {
+        state.savings.push(Savings {
+            repo: format!("repo-{}", i % 10),
+            host: format!("host-{}", i % 3),
+            cost: f64::from(i) / 100.0,
+            shadow: i % 2 == 0,
+        });
+    }
+    for i in 0..1000 {
+        state.apply(MonitorMessage::Redirect(RedirectNotice {
+            host: Host::Claude,
+            session_id: format!("session-{i}"),
+            kind: "redirect".into(),
+            text: "try again".into(),
+            shadow: false,
         }));
     }
     for (pane, name) in Pane::ALL.into_iter().zip([

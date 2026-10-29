@@ -375,9 +375,9 @@ impl WhySource for DatabaseWhy<'_> {
 /// # Panics
 /// Panics if terminal initialization fails, as specified by `ratatui::init`.
 pub fn run(paths: &Paths) -> Result<(), Error> {
+    let feed = feed::connect(paths);
     let conn = tkm_store::open_read_only(&paths.db)?;
     let mut state = model::load_snapshot(&conn)?;
-    let feed = feed::connect(paths);
     let mut view = ViewState {
         mode: feed.mode,
         ..ViewState::default()
@@ -385,9 +385,16 @@ pub fn run(paths: &Paths) -> Result<(), Error> {
     let mut terminal = ratatui::init();
     let result = (|| -> Result<(), Error> {
         loop {
+            if feed.resync.swap(false, std::sync::atomic::Ordering::AcqRel) {
+                state = model::load_snapshot(&conn)?;
+            }
             loop {
                 match feed.receiver.try_recv() {
                     Ok(message) => {
+                        if matches!(&message, tkm_proto::monitor::MonitorMessage::Session(update) if update.phase == "folded")
+                        {
+                            state.savings = model::load_snapshot(&conn)?.savings;
+                        }
                         state.apply(message);
                         view.last_message = Some(
                             SystemTime::now()

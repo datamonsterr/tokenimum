@@ -5,7 +5,7 @@ use std::{
     io::{self, Write},
     os::unix::fs::{OpenOptionsExt, PermissionsExt},
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{Arc, Mutex},
 };
 use tkm_config::{
     config::{ConfigFile, Layer},
@@ -16,6 +16,8 @@ use tkm_ui::web::{Actions, WebConfig, WebState};
 
 struct DaemonActions {
     db: PathBuf,
+    daemon: Arc<Daemon>,
+    deny_lock: Mutex<()>,
 }
 impl Actions for DaemonActions {
     fn forget_fact(&self, repo: &str, fact_id: &str) -> Result<String, String> {
@@ -27,9 +29,17 @@ impl Actions for DaemonActions {
                 tkm_store::FactState::Retired,
             )
             .map_err(|e| e.to_string())?;
+        self.daemon.publish(|| {
+            tkm_proto::monitor::MonitorMessage::Fact(tkm_proto::monitor::FactNotice {
+                repo: repo.into(),
+                fact_id: fact_id.into(),
+                kind: "retired".into(),
+            })
+        });
         Ok(format!("Forgot fact {fact_id} in {repo}"))
     }
     fn restore_tool(&self, checkout: &str, host: &str, tool: &str) -> Result<String, String> {
+        let _guard = self.deny_lock.lock().map_err(|e| e.to_string())?;
         let host: Host = host.parse().map_err(|_| "invalid host".to_owned())?;
         if host != Host::Claude {
             return Err("this host does not support deny-list writes".into());
@@ -49,7 +59,27 @@ impl Actions for DaemonActions {
         plan.applied.insert(checkout.to_owned(), owned.clone());
         let requested = BTreeSet::from([tool.to_owned()]);
         let (_, delta) = tkm_core::prune::denylist::restore(&plan, checkout, &owned, &requested);
-        let desired = owned.difference(&delta.remove).cloned().collect();
+        let settings = path.join(".claude/settings.local.json");
+        let current: serde_json::Value = match std::fs::read_to_string(settings) {
+            Ok(contents) => {
+                serde_json::from_str(&contents).map_err(|e| format!("invalid settings: {e}"))?
+            }
+            Err(e) if e.kind() == io::ErrorKind::NotFound => serde_json::json!({}),
+            Err(e) => return Err(e.to_string()),
+        };
+        let present: BTreeSet<String> = current
+            .pointer("/permissions/deny")
+            .and_then(serde_json::Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(serde_json::Value::as_str)
+            .map(str::to_owned)
+            .collect();
+        let desired = owned
+            .intersection(&present)
+            .filter(|entry| !delta.remove.contains(*entry))
+            .cloned()
+            .collect();
         tkm_hosts::writer::deny::update_deny(path, &owned, &desired, false)
             .map_err(|e| e.to_string())?;
         store
@@ -78,12 +108,18 @@ impl Actions for DaemonActions {
         Ok(format!("Changed {repo} to {preset}"))
     }
 }
+struct DiscoveryFile(PathBuf);
+impl Drop for DiscoveryFile {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.0);
+    }
+}
 /// Running dashboard and its private discovery file.
 pub struct WebServer {
     stop: tokio::sync::oneshot::Sender<()>,
     task: tokio::task::JoinHandle<()>,
     feed: tokio::task::JoinHandle<()>,
-    file: PathBuf,
+    file: DiscoveryFile,
 }
 impl WebServer {
     /// Start a dashboard; failures leave the daemon unaffected.
@@ -107,10 +143,12 @@ impl WebServer {
             snapshot,
             Arc::new(DaemonActions {
                 db: paths.db.clone(),
+                daemon: Arc::clone(&daemon),
+                deny_lock: Mutex::new(()),
             }),
             paths.db.clone(),
         );
-        let monitor = Arc::clone(&state.monitor);
+        let feed_state = state.clone();
         let file = paths.socket.with_file_name("tkmd-web.json");
         let temp = paths
             .socket
@@ -137,11 +175,28 @@ impl WebServer {
             loop {
                 match receiver.recv().await {
                     Ok(message) => {
-                        if let Ok(mut state) = monitor.write() {
+                        if matches!(&message, tkm_proto::monitor::MonitorMessage::Session(update) if update.phase == "folded")
+                        {
+                            if let Ok(snapshot) = feed_state.reload_snapshot().await {
+                                if let Ok(mut state) = feed_state.monitor.write() {
+                                    state.savings = snapshot.savings;
+                                }
+                            }
+                        }
+                        if let Ok(mut state) = feed_state.monitor.write() {
                             state.apply(message);
                         }
                     }
-                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
+                        if let Ok(mut state) = feed_state.monitor.write() {
+                            state.degraded = true;
+                        }
+                        if let Ok(snapshot) = feed_state.reload_snapshot().await {
+                            if let Ok(mut state) = feed_state.monitor.write() {
+                                *state = snapshot;
+                            }
+                        }
+                    }
                     Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
                 }
             }
@@ -161,15 +216,22 @@ impl WebServer {
             stop,
             task,
             feed,
-            file,
+            file: DiscoveryFile(file),
         })
     }
     /// Stop the server and remove the discovery file.
     pub async fn shutdown(self) {
         let _ = self.stop.send(());
-        let _ = self.task.await;
+        let mut task = self.task;
+        if tokio::time::timeout(std::time::Duration::from_secs(2), &mut task)
+            .await
+            .is_err()
+        {
+            task.abort();
+            let _ = task.await;
+        }
         self.feed.abort();
         let _ = self.feed.await;
-        let _ = std::fs::remove_file(self.file);
+        drop(self.file);
     }
 }

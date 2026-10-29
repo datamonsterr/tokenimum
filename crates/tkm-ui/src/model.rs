@@ -37,6 +37,8 @@ pub struct Savings {
 /// The shared, deterministic monitor model.
 #[derive(Debug, Clone, Default, PartialEq, Serialize)]
 pub struct MonitorState {
+    /// Whether the live state is awaiting a successful resynchronization.
+    pub degraded: bool,
     /// Session updates.
     pub sessions: Vec<SessionUpdate>,
     /// Latest stored event ID for each session, when known.
@@ -109,6 +111,9 @@ impl MonitorState {
                         fact.state = state.into();
                     }
                 } else {
+                    if self.facts.len() >= 2_000 {
+                        self.facts.remove(0);
+                    }
                     self.facts.push(Fact {
                         repo: update.repo,
                         fact_id: update.fact_id,
@@ -185,7 +190,7 @@ pub fn load_snapshot(conn: &Connection) -> Result<MonitorState, crate::Error> {
         state.decision_ids.push_back(Some(id));
     }
     let mut query = conn.prepare(
-        "SELECT repo_key,fact_id,state,score,confirmations FROM facts ORDER BY repo_key,fact_id",
+        "SELECT repo_key,fact_id,state,score,confirmations FROM facts WHERE state IN ('active','candidate') OR rowid IN (SELECT rowid FROM facts WHERE state='retired' ORDER BY rowid DESC LIMIT 100) ORDER BY repo_key,fact_id",
     )?;
     state.facts = query
         .query_map([], |row| {
@@ -198,7 +203,7 @@ pub fn load_snapshot(conn: &Connection) -> Result<MonitorState, crate::Error> {
             })
         })?
         .collect::<rusqlite::Result<_>>()?;
-    let mut query = conn.prepare("SELECT s.repo_key,s.host,l.priced_cost,s.shadow FROM ledger l JOIN sessions s ON s.id=l.session_id ORDER BY s.started_at")?;
+    let mut query = conn.prepare("SELECT repo_key,host,priced_cost,shadow FROM (SELECT s.repo_key,s.host,l.priced_cost,s.shadow,s.started_at FROM ledger l JOIN sessions s ON s.id=l.session_id ORDER BY s.started_at DESC LIMIT 1000) ORDER BY started_at")?;
     state.savings = query
         .query_map([], |row| {
             Ok(Savings {

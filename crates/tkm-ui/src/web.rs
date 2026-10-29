@@ -3,7 +3,7 @@
 use crate::model::MonitorState;
 use axum::{
     Json, Router,
-    extract::{Path, Request, State},
+    extract::{DefaultBodyLimit, Path, Request, State},
     http::{HeaderValue, StatusCode, header},
     middleware::{self, Next},
     response::{Html, IntoResponse, Response},
@@ -103,6 +103,7 @@ pub struct WebState {
     actions: Arc<dyn Actions>,
     db: PathBuf,
     pending: Arc<Mutex<HashMap<String, Pending>>>,
+    blocking: Arc<tokio::sync::Semaphore>,
     clock: Arc<dyn Fn() -> u64 + Send + Sync>,
 }
 impl WebState {
@@ -120,6 +121,7 @@ impl WebState {
             actions,
             db,
             pending: Arc::new(Mutex::new(HashMap::new())),
+            blocking: Arc::new(tokio::sync::Semaphore::new(4)),
             clock: Arc::new(|| {
                 SystemTime::now()
                     .duration_since(UNIX_EPOCH)
@@ -127,6 +129,18 @@ impl WebState {
                     .as_secs()
             }),
         }
+    }
+    /// Reload the database snapshot without blocking an async executor thread.
+    ///
+    /// # Errors
+    /// Returns an error when the database or blocking task fails.
+    pub async fn reload_snapshot(&self) -> Result<MonitorState, StatusCode> {
+        let db = self.db.clone();
+        blocking(self, move || {
+            let conn = tkm_store::open_read_only(&db).map_err(|e| e.to_string())?;
+            crate::model::load_snapshot(&conn).map_err(|e| e.to_string())
+        })
+        .await
     }
     /// Replace the clock, for deterministic expiry tests.
     pub fn set_clock(&mut self, clock: Arc<dyn Fn() -> u64 + Send + Sync>) {
@@ -184,6 +198,11 @@ async fn css() -> impl IntoResponse {
     )
 }
 async fn state(State(s): State<WebState>) -> Result<Json<MonitorState>, StatusCode> {
+    let now = (s.clock)();
+    s.pending
+        .lock()
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .retain(|_, entry| now.saturating_sub(entry.created) < 60);
     s.monitor
         .read()
         .map(|m| Json(m.clone()))
@@ -219,29 +238,53 @@ fn query(
             .map_err(|e| e.to_string())?
     ))
 }
+async fn blocking<T: Send + 'static>(
+    s: &WebState,
+    f: impl FnOnce() -> Result<T, String> + Send + 'static,
+) -> Result<T, StatusCode> {
+    let permit = Arc::clone(&s.blocking)
+        .acquire_owned()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    tokio::task::spawn_blocking(move || {
+        let _permit = permit;
+        f()
+    })
+    .await
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+}
 async fn history(State(s): State<WebState>) -> Result<Json<Value>, StatusCode> {
-    let rows = query(&s.db, "SELECT sessions.session_id, sessions.repo_key, sessions.host, sessions.started_at, ledger.priced_cost FROM ledger JOIN sessions ON sessions.id=ledger.session_id ORDER BY sessions.started_at", &[]).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    let daily = query(&s.db, "SELECT date(sessions.started_at / 1000, 'unixepoch') AS day, sum(ledger.priced_cost) AS cost FROM ledger JOIN sessions ON sessions.id=ledger.session_id GROUP BY day ORDER BY day", &[]).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    Ok(Json(json!({"sessions":rows,"days":daily})))
+    let db = s.db.clone();
+    blocking(&s, move || {
+        let rows = query(&db, "SELECT sessions.session_id, sessions.repo_key, sessions.host, sessions.started_at, ledger.priced_cost FROM ledger JOIN sessions ON sessions.id=ledger.session_id ORDER BY sessions.started_at", &[])?;
+        let daily = query(&db, "SELECT date(sessions.started_at / 1000, 'unixepoch') AS day, sum(ledger.priced_cost) AS cost FROM ledger JOIN sessions ON sessions.id=ledger.session_id GROUP BY day ORDER BY day", &[])?;
+        Ok(Json(json!({"sessions":rows,"days":daily})))
+    }).await
 }
 async fn facts(
     State(s): State<WebState>,
     Path((repo, id)): Path<(String, String)>,
 ) -> Result<Json<Value>, StatusCode> {
-    query(
-        &s.db,
-        "SELECT * FROM facts WHERE repo_key=?1 AND fact_id=?2",
-        &[&repo, &id],
-    )
-    .map(Json)
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+    let db = s.db.clone();
+    blocking(&s, move || {
+        query(
+            &db,
+            "SELECT * FROM facts WHERE repo_key=?1 AND fact_id=?2",
+            &[&repo, &id],
+        )
+        .map(Json)
+    })
+    .await
 }
 async fn prune(State(s): State<WebState>) -> Result<Json<Value>, StatusCode> {
-    let evidence = query(&s.db, "SELECT * FROM tool_evidence", &[])
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    let applied = query(&s.db, "SELECT * FROM denylist_applied", &[])
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    Ok(Json(json!({"evidence": evidence, "applied": applied})))
+    let db = s.db.clone();
+    blocking(&s, move || {
+        let evidence = query(&db, "SELECT * FROM tool_evidence", &[])?;
+        let applied = query(&db, "SELECT * FROM denylist_applied", &[])?;
+        Ok(Json(json!({"evidence":evidence,"applied":applied})))
+    })
+    .await
 }
 fn nonempty(s: Option<&str>) -> Option<&str> {
     s.filter(|s| !s.trim().is_empty())
@@ -251,6 +294,28 @@ async fn prepare(
     Path(kind): Path<String>,
     Json(input): Json<ActionInput>,
 ) -> Result<Json<Value>, StatusCode> {
+    if [
+        input.repo.as_deref(),
+        input.fact_id.as_deref(),
+        input.checkout.as_deref(),
+        input.host.as_deref(),
+        input.tool.as_deref(),
+        input.preset.as_deref(),
+    ]
+    .into_iter()
+    .flatten()
+    .any(|value| value.len() > 4096)
+    {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    let now = (s.clock)();
+    {
+        let mut pending = s
+            .pending
+            .lock()
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        pending.retain(|_, entry| now.saturating_sub(entry.created) < 60);
+    }
     let summary = match kind.as_str() {
         "forget_fact" => format!(
             "Forget fact {} in {}",
@@ -263,6 +328,22 @@ async fn prepare(
                 .map_err(|_| StatusCode::BAD_REQUEST)?;
             let checkout = nonempty(input.checkout.as_deref()).ok_or(StatusCode::BAD_REQUEST)?;
             if !std::path::Path::new(checkout).is_absolute() {
+                return Err(StatusCode::BAD_REQUEST);
+            }
+            let db = s.db.clone();
+            let check = checkout.to_owned();
+            let recorded = blocking(&s, move || {
+                let conn = tkm_store::open_read_only(&db).map_err(|e| e.to_string())?;
+                conn.query_row(
+                    "SELECT EXISTS(SELECT 1 FROM denylist_applied WHERE checkout_path=?1)",
+                    [&check],
+                    |row| row.get::<_, bool>(0),
+                )
+                .map_err(|e| e.to_string())
+            })
+            .await
+            .map_err(|_| StatusCode::BAD_REQUEST)?;
+            if !recorded {
                 return Err(StatusCode::BAD_REQUEST);
             }
             format!(
@@ -282,13 +363,16 @@ async fn prepare(
         }
         _ => return Err(StatusCode::NOT_FOUND),
     };
-    let id = generate_token().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let id = blocking(&s, || generate_token().map_err(|e| e.to_string())).await?;
     let now = (s.clock)();
     let mut pending = s
         .pending
         .lock()
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     pending.retain(|_, entry| now.saturating_sub(entry.created) < 60);
+    if pending.len() >= 32 {
+        return Err(StatusCode::TOO_MANY_REQUESTS);
+    }
     pending.insert(
         id.clone(),
         Pending {
@@ -303,32 +387,49 @@ async fn confirm(
     State(s): State<WebState>,
     Path(id): Path<String>,
 ) -> Result<Json<Value>, (StatusCode, String)> {
-    let entry = s
-        .pending
-        .lock()
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "lock failed".into()))?
-        .remove(&id)
-        .ok_or((StatusCode::NOT_FOUND, "confirmation not found".into()))?;
-    if (s.clock)().saturating_sub(entry.created) >= 60 {
-        return Err((StatusCode::GONE, "confirmation expired".into()));
-    }
-    let i = entry.input;
-    let result = match entry.kind.as_str() {
-        "forget_fact" => s.actions.forget_fact(
-            i.repo.as_deref().unwrap_or_default(),
-            i.fact_id.as_deref().unwrap_or_default(),
-        ),
-        "restore_tool" => s.actions.restore_tool(
-            i.checkout.as_deref().unwrap_or_default(),
-            i.host.as_deref().unwrap_or_default(),
-            i.tool.as_deref().unwrap_or_default(),
-        ),
-        "switch_preset" => s.actions.switch_preset(
-            i.repo.as_deref().unwrap_or_default(),
-            i.preset.as_deref().unwrap_or_default(),
-        ),
-        _ => Err("unknown action".into()),
-    }
+    let entry = {
+        let mut pending = s
+            .pending
+            .lock()
+            .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "lock failed".into()))?;
+        let now = (s.clock)();
+        pending.retain(|_, entry| now.saturating_sub(entry.created) < 60);
+        pending
+            .remove(&id)
+            .ok_or((StatusCode::NOT_FOUND, "confirmation not found".into()))?
+    };
+    let actions = Arc::clone(&s.actions);
+    let permit = Arc::clone(&s.blocking)
+        .acquire_owned()
+        .await
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "semaphore closed".into()))?;
+    let result = tokio::task::spawn_blocking(move || {
+        let _permit = permit;
+        let i = entry.input;
+        match entry.kind.as_str() {
+            "forget_fact" => actions.forget_fact(
+                i.repo.as_deref().unwrap_or_default(),
+                i.fact_id.as_deref().unwrap_or_default(),
+            ),
+            "restore_tool" => actions.restore_tool(
+                i.checkout.as_deref().unwrap_or_default(),
+                i.host.as_deref().unwrap_or_default(),
+                i.tool.as_deref().unwrap_or_default(),
+            ),
+            "switch_preset" => actions.switch_preset(
+                i.repo.as_deref().unwrap_or_default(),
+                i.preset.as_deref().unwrap_or_default(),
+            ),
+            _ => Err("unknown action".into()),
+        }
+    })
+    .await
+    .map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "action task failed".into(),
+        )
+    })?
     .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
     Ok(Json(json!({"summary":result})))
 }
@@ -342,7 +443,10 @@ pub fn router(state: WebState) -> Router {
         .route("/api/history", get(history))
         .route("/api/facts/{repo}/{id}", get(facts))
         .route("/api/prune", get(prune))
-        .route("/api/actions/{kind}", post(prepare))
+        .route(
+            "/api/actions/{kind}",
+            post(prepare).layer(DefaultBodyLimit::max(16 * 1024)),
+        )
         .route("/api/confirm/{id}", post(confirm))
         .layer(middleware::from_fn_with_state(state.clone(), guard))
         .with_state(state)
