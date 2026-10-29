@@ -21,6 +21,7 @@ pub struct DenyDelta {
 }
 /// Plan automatic application. Commit the returned state only after the adapter
 /// successfully applies the delta; checkout identity is caller-supplied.
+#[must_use]
 pub fn apply(
     state: &DenyState,
     checkout: &str,
@@ -48,6 +49,7 @@ pub fn apply(
 }
 /// Restore requested owned rules and remember them as kept. Foreign rules are untouched.
 /// Commit the returned state only after the adapter successfully applies the delta.
+#[must_use]
 pub fn restore(
     state: &DenyState,
     checkout: &str,

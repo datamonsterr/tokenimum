@@ -3,6 +3,11 @@ use crate::model::{Session, ToolKind};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
+#[derive(Deserialize)]
+struct SkillArgs {
+    skill: String,
+}
+
 /// Counts of sessions in which a skill was loaded and calls that invoked it.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SkillUsage {
@@ -35,10 +40,6 @@ pub fn fold_skills(report: &mut SkillReport, session: &Session) {
     for name in &names {
         let item = report.skills.entry((*name).to_owned()).or_default();
         item.loaded_sessions = item.loaded_sessions.saturating_add(1);
-    }
-    #[derive(Deserialize)]
-    struct SkillArgs {
-        skill: String,
     }
     for call in session.turns.iter().flat_map(|turn| &turn.calls) {
         if !["Skill", "skill"].contains(&call.tool.as_str())
