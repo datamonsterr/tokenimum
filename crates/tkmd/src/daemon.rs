@@ -664,6 +664,9 @@ impl Daemon {
                         } else {
                             false
                         };
+                        self.log_error(&format!(
+                            "debug: judge requested queued={queued} envelope={envelope:?}"
+                        ));
                         if let Some(turn_guard) = turn.guard.as_mut() {
                             if queued {
                                 turn.judging = true;

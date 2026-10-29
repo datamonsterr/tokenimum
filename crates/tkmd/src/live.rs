@@ -155,7 +155,14 @@ impl Daemon {
             state,
             questions: questions.clone(),
         };
+        self.log_error("debug: judge started");
         let outcome = self.decider.decide(request).await;
+        self.log_error(
+            &format!("debug: judge outcome {outcome:?}")
+                .chars()
+                .take(300)
+                .collect::<String>(),
+        );
         self.apply_outcome(&job, &questions, outcome);
     }
 
