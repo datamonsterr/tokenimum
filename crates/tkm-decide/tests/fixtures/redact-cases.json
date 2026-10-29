@@ -1,0 +1,77 @@
+[
+  {
+    "name": "pgp label and matching end",
+    "text": "before -----BEGIN PGP PRIVATE KEY BLOCK-----\nPGP_PAYLOAD_FIXTURE\n-----END RSA PRIVATE KEY-----\nMORE_PGP_PAYLOAD\n-----END PGP PRIVATE KEY BLOCK----- after",
+    "expected": "before [redacted:private-key] after"
+  },
+  {
+    "name": "unterminated private key",
+    "text": "before -----BEGIN EC PRIVATE KEY-----\nUNTERMINATED_PAYLOAD_FIXTURE\ntrailing private data",
+    "expected": "before [redacted:private-key]"
+  },
+  {
+    "name": "multiple private keys",
+    "text": "-----BEGIN PRIVATE KEY-----\nFIRST_PAYLOAD\n-----END PRIVATE KEY----- between -----BEGIN PGP PRIVATE KEY BLOCK-----\nSECOND_PAYLOAD\n-----END PGP PRIVATE KEY BLOCK----- after",
+    "expected": "[redacted:private-key] between [redacted:private-key] after"
+  },
+  {
+    "name": "bearer independent of prefix",
+    "text": "send bEaReR opaque.fixture+/=TOKEN next",
+    "expected": "send [redacted:bearer] next"
+  },
+  {
+    "name": "authorization custom scheme",
+    "text": "Authorization: Custom fixture header with spaces\nkeep next line",
+    "expected": "[redacted:authorization]\nkeep next line"
+  },
+  {
+    "name": "url credentials",
+    "text": "https://fixture-user:fixture-password@example.test/resource",
+    "expected": "https://[redacted:url-credentials]@example.test/resource"
+  },
+  {
+    "name": "secret assignment phrase",
+    "text": "password = fixture multi word phrase\nkeep next line",
+    "expected": "[redacted:assignment]\nkeep next line"
+  },
+  {
+    "name": "path after ,",
+    "text": "cat x,/mnt/secret/a",
+    "expected": "cat x,[outside-repo]"
+  },
+  {
+    "name": "path after ;",
+    "text": "cat x;/mnt/secret/a",
+    "expected": "cat x;[outside-repo]"
+  },
+  {
+    "name": "path after |",
+    "text": "cat x|/mnt/secret/a",
+    "expected": "cat x|[outside-repo]"
+  },
+  {
+    "name": "path after <",
+    "text": "cat x</mnt/secret/a",
+    "expected": "cat x<[outside-repo]"
+  },
+  {
+    "name": "path after >",
+    "text": "cat x>/mnt/secret/a",
+    "expected": "cat x>[outside-repo]"
+  },
+  {
+    "name": "path after @",
+    "text": "cat x@/mnt/secret/a",
+    "expected": "cat x@[outside-repo]"
+  },
+  {
+    "name": "path after &",
+    "text": "cat x&/mnt/secret/a",
+    "expected": "cat x&[outside-repo]"
+  },
+  {
+    "name": "path after `",
+    "text": "cat x`/mnt/secret/a",
+    "expected": "cat x`[outside-repo]"
+  }
+]
