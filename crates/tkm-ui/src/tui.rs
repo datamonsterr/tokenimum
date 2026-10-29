@@ -392,6 +392,19 @@ fn resync_snapshot<E>(
     let watermark = feed.sequence.load(std::sync::atomic::Ordering::Acquire);
     Ok((load()?, watermark))
 }
+fn apply_queued<E>(
+    state: &mut MonitorState,
+    sequence: u64,
+    watermark: u64,
+    message: tkm_proto::monitor::MonitorMessage,
+    load: impl FnOnce() -> Result<(Vec<model::Savings>, Vec<(String, f64)>), E>,
+) -> Result<bool, E> {
+    if sequence <= watermark {
+        return Ok(false);
+    }
+    state.apply_with_loader(message, load)?;
+    Ok(true)
+}
 /// Run the terminal monitor against one initial snapshot and the live stream.
 ///
 /// # Errors
@@ -421,18 +434,18 @@ pub fn run(paths: &Paths) -> Result<(), Error> {
             }
             loop {
                 match feed.receiver.try_recv() {
-                    Ok((seq, _)) if seq <= watermark => {}
-                    Ok((_, message)) => {
-                        state.apply_with_loader(message, || {
+                    Ok((seq, message)) => {
+                        if apply_queued(&mut state, seq, watermark, message, || {
                             let snapshot = model::load_snapshot(&conn)?;
                             Ok::<_, Error>((snapshot.savings, snapshot.spend_days))
-                        })?;
-                        view.last_message = Some(
-                            SystemTime::now()
-                                .duration_since(UNIX_EPOCH)
-                                .unwrap_or_default()
-                                .as_secs(),
-                        );
+                        })? {
+                            view.last_message = Some(
+                                SystemTime::now()
+                                    .duration_since(UNIX_EPOCH)
+                                    .unwrap_or_default()
+                                    .as_secs(),
+                            );
+                        }
                     }
                     Err(TryRecvError::Empty) => break,
                     Err(TryRecvError::Disconnected) => {
@@ -497,14 +510,32 @@ mod ordering_tests {
             resync: Arc::new(AtomicBool::new(true)),
             sequence: Arc::new(AtomicU64::new(1)),
         };
-        let (mut state, watermark) =
-            resync_snapshot(&feed, || Ok::<_, ()>(MonitorState::default()))?;
+        let (mut state, watermark) = resync_snapshot(&feed, || {
+            sender
+                .send((
+                    2,
+                    tkm_proto::monitor::MonitorMessage::Session(
+                        tkm_proto::monitor::SessionUpdate {
+                            host: tkm_proto::Host::Claude,
+                            session_id: "new".into(),
+                            repo: None,
+                            phase: "active".into(),
+                            turn_calls: 1,
+                            envelope: None,
+                            loop_state: "off".into(),
+                        },
+                    ),
+                ))
+                .map_err(|_| ())?;
+            Ok::<_, ()>(MonitorState::default())
+        })?;
         while let Ok((seq, message)) = feed.receiver.try_recv() {
-            if seq > watermark {
-                state.apply(message);
-            }
+            apply_queued(&mut state, seq, watermark, message, || {
+                Ok::<_, ()>((Vec::new(), Vec::new()))
+            })?;
         }
-        assert!(state.sessions.is_empty());
+        assert_eq!(state.sessions.len(), 1);
+        assert_eq!(state.sessions[0].session_id, "new");
         Ok(())
     }
     #[test]
