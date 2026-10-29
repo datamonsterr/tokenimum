@@ -10,6 +10,7 @@
 
 use std::io::{Read, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
+use std::os::unix::ffi::OsStringExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::Arc;
@@ -420,6 +421,32 @@ fn test_garbage_reply_noop() {
 }
 
 // ── Test: bad args => logs error and exits 0 ─────────────────────────────────
+
+#[test]
+fn test_cursor_invalid_event_returns_cursor_noop() {
+    let tmp = TempDir::new().unwrap();
+    let output = hook_cmd(&tmp, "cursor", "invalid")
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(0));
+    assert_eq!(output.stdout, b"{}");
+    assert_eq!(std::fs::read_to_string(errors_log_path(&tmp)).unwrap().lines().count(), 1);
+}
+
+#[test]
+fn test_non_utf8_argument_does_not_panic() {
+    let tmp = TempDir::new().unwrap();
+    let output = hook_cmd(&tmp, "cursor", "tool_done")
+        .arg(std::ffi::OsString::from_vec(vec![0xff]))
+        .env("TKM_DISABLE", "1")
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(0));
+    assert_eq!(output.stdout, b"{}");
+    assert!(output.stderr.is_empty());
+}
 
 #[test]
 fn test_bad_args_unknown_host_logs_error_and_prints_empty() {
