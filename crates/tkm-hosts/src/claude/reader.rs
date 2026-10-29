@@ -44,9 +44,8 @@ pub(super) fn read(source: &SessionSource) -> Result<Session, AdapterError> {
             break;
         }
         reader.session.total_records = reader.session.total_records.saturating_add(1);
-        let valid = serde_json::from_slice::<Value>(&line)
-            .ok()
-            .is_some_and(|record| reader.record(&record));
+        let valid =
+            serde_json::from_slice::<Value>(&line).is_ok_and(|record| reader.record(&record));
         if !valid {
             reader.session.skipped_records = reader.session.skipped_records.saturating_add(1);
         }

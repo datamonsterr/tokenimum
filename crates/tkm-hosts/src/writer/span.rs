@@ -152,14 +152,16 @@ fn insertion(text: &str, node: &Node, last: Option<(usize, usize)>, content: &st
         let indent = last
             .map(|(start, _)| prefix_at(text, start))
             .filter(|indent| !indent.is_empty())
-            .map(str::to_owned)
-            .unwrap_or_else(|| {
-                format!(
-                    "{}{}",
-                    prefix_at(text, node.range.start),
-                    if text.contains('\t') { "\t" } else { "  " }
-                )
-            });
+            .map_or_else(
+                || {
+                    format!(
+                        "{}{}",
+                        prefix_at(text, node.range.start),
+                        if text.contains('\t') { "\t" } else { "  " }
+                    )
+                },
+                str::to_owned,
+            );
         format!("{comma}{newline}{indent}{content}")
     } else {
         format!("{comma}{content}")
