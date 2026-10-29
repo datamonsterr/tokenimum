@@ -6,7 +6,7 @@ use std::fs;
 use std::path::PathBuf;
 
 use serde_json::{Value, json};
-use tkm_core::model::{Call, HookEvent, StopReason, Usage};
+use tkm_core::model::{HookEvent, StopReason, Usage};
 use tkm_hosts::codewhale::{CodewhaleAdapter, ENV_MARKERS, EXPECTED_EVENTS};
 use tkm_hosts::{AdapterError, HostAdapter, PruneTarget};
 use tkm_proto::{EventKind, Host, PROTOCOL_VERSION, ReplyAction, Request};
@@ -416,8 +416,7 @@ fn replies_exact_stdout_and_capping() {
                 }
             ),
             "",
-            "event {:?} should not inject",
-            ev
+            "event {ev:?} should not inject"
         );
     }
 }

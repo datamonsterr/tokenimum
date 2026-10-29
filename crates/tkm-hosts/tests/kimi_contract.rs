@@ -234,7 +234,7 @@ fn fault_injection_malformed_requests_fail_open() {
     );
 
     // Payload not an object
-    let mut bad_payload = request(Value::Null);
+    let bad_payload = request(Value::Null);
     assert!(matches!(
         adapter.map_event(&bad_payload),
         Err(AdapterError::InvalidPayload { .. })
