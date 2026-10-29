@@ -54,6 +54,28 @@ mod tests {
     use super::*;
 
     #[test]
+    fn standard_registers_every_host_without_fallback() {
+        let registry = AdapterRegistry::standard();
+        for host in [
+            Host::Claude,
+            Host::Codex,
+            Host::Agy,
+            Host::Cursor,
+            Host::Kimi,
+            Host::Deepseek,
+            Host::Opencode,
+            Host::Pi,
+        ] {
+            let first = registry.get(host);
+            assert_eq!(first.host(), host);
+            assert!(
+                Arc::ptr_eq(&first, &registry.get(host)),
+                "fallback for {host:?}"
+            );
+        }
+    }
+
+    #[test]
     fn unknown_hosts_fall_back_to_the_noop_adapter() {
         let registry = AdapterRegistry::standard();
         assert_eq!(registry.get(Host::Claude).host(), Host::Claude);

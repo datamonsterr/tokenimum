@@ -686,3 +686,29 @@ mod arg_tests {
         assert_eq!(parsed.payload, None);
     }
 }
+
+#[cfg(test)]
+mod host_marker_tests {
+    use super::host_env_markers;
+    use tkm_proto::Host;
+
+    #[test]
+    fn marker_table_matches_host_adapters() {
+        for host in [
+            Host::Claude,
+            Host::Codex,
+            Host::Agy,
+            Host::Cursor,
+            Host::Kimi,
+            Host::Deepseek,
+            Host::Opencode,
+            Host::Pi,
+        ] {
+            assert_eq!(
+                host_env_markers(host),
+                tkm_hosts::env_markers(host),
+                "{host:?}"
+            );
+        }
+    }
+}

@@ -996,3 +996,56 @@ fn test_invalid_payload_flag_sends_null_and_logs_error() {
     let log = std::fs::read_to_string(errors_log_path(&tmp)).unwrap();
     assert_eq!(log.lines().count(), 1);
 }
+
+#[test]
+fn host_markers_are_forwarded_only_for_the_matching_host() {
+    for (host, expected) in [("deepseek", true), ("claude", false)] {
+        let tmp = TempDir::new().unwrap();
+        let sock = socket_path(&tmp);
+        std::fs::create_dir_all(sock.parent().unwrap()).unwrap();
+        let listener = UnixListener::bind(sock).unwrap();
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let request: tkm_proto::Request = read_frame(&mut stream, MAX_REQUEST_FRAME).unwrap();
+            let reply = Reply {
+                version: PROTOCOL_VERSION,
+                action: ReplyAction::Nothing,
+                stdout: String::new(),
+            };
+            write_frame(&mut stream, &reply, MAX_REPLY_FRAME).unwrap();
+            request
+        });
+        let output = hook_cmd(&tmp, host, "session_start")
+            .env("DEEPSEEK_SESSION_ID", "session")
+            .env("DEEPSEEK_MODEL", "model")
+            .env("DEEPSEEK_UNRELATED", "ignored")
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        let request = server.join().unwrap();
+        assert_eq!(request.env.contains_key("DEEPSEEK_SESSION_ID"), expected);
+        assert_eq!(request.env.contains_key("DEEPSEEK_MODEL"), expected);
+        assert!(!request.env.contains_key("DEEPSEEK_UNRELATED"));
+    }
+}
+
+#[test]
+fn deepseek_session_start_with_open_stdin_exits_promptly() {
+    let tmp = TempDir::new().unwrap();
+    let mut child = hook_cmd(&tmp, "deepseek", "session_start")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let start = Instant::now();
+    while child.try_wait().unwrap().is_none() && start.elapsed() < Duration::from_secs(2) {
+        thread::sleep(Duration::from_millis(10));
+    }
+    if child.try_wait().unwrap().is_none() {
+        child.kill().unwrap();
+        child.wait().unwrap();
+        panic!("hook blocked on stdin");
+    }
+    assert!(child.wait_with_output().unwrap().status.success());
+}

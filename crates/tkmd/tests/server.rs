@@ -241,3 +241,33 @@ fn reply_larger_than_the_frame_limit_becomes_the_noop_reply() {
     assert_eq!(tkmd::daemon::cap_reply(small, Host::Claude).stdout, "ok");
     let _ = EventKind::ToolDone;
 }
+
+#[tokio::test]
+async fn cursor_payload_on_claude_hook_is_silently_ignored() {
+    let env = Env::new();
+    drop(env.store());
+    let (daemon, _server) = serve(&env).await;
+    let mut duplicate = session_start();
+    duplicate.payload["cursor_version"] = serde_json::json!("1.0");
+    assert_eq!(
+        roundtrip(&env, &duplicate).await.stdout,
+        tkm_proto::Host::Claude.noop_reply()
+    );
+    let mut tool = tool_done();
+    tool.payload["cursor_version"] = serde_json::json!("1.0");
+    assert_eq!(
+        daemon.handle_tool_done(&tool).stdout,
+        tkm_proto::Host::Claude.noop_reply()
+    );
+    daemon.flush_error_log().await;
+    let db = tkm_store::open_read_only(&env.paths.db).unwrap();
+    for table in ["sessions", "turns", "events", "repos"] {
+        let count: i64 = db
+            .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(count, 0, "{table}");
+    }
+    assert!(env.error_lines().is_empty());
+}
