@@ -35,8 +35,8 @@ fn savings_groups_and_confidence() {
         (Some(12.0), Some(6.0), Some(6.0))
     );
     let band = result.band.unwrap();
-    assert!((band.lower - (-6.170434158)).abs() < 0.002);
-    assert!((band.upper - (18.170434158)).abs() < 0.002);
+    assert!((band.lower - (-6.169_739_69)).abs() < 0.000_01);
+    assert!((band.upper - (18.169_739_69)).abs() < 0.000_01);
     let insufficient =
         estimate_savings(&sessions[..1], &repo, Host::Claude, Some(Timestamp(2))).unwrap();
     assert_eq!(
@@ -124,7 +124,7 @@ fn welch_unequal_variance_and_constant_groups() {
         .unwrap()
         .band
         .unwrap();
-    // Independent Student t(0.975, 1) = 12.706205, standard error = 2.
+    // Independent Student t(0.975, 1) = 12.706_205, standard error = 2.
     assert!((band.lower - (-19.41241)).abs() < 0.00001);
     assert!((band.upper - 31.41241).abs() < 0.00001);
     let flat = [
