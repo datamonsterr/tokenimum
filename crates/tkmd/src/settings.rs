@@ -24,9 +24,43 @@ pub enum LoopMode {
     Redirect,
 }
 
+/// Configured integration level for one host.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum HostLevel {
+    /// Select the host's standard integration.
+    #[default]
+    Auto,
+    /// Use native hooks.
+    Hooks,
+    /// Use the host shim.
+    Shim,
+    /// Read session logs without live integration.
+    FoldOnly,
+}
+
+/// Per-host integration settings.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct HostSettings {
+    /// Whether this host is enabled.
+    pub enabled: bool,
+    /// Requested integration level.
+    pub level: HostLevel,
+}
+
+impl Default for HostSettings {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            level: HostLevel::Auto,
+        }
+    }
+}
+
 /// Settings read by the daemon.
 #[derive(Debug, Clone)]
 pub struct Settings {
+    /// Host-specific settings, keyed by host wire name.
+    pub hosts: std::collections::HashMap<String, HostSettings>,
     /// `loop.mode`.
     pub loop_mode: LoopMode,
     /// Loop guard thresholds (`loop.*` over the `loop.level` preset).
@@ -61,6 +95,7 @@ impl Default for Settings {
     fn default() -> Self {
         let facts = FactsConfig::default();
         Self {
+            hosts: std::collections::HashMap::new(),
             loop_mode: LoopMode::Redirect,
             loop_cfg: LoopConfig::default(),
             escalate_command: None,
@@ -106,6 +141,21 @@ impl Settings {
             ..Self::default()
         };
 
+        for host in [
+            "claude", "codex", "agy", "cursor", "kimi", "deepseek", "opencode", "pi",
+        ] {
+            let enabled = config
+                .get_bool(&format!("hosts.{host}.enabled"))
+                .unwrap_or(true);
+            let level = match config.get_str(&format!("hosts.{host}.level")) {
+                Some("hooks") => HostLevel::Hooks,
+                Some("shim") => HostLevel::Shim,
+                Some("fold-only") => HostLevel::FoldOnly,
+                _ => HostLevel::Auto,
+            };
+            out.hosts
+                .insert(host.to_owned(), HostSettings { enabled, level });
+        }
         out.otherskill_mode = config
             .get_str("integrations.otherskill")
             .and_then(|s| s.parse().ok())
@@ -242,6 +292,12 @@ impl Settings {
                 .collect();
         }
         out
+    }
+
+    /// Returns the settings for a host.
+    #[must_use]
+    pub fn host(&self, host: tkm_proto::Host) -> HostSettings {
+        self.hosts.get(host.as_str()).copied().unwrap_or_default()
     }
 
     /// Loads the layered configuration for a repository root and maps it. A configuration that
