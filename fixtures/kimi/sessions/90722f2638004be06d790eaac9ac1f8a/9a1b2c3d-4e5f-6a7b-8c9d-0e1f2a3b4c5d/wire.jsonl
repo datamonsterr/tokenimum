@@ -1,0 +1,5 @@
+{"version":1,"session_id":"9a1b2c3d-4e5f-6a7b-8c9d-0e1f2a3b4c5d"}
+{"timestamp":1730198400.1,"message":{"type":"TurnBegin","payload":{}}}
+{"timestamp":1730198401.2,"message":{"type":"StatusUpdate","payload":{"token_usage":{"input_other":100,"output":25,"input_cache_read":50,"input_cache_creation":10}}}}
+{"timestamp":1730198402.5,"message":{"type":"StatusUpdate","payload":{"token_usage":{"input_other":150,"output":35,"input_cache_read":100,"input_cache_creation":0}}}}
+{"timestamp":1730198403.0,"message":{"type":"TurnEnd","payload":{}}}
