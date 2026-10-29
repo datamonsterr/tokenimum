@@ -3066,6 +3066,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "tkm-config",
+ "tkm-hosts",
  "tkm-proto",
 ]
 
@@ -3073,8 +3074,8 @@ dependencies = [
 name = "tkm-hosts"
 version = "0.0.0"
 dependencies = [
- "ruzstd",
  "rusqlite",
+ "ruzstd",
  "serde",
  "serde_json",
  "sha2",

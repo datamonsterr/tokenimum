@@ -48,6 +48,8 @@ We enforce an explicit allowlist:
    - `TKM_*`: All variables prefixed with `TKM_` are forwarded **unless** the variable name (case-insensitive) contains `KEY`, `TOKEN`, or `SECRET` (e.g., `TKM_API_KEY`, `TKM_TOKEN`, `TKM_SECRET`, `TKM_OAUTH_TOKEN` are excluded).
    - `SUPERORCHESTRATOR_*`: Forwarded per SPEC 9.3 for subagent and orchestrator context.
 
+Host-specific markers from `tkm_hosts::env_markers(host)` are also forwarded for the selected host. The hook mirrors this table without a runtime adapter dependency; markers ending in `_` match prefixes, and other markers match exactly. A test checks the table against the adapters.
+
 All other environment variables (e.g., `PATH`, `HOME`, `USER`, `SHELL`, AWS or GitHub credentials) are discarded before constructing the `Request`.
 
 ## Disable flag (`TKM_DISABLE`)

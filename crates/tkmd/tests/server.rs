@@ -259,6 +259,7 @@ async fn cursor_payload_on_claude_hook_is_silently_ignored() {
         daemon.handle_tool_done(&tool).stdout,
         tkm_proto::Host::Claude.noop_reply()
     );
+    daemon.flush_now().await;
     daemon.flush_error_log().await;
     let db = tkm_store::open_read_only(&env.paths.db).unwrap();
     for table in ["sessions", "turns", "events", "repos"] {

@@ -445,6 +445,35 @@ where
 
 // ── Main logic ────────────────────────────────────────────────────────────────
 
+// Mirrors tkm_hosts::env_markers; checked against that API in tests.
+const fn host_env_markers(host: Host) -> &'static [&'static str] {
+    match host {
+        Host::Agy => &["ANTIGRAVITY_CONVERSATION_ID"],
+        Host::Cursor => &[
+            "CURSOR_PROJECT_DIR",
+            "CURSOR_VERSION",
+            "CURSOR_TRANSCRIPT_PATH",
+        ],
+        Host::Deepseek => &[
+            "DEEPSEEK_SESSION_ID",
+            "CODEWHALE_SESSION_ID",
+            "DEEPSEEK_WORKSPACE",
+            "DEEPSEEK_MODEL",
+            "DEEPSEEK_MODE",
+            "DEEPSEEK_TOOL_NAME",
+            "DEEPSEEK_TOOL_ARGS",
+            "DEEPSEEK_TOOL_CALL_ID",
+            "CODEWHALE_TOOL_CALL_ID",
+            "DEEPSEEK_TOOL_RESULT",
+            "DEEPSEEK_TOOL_SUCCESS",
+            "DEEPSEEK_TOOL_EXIT_CODE",
+            "DEEPSEEK_TOOL_STATUS",
+            "DEEPSEEK_TOTAL_TOKENS",
+        ],
+        _ => &[],
+    }
+}
+
 /// Collect filtered env vars from an iterator of `(key, value)` pairs.
 #[must_use]
 pub fn collect_env<I>(iter: I) -> BTreeMap<String, String>
@@ -591,7 +620,19 @@ pub fn run_hook_with_fallible_stdin<I, S, E, F>(
         };
         read_payload(std::io::Cursor::new(bytes))
     };
-    let filtered_env = collect_env(env);
+    let filtered_env = env
+        .into_iter()
+        .filter(|(key, _)| {
+            is_allowed_env_key(key)
+                || host_env_markers(host).iter().any(|marker| {
+                    if marker.ends_with('_') {
+                        key.starts_with(*marker)
+                    } else {
+                        key.as_str() == *marker
+                    }
+                })
+        })
+        .collect();
     let process_cwd = std::env::current_dir()
         .ok()
         .and_then(|p| p.to_str().map(str::to_owned));

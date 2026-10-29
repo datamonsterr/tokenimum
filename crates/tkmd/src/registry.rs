@@ -3,8 +3,14 @@
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
+use tkm_hosts::agy::AgyAdapter;
 use tkm_hosts::claude::ClaudeAdapter;
+use tkm_hosts::codewhale::CodewhaleAdapter;
 use tkm_hosts::codex::CodexAdapter;
+use tkm_hosts::cursor::CursorAdapter;
+use tkm_hosts::kimi::KimiAdapter;
+use tkm_hosts::opencode::OpencodeAdapter;
+use tkm_hosts::pi::PiAdapter;
 use tkm_hosts::{HostAdapter, NoopAdapter};
 use tkm_proto::Host;
 
@@ -15,13 +21,19 @@ pub struct AdapterRegistry {
 }
 
 impl AdapterRegistry {
-    /// Claude Code and Codex adapters; every other host is a no-op.
+    /// Registers all available host adapters; unregistered hosts use the no-op fallback.
     pub fn standard() -> Self {
         let registry = Self {
             adapters: RwLock::new(HashMap::new()),
         };
         registry.register(Box::new(ClaudeAdapter::new()));
         registry.register(Box::new(CodexAdapter));
+        registry.register(Box::new(AgyAdapter::new()));
+        registry.register(Box::new(CursorAdapter::new()));
+        registry.register(Box::new(KimiAdapter::new()));
+        registry.register(Box::new(CodewhaleAdapter::new()));
+        registry.register(Box::new(OpencodeAdapter::new()));
+        registry.register(Box::new(PiAdapter::new()));
         registry
     }
 

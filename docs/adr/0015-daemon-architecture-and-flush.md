@@ -63,3 +63,7 @@ Date: 2026-10-29. Status: accepted (epic E4.2).
   Notify}, signal::unix, task::spawn_blocking, time::timeout).
 - Rust std `File::try_lock`: <https://doc.rust-lang.org/std/fs/struct.File.html#method.try_lock>.
 - rusqlite 0.41 / tkm-store: WAL readers do not block on a writer; `open_read_only` for clients.
+
+## Host routing and Cursor duplicates
+
+The standard registry registers all real host adapters, retaining the no-op fallback for unregistered hosts. Claude requests with a string `cursor_version` in their payload are Cursor-generated duplicate hooks; the daemon silently returns the Claude no-op before mapping or changing state.

@@ -368,6 +368,9 @@ impl Daemon {
     /// `errors.log` line.
     pub async fn handle(self: &Arc<Self>, request: Request) -> Reply {
         let host = request.host;
+        if is_cursor_duplicate(&request) {
+            return noop_reply(host);
+        }
         if request.version != PROTOCOL_VERSION {
             self.log_error(&format!(
                 "{} {}: unsupported protocol version {}",
@@ -411,6 +414,9 @@ impl Daemon {
     /// only; no network, no disk, no `.await`.
     pub fn handle_tool_done(&self, request: &Request) -> Reply {
         let host = request.host;
+        if is_cursor_duplicate(request) {
+            return noop_reply(host);
+        }
         let adapter = self.adapters.get(host);
         let result = match adapter.map_event(request) {
             Ok(Some(event)) if event.kind == EventKind::ToolDone => {
@@ -1184,4 +1190,8 @@ impl Daemon {
             session_cap_usd: settings.decide.session_cap_usd,
         }
     }
+}
+
+fn is_cursor_duplicate(request: &Request) -> bool {
+    request.host == Host::Claude && tkm_hosts::cursor::is_cursor_payload(&request.payload)
 }
