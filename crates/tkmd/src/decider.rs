@@ -294,6 +294,41 @@ mod tests {
     }
 
     #[test]
+    fn refresh_requires_loop_precision_and_revokes_stale_authorization() {
+        let store = StoreCalibration::default();
+        let key = CalibrationKey {
+            model_version: "m".into(),
+            purpose: "loop_guard".into(),
+        };
+        let mut row = CalibrationRecord {
+            model_version: key.model_version.clone(),
+            purpose: key.purpose.clone(),
+            thresholds: serde_json::json!({"t_stuck":0.9,"t_progress":0.2,"t_low":0.1,"t_high":0.8}),
+            sample_count: 200,
+            precision: 0.9,
+            recall: 0.6,
+        };
+        store.refresh(&[row.clone()]);
+        assert!(store.get(&key).is_some());
+        row.precision = 0.899;
+        store.refresh(&[row]);
+        assert!(store.get(&key).is_none());
+        store.refresh(&[]);
+        assert!(store.get(&key).is_none());
+    }
+
+    #[test]
+    fn unscored_put_does_not_authorize_loop_action() {
+        let store = StoreCalibration::default();
+        let key = CalibrationKey {
+            model_version: "m".into(),
+            purpose: "loop_guard".into(),
+        };
+        store.put(key.clone(), Thresholds::default());
+        assert!(store.get(&key).is_none());
+    }
+
+    #[test]
     fn refresh_loads_rows_from_the_database() {
         let store = StoreCalibration::default();
         store.refresh(&[CalibrationRecord {
