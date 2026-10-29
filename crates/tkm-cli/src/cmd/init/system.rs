@@ -58,6 +58,7 @@ pub(crate) fn plan(ctx: &Ctx<'_>) -> Result<ServiceRecord, CliError> {
         content,
         owned,
         detached: false,
+        start_failed: false,
         directories,
     })
 }
@@ -107,6 +108,7 @@ fn write_new_service(service: &ServiceRecord) -> Result<(), CliError> {
 }
 
 pub(crate) fn start(ctx: &mut Ctx<'_>, service: &mut ServiceRecord) -> Result<(), CliError> {
+    service.start_failed = true;
     let manager = if cfg!(target_os = "macos") {
         "launchctl"
     } else {
@@ -139,6 +141,7 @@ pub(crate) fn start(ctx: &mut Ctx<'_>, service: &mut ServiceRecord) -> Result<()
         };
         if started {
             service.detached = false;
+            service.start_failed = false;
             return Ok(());
         }
         writeln!(
@@ -165,6 +168,7 @@ pub(crate) fn start(ctx: &mut Ctx<'_>, service: &mut ServiceRecord) -> Result<()
     match child.spawn() {
         Ok(child) => {
             service.detached = true;
+            service.start_failed = false;
             drop(child);
         }
         Err(_) => writeln!(ctx.stderr, "warn daemon: detached tkmd could not start")?,
@@ -173,23 +177,26 @@ pub(crate) fn start(ctx: &mut Ctx<'_>, service: &mut ServiceRecord) -> Result<()
 }
 
 pub(crate) fn stop(ctx: &mut Ctx<'_>, service: &ServiceRecord) -> Result<(), CliError> {
-    if service.detached {
+    let manager = if cfg!(target_os = "macos") {
+        "launchctl"
+    } else {
+        "systemctl"
+    };
+    let program = state::executable(ctx, manager);
+    if service.detached || service.start_failed && program.is_none() {
         if matches!(
             crate::daemon::probe(&ctx.paths),
             crate::daemon::DaemonState::Running { .. }
-        ) {
+        ) || daemon_lock_held(ctx)?
+            || hook_socket_live(ctx)?
+        {
             return Err(state::failure(
                 "detached tkmd is running; stop it with `pkill -x tkmd`, then re-run tkm uninstall",
             ));
         }
         return Ok(());
     }
-    let manager = if cfg!(target_os = "macos") {
-        "launchctl"
-    } else {
-        "systemctl"
-    };
-    if let Some(program) = state::executable(ctx, manager) {
+    if let Some(program) = program {
         let stopped = if cfg!(target_os = "macos") {
             bounded_status(
                 ctx,
@@ -224,6 +231,67 @@ pub(crate) fn stop(ctx: &mut Ctx<'_>, service: &ServiceRecord) -> Result<(), Cli
         )));
     }
     Ok(())
+}
+
+fn daemon_lock_held(ctx: &Ctx<'_>) -> Result<bool, CliError> {
+    // tkmd holds this advisory lock for its entire hook-server lifetime (ADR 0015).
+    let file = match fs::OpenOptions::new()
+        .write(true)
+        .open(ctx.paths.socket.with_file_name("tkmd.lock"))
+    {
+        Ok(file) => file,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(false),
+        Err(error) => return Err(error.into()),
+    };
+    match file.try_lock() {
+        Ok(()) => Ok(false), // Dropping the file releases our temporary lock.
+        Err(fs::TryLockError::WouldBlock) => Ok(true),
+        Err(fs::TryLockError::Error(error)) => Err(error.into()),
+    }
+}
+
+#[cfg(unix)]
+fn hook_socket_live(ctx: &Ctx<'_>) -> Result<bool, CliError> {
+    let socket = ctx.paths.socket.clone();
+    // A worker owns its runtime, so uninstall is also safe inside an existing runtime.
+    std::thread::Builder::new()
+        .name("tkm-hook-probe".into())
+        .spawn(move || -> io::Result<bool> {
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_io()
+                .enable_time()
+                .build()?;
+            runtime.block_on(async {
+                match tokio::time::timeout(
+                    Duration::from_millis(100),
+                    tokio::net::UnixStream::connect(socket),
+                )
+                .await
+                {
+                    Ok(Err(error))
+                        if matches!(
+                            error.kind(),
+                            io::ErrorKind::NotFound | io::ErrorKind::ConnectionRefused
+                        ) =>
+                    {
+                        Ok(false)
+                    }
+                    // A saturated listener is still live. Other errors cannot establish death.
+                    Err(_) | Ok(Ok(_)) => Ok(true),
+                    Ok(Err(error)) => Err(error),
+                }
+            })
+        })?
+        .join()
+        .map_err(|_| state::failure("hook socket probe worker failed"))?
+        .map_err(Into::into)
+}
+
+#[cfg(not(unix))]
+fn hook_socket_live(_ctx: &Ctx<'_>) -> Result<bool, CliError> {
+    Err(state::failure(
+        "cannot verify hook daemon liveness on this platform",
+    ))
 }
 
 fn bounded_status(

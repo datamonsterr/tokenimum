@@ -1,8 +1,8 @@
 //! The daemon core: router, hot path, session lifecycle, flusher and worker orchestration.
 //!
 //! Locks: `state` is taken before `outbox`; neither is held across an `.await` or any I/O.
-//! `state` is only held for in-memory work of a few microseconds (the flusher never touches it:
-//! it drains `outbox`), so a handler never waits behind disk or network.
+//! `state` is only held for in-memory work, including the flusher's activity snapshot;
+//! a handler never waits behind disk or network. See ADR 0034.
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -28,7 +28,7 @@ use crate::backing::{Backing, SqliteBacking};
 use crate::clock::{Clock, SystemClock};
 use crate::decider::{Decider, NullDecider, StoreCalibration, StoreLedger};
 use crate::live::{EscalationJob, JudgeJob};
-use crate::persist::{EventInsert, FlushBatch, SessionUpsert, TurnUpsert};
+use crate::persist::{EventInsert, FlushBatch, HOOK_ACTIVITY, SessionUpsert, TurnUpsert};
 use crate::registry::AdapterRegistry;
 use crate::settings::{FileSettings, LoopMode, Settings, SettingsSource};
 use crate::state::{MAX_TURN_CALLS, SessionState, StateMap, Tag, TurnState};
@@ -1189,6 +1189,27 @@ impl Daemon {
     pub async fn flush_now(self: &Arc<Self>) {
         let _serial = self.flush_lock.lock().await;
         let mut batch = std::mem::take(&mut *lock(&self.outbox));
+        {
+            // Reuse the timestamp already advanced by tool_done. Snapshot and allocation
+            // belong to this periodic flush, leaving the repeated-hook path unchanged.
+            let state = lock(&self.state);
+            for session in state
+                .sessions
+                .values()
+                .filter(|s| !s.observed_hooks.is_empty())
+            {
+                batch.events.push_back(EventInsert {
+                    key: session.key.clone(),
+                    kind: HOOK_ACTIVITY.into(),
+                    inputs: serde_json::Value::Null,
+                    template: String::new(),
+                    params: serde_json::Value::Null,
+                    created_at: timestamp(session.last_activity_ms),
+                    evidence_ids: Vec::new(),
+                    decision_id: None,
+                });
+            }
+        }
         for record in self.calibration.take_pending() {
             batch.calibration.push_back(record);
         }

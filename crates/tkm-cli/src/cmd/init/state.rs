@@ -43,6 +43,9 @@ pub(crate) struct ServiceRecord {
     pub owned: bool,
     #[serde(default)]
     pub detached: bool,
+    /// Startup was attempted but neither a service manager nor a detached child started.
+    #[serde(default)]
+    pub start_failed: bool,
     pub directories: Vec<PathBuf>,
 }
 

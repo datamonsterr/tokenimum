@@ -49,7 +49,9 @@ pub fn claim(candidate: &Candidate) -> String {
 ///
 /// The original parameters are validated before redaction, so replacement markers do not
 /// bypass the parameter grammar. Only parameter values reach `redact`; code-owned template
-/// text is preserved. The resulting claim must still pass the completion-advice lint.
+/// text is preserved. Sensitive environment names always mask their good/bad values,
+/// including when those variables are absent from the caller's environment. The resulting
+/// claim must still pass the completion-advice lint.
 #[must_use]
 pub fn claim_redacted(candidate: &Candidate, redact: impl Fn(&str) -> String) -> String {
     if !lint::validate(candidate) {
@@ -85,9 +87,14 @@ pub fn claim_redacted(candidate: &Candidate, redact: impl Fn(&str) -> String) ->
         Family::EnvValue=>{
             let Some(good)=extract::best(&p.good) else {return String::new();};
             let bad=p.bad.keys().find(|bad|bad.as_str()!=good);
-            let ending=bad.map_or_else(||".".into(),|bad|format!(", `{}` does not.",redact(bad)));
+            // Core cannot depend on tkm-decide. Keep the name context here rather than
+            // asking a caller's value-only redactor to recognize arbitrary credentials.
+            let sensitive=["KEY","TOKEN","SECRET","PASSWORD","PASSWD","CREDENTIAL","AUTH","PRIVATE"]
+                .iter().any(|part|p.variable.contains(part));
+            let value=|text:&str|if sensitive {"[redacted:env]".into()} else {redact(text)};
+            let ending=bad.map_or_else(||".".into(),|bad|format!(", `{}` does not.",value(bad)));
             let variable=redact(&p.variable);
-            format!("Code that imports the project needs `{variable}` set here: `{variable}={}` works{ending}",redact(good))
+            format!("Code that imports the project needs `{variable}` set here: `{variable}={}` works{ending}",value(good))
         },
     };
     if lint::lint_ok(&text) {

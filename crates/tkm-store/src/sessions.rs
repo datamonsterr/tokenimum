@@ -333,6 +333,24 @@ impl Store {
     pub fn insert_event_at(&self, event: &NewEvent, at: Timestamp) -> Result<i64, StoreError> {
         self.insert_event_with_time(event, Some(at))
     }
+    /// Advance the latest hook observation to the session's last known activity time.
+    ///
+    /// Keeps coverage rows deduplicated and never moves a timestamp backwards. A session
+    /// without hook observations is unchanged. Intended for the daemon's periodic flusher.
+    ///
+    /// # Errors
+    /// Returns an error if the database update fails.
+    pub fn refresh_hook_observation(
+        &self,
+        session_id: i64,
+        at: Timestamp,
+    ) -> Result<(), StoreError> {
+        self.conn.execute(
+            "UPDATE events SET created_at=?2 WHERE id=(SELECT id FROM events WHERE session_id=?1 AND kind='hook.seen' ORDER BY id DESC LIMIT 1) AND (created_at IS NULL OR created_at<?2)",
+            params![session_id, at.0],
+        )?;
+        Ok(())
+    }
     fn insert_event_with_time(
         &self,
         event: &NewEvent,

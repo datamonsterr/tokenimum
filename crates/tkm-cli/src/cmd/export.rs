@@ -100,13 +100,20 @@ fn redact_export(value: &mut serde_json::Value, redactor: &Redactor, show_digest
             if !show_digests {
                 fields.retain(|key, _| !key.contains("digest"));
             }
-            *fields = std::mem::take(fields)
-                .into_iter()
-                .map(|(key, mut value)| {
-                    redact_export(&mut value, redactor, show_digests);
-                    (redactor.redact(&key), value)
-                })
-                .collect();
+            // Sort explicitly so suffixes stay deterministic with either serde_json map backend.
+            let mut original = std::mem::take(fields);
+            original.sort_keys();
+            for (key, mut value) in original {
+                redact_export(&mut value, redactor, show_digests);
+                let base = redactor.redact(&key);
+                let mut key = base.clone();
+                let mut suffix = 1_u64;
+                while fields.contains_key(&key) {
+                    key = format!("{base}:{suffix}");
+                    suffix += 1;
+                }
+                fields.insert(key, value);
+            }
         }
         serde_json::Value::Array(values) => {
             for value in values {

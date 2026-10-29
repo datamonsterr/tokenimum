@@ -19,6 +19,9 @@ use tkm_store::{
 /// Maximum queued items per kind; the oldest are dropped beyond this (daemon-side backstop).
 const MAX_QUEUED: usize = 20_000;
 
+// Internal outbox operation: refresh a coverage row instead of appending another event.
+pub(crate) const HOOK_ACTIVITY: &str = "hook.activity";
+
 /// Session row to insert or update.
 #[derive(Debug, Clone)]
 pub struct SessionUpsert {
@@ -55,7 +58,7 @@ pub struct TurnUpsert {
     pub escalated: bool,
 }
 
-/// Event row to append.
+/// Event row to append, or an internal hook-activity timestamp refresh.
 #[derive(Debug, Clone)]
 pub struct EventInsert {
     /// Owning session.
@@ -272,6 +275,11 @@ pub fn apply(store: &Store, batch: &mut FlushBatch) -> Result<(), StoreError> {
             break;
         };
         if let Some(id) = session_id(store, &mut ids, &event.key)? {
+            if event.kind == HOOK_ACTIVITY {
+                store.refresh_hook_observation(id, event.created_at)?;
+                batch.events.pop_front();
+                continue;
+            }
             let mut evidence_ids = event.evidence_ids.clone();
             if let Some(link) = &event.decision_id {
                 let id = link.load(Ordering::Acquire);
