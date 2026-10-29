@@ -12,10 +12,9 @@ use criterion::{BatchSize, Criterion, criterion_group, criterion_main};
 use tkm_config::paths::Paths;
 use tkm_core::model::{RepoKey, Timestamp};
 use tkm_decide::api::{Answer, Usage};
-use tkm_decide::calibrate::{CalibrationKey, CalibrationStore, Thresholds};
 use tkm_decide::client::{DecideRequest, Decision, Outcome};
 use tkm_proto::{EventKind, Host, PROTOCOL_VERSION, Request};
-use tkm_store::{Repo, Store};
+use tkm_store::{CalibrationRecord, Repo, Store};
 use tkmd::daemon::{Daemon, DaemonOptions};
 use tkmd::decider::{BoxFuture, Decider};
 use tkmd::settings::{FixedSettings, Settings};
@@ -194,8 +193,18 @@ fn tool_done(c: &mut Criterion) {
     for _ in 0..5 {
         store.push_envelope_sample(&repo, Host::Claude, 5).unwrap();
     }
+    // Session resolution reloads thresholds from the database, so calibration must be persisted.
+    store
+        .upsert_calibration(&CalibrationRecord {
+            model_version: MODEL.into(),
+            purpose: "loop_guard".into(),
+            thresholds: serde_json::json!({"t_stuck": 0.85, "t_progress": 0.3, "t_low": 0.3, "t_high": 0.8}),
+            sample_count: 200,
+            precision: 0.9,
+            recall: 0.6,
+        })
+        .unwrap();
     drop(store);
-    let db_path = paths.db.clone();
     let mut options = DaemonOptions::new(paths);
     // Steady state: the initial shadow window has elapsed, so a stuck verdict acts.
     let settings = Settings {
@@ -211,13 +220,6 @@ fn tool_done(c: &mut Criterion) {
         inner: tkm_hosts::claude::ClaudeAdapter::new(),
         blind: blind.clone(),
     }));
-    daemon.calibration().put(
-        CalibrationKey {
-            model_version: MODEL.into(),
-            purpose: "loop_guard".into(),
-        },
-        Thresholds::default(),
-    );
     runtime.block_on(async {
         daemon.start_workers();
         daemon
@@ -251,15 +253,6 @@ fn tool_done(c: &mut Criterion) {
     assert_eq!(daemon.handle_tool_done(&failing).stdout, "");
     blind.store(false, Ordering::Relaxed);
     let delivered = daemon.handle_tool_done(&failing);
-    runtime.block_on(daemon.flush_now());
-    let evidence = tkm_store::open_read_only(&db_path).map(|conn| {
-        let count = |sql: &str| conn.query_row(sql, [], |row| row.get::<_, i64>(0)).ok();
-        (
-            count("SELECT COUNT(*) FROM decisions WHERE purpose = 'loop_guard' AND shadow = 0"),
-            count("SELECT COUNT(*) FROM decisions WHERE purpose = 'loop_guard' AND shadow = 1"),
-            count("SELECT COUNT(*) FROM events WHERE kind = 'loop.redirect'"),
-        )
-    });
     assert!(
         matches!(delivered.action, tkm_proto::ReplyAction::Inject { .. }),
         "redirect must be delivered once the host can show it: {delivered:?}; (acted, shadow, redirects) = {evidence:?}"
