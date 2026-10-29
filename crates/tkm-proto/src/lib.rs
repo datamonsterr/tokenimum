@@ -6,6 +6,8 @@
 //! decoding helpers with its own transport. Receivers must check message
 //! `version` against [`PROTOCOL_VERSION`] before acting on a decoded message.
 
+pub mod monitor;
+
 use std::collections::BTreeMap;
 use std::io::{self, Read, Write};
 use std::num::TryFromIntError;
