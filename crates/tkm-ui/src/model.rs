@@ -167,7 +167,7 @@ impl MonitorState {
 /// Returns an error if SQLite or a stored JSON value cannot be read.
 pub fn load_snapshot(conn: &Connection) -> Result<MonitorState, crate::Error> {
     let mut state = MonitorState::default();
-    let mut query = conn.prepare("SELECT s.host,s.session_id,s.repo_key,s.fold_status,COALESCE((SELECT calls FROM turns WHERE session_id=s.id ORDER BY turn_idx DESC LIMIT 1),0),(SELECT id FROM events WHERE session_id=s.id ORDER BY id DESC LIMIT 1) FROM sessions s WHERE s.ended_at IS NULL ORDER BY s.id")?;
+    let mut query = conn.prepare("SELECT s.host,s.session_id,s.repo_key,s.fold_status,COALESCE((SELECT calls FROM turns WHERE session_id=s.id ORDER BY turn_idx DESC LIMIT 1),0),(SELECT id FROM events WHERE session_id=s.id ORDER BY id DESC LIMIT 1),(SELECT turn_idx FROM turns WHERE session_id=s.id ORDER BY turn_idx DESC LIMIT 1) FROM sessions s WHERE s.ended_at IS NULL ORDER BY s.id")?;
     for row in query.query_map([], |row| {
         Ok((
             row.get::<_, String>(0)?,
@@ -176,13 +176,15 @@ pub fn load_snapshot(conn: &Connection) -> Result<MonitorState, crate::Error> {
             row.get::<_, String>(3)?,
             row.get::<_, u32>(4)?,
             row.get::<_, Option<i64>>(5)?,
+            row.get::<_, Option<i64>>(6)?,
         ))
     })? {
-        let (host, session_id, repo, phase, turn_calls, event_id) = row?;
+        let (host, session_id, repo, phase, turn_calls, event_id, turn_id) = row?;
         if let Ok(host) = host.parse() {
             state.sessions.push(SessionUpdate {
                 host,
                 session_id,
+                turn_id: turn_id.and_then(|turn| u64::try_from(turn).ok()),
                 repo: Some(repo),
                 phase,
                 turn_calls,
@@ -300,6 +302,16 @@ fn load_redirects(conn: &Connection, state: &mut MonitorState) -> Result<(), cra
             state.redirects.push_back(RedirectNotice {
                 host,
                 session_id,
+                triggering_calls: inputs["triggering_calls"]
+                    .as_array()
+                    .map(|calls| {
+                        calls
+                            .iter()
+                            .filter_map(serde_json::Value::as_str)
+                            .map(str::to_owned)
+                            .collect()
+                    })
+                    .unwrap_or_default(),
                 kind,
                 text: params["detail"].as_str().unwrap_or_default().to_owned(),
                 shadow: inputs["shadow"].as_bool().unwrap_or(false),

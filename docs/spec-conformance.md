@@ -36,9 +36,6 @@ in [ADR 0050](../docs/adr/0050-conformance-gaps.md); that record does not close 
 - SPEC 15 M3: “fresh machine to working install in one command; every action explainable”. [ADR 0050](../docs/adr/0050-conformance-gaps.md) items 15 and 17 record missing switch wiring and fresh-machine evidence.
 - SPEC 16: “Fault injection: daemon down, socket slow, OpenRouter 404/500/timeout, DB locked, corrupt log, foreign SQLite locked, shim timeout. Each must yield the no-op reply and an error line, never a hook failure.” [ADR 0050](../docs/adr/0050-conformance-gaps.md) item 19 records incomplete matrix evidence.
 
-- SPEC 11.3 Spend pane: “decision spend today vs caps; per-model share; sparkline over 7 days”. [tui.rs](../crates/tkm-ui/src/tui.rs) renders caps and a text series, but not model share or a sparkline.
-- SPEC 11.3 Sessions pane: “active sessions: harness, repository, turn, tool calls this turn vs envelope, loop state”. [tui.rs](../crates/tkm-ui/src/tui.rs) omits the turn identifier.
-- SPEC 11.3 Redirects pane: “redirects and escalations with the triggering calls”. [tui.rs](../crates/tkm-ui/src/tui.rs) displays redirect text but no triggering calls.
 
 ## Pending
 
@@ -761,12 +758,12 @@ will replace the placeholder row after that work lands.
 
 | ID | Requirement | Status | Evidence |
 |---|---|---|---|
-| S11.3-1 | Sessions pane | deferred | [ADR 0050](../docs/adr/0050-conformance-gaps.md) item 20. |
+| S11.3-1 | Sessions pane | met | [monitor.rs](../crates/tkm-ui/tests/monitor.rs); [tui.rs](../crates/tkm-ui/src/tui.rs); [monitor.rs protocol](../crates/tkm-proto/src/monitor.rs) |
 | S11.3-2 | Decisions pane | met | [monitor.rs](../crates/tkm-ui/tests/monitor.rs); [tui.rs](../crates/tkm-ui/src/tui.rs) |
-| S11.3-3 | Spend pane | deferred | [ADR 0050](../docs/adr/0050-conformance-gaps.md) item 20. |
+| S11.3-3 | Spend pane | met | [monitor.rs](../crates/tkm-ui/tests/monitor.rs); [tui.rs](../crates/tkm-ui/src/tui.rs); [dashboard app.js](../crates/tkm-ui/assets/app.js) |
 | S11.3-4 | Savings pane | met | [monitor.rs](../crates/tkm-ui/tests/monitor.rs); [tui.rs](../crates/tkm-ui/src/tui.rs) |
 | S11.3-5 | Facts pane | met | [monitor.rs](../crates/tkm-ui/tests/monitor.rs); [tui.rs](../crates/tkm-ui/src/tui.rs) |
-| S11.3-6 | Redirects pane | deferred | [ADR 0050](../docs/adr/0050-conformance-gaps.md) item 20. |
+| S11.3-6 | Redirects pane | met | [monitor.rs](../crates/tkm-ui/tests/monitor.rs); [tui.rs](../crates/tkm-ui/src/tui.rs); [daemon.rs](../crates/tkmd/src/daemon.rs) |
 | S11.3-7 | Tab switches panes, ? help, Enter opens why | met | [tui.rs](../crates/tkm-ui/src/tui.rs) |
 | S11.3-8 | Push stream; read-only DB fallback when daemon down | met | [0035-monitor-ui-architecture.md](../docs/adr/0035-monitor-ui-architecture.md) |
 

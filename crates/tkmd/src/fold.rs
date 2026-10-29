@@ -877,6 +877,7 @@ impl Daemon {
                         MonitorMessage::Session(tkm_proto::monitor::SessionUpdate {
                             host,
                             session_id: session_id.clone(),
+                            turn_id: None,
                             repo: Some(repo.0.clone()),
                             phase: "folded".into(),
                             turn_calls: 0,

@@ -23,6 +23,9 @@ pub struct SessionUpdate {
     pub host: Host,
     /// Host-native session identifier.
     pub session_id: String,
+    /// Current turn identifier, when the harness or daemon has one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub turn_id: Option<u64>,
     /// Repository key, if resolved.
     pub repo: Option<String>,
     /// Lifecycle phase: `started`, `active`, `ended` or `folded`.
@@ -81,6 +84,9 @@ pub struct RedirectNotice {
     pub host: Host,
     /// Host-native session identifier.
     pub session_id: String,
+    /// Tool calls that triggered this redirect or escalation.
+    #[serde(default)]
+    pub triggering_calls: Vec<String>,
     /// `redirect` or `escalation`.
     pub kind: String,
     /// Text delivered or that would have been delivered.
@@ -168,6 +174,7 @@ mod tests {
         let message = MonitorMessage::Redirect(RedirectNotice {
             host: Host::Claude,
             session_id: "s".into(),
+            triggering_calls: vec!["Bash".into()],
             kind: "redirect".into(),
             text: "t".into(),
             shadow: true,
@@ -175,5 +182,24 @@ mod tests {
         let frame = crate::encode_frame(&message, MONITOR_MAX_FRAME).unwrap();
         let back: MonitorMessage = crate::read_frame(frame.as_slice(), MONITOR_MAX_FRAME).unwrap();
         assert_eq!(back, message);
+    }
+
+    #[test]
+    fn older_session_and_redirect_frames_default_added_fields() {
+        let session: MonitorMessage = serde_json::from_str(
+            r#"{"type":"session","host":"claude","session_id":"s","repo":null,"phase":"active","turn_calls":1,"envelope":null,"loop_state":"off"}"#,
+        )
+        .unwrap();
+        assert!(matches!(
+            session,
+            MonitorMessage::Session(SessionUpdate { turn_id: None, .. })
+        ));
+        let redirect: MonitorMessage = serde_json::from_str(
+            r#"{"type":"redirect","host":"claude","session_id":"s","kind":"redirect","text":"retry","shadow":false}"#,
+        )
+        .unwrap();
+        assert!(
+            matches!(redirect, MonitorMessage::Redirect(RedirectNotice { triggering_calls, .. }) if triggering_calls.is_empty())
+        );
     }
 }

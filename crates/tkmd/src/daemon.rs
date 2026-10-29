@@ -998,6 +998,10 @@ impl Daemon {
         SessionUpdate {
             host: session.host,
             session_id: session.session_id.clone(),
+            turn_id: session
+                .turn
+                .as_ref()
+                .and_then(|turn| u64::try_from(turn.idx).ok()),
             repo: (!session.repo.0.is_empty()).then(|| session.repo.0.clone()),
             phase: phase.to_owned(),
             turn_calls: session.turn.as_ref().map_or(0, |turn| turn.total_calls),
@@ -1057,7 +1061,7 @@ impl Daemon {
         lock(&self.outbox).events.push_back(EventInsert {
             key: session.key.clone(),
             kind: kind.to_owned(),
-            inputs: serde_json::json!({"redirect": detail, "shadow": shadow}),
+            inputs: serde_json::json!({"redirect": detail, "shadow": shadow, "triggering_calls": session.turn.as_ref().map(|turn| turn.calls.iter().map(|call| call.tool.clone()).collect::<Vec<_>>()).unwrap_or_default()}),
             template: template.to_owned(),
             created_at: timestamp(self.clock.now_ms()),
             evidence_ids: Vec::new(),
@@ -1075,6 +1079,11 @@ impl Daemon {
             MonitorMessage::Redirect(RedirectNotice {
                 host: session.host,
                 session_id: session.session_id.clone(),
+                triggering_calls: session
+                    .turn
+                    .as_ref()
+                    .map(|turn| turn.calls.iter().map(|call| call.tool.clone()).collect())
+                    .unwrap_or_default(),
                 kind: if kind == "loop.escalation" {
                     "escalation"
                 } else {
