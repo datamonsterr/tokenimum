@@ -735,6 +735,19 @@ mod host_marker_tests {
     use tkm_proto::Host;
 
     #[test]
+    fn session_store_overrides_are_forwarded_for_their_host() {
+        for (host, key) in [
+            (Host::Kimi, "KIMI_SHARE_DIR"),
+            (Host::Deepseek, "CODEWHALE_HOME"),
+            (Host::Pi, "PI_CODING_AGENT_DIR"),
+            (Host::Opencode, "OPENCODE_DB"),
+            (Host::Opencode, "XDG_DATA_HOME"),
+        ] {
+            assert!(super::is_host_env_key(host, key), "{host:?} {key}");
+        }
+    }
+
+    #[test]
     fn marker_table_matches_host_adapters() {
         for host in [
             Host::Claude,
