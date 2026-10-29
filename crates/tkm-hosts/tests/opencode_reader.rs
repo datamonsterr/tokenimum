@@ -351,6 +351,34 @@ fn legacy_json_tree_loads_session_messages_and_parts() {
     assert_eq!(session.usage.input, 7);
 }
 
+#[test]
+fn legacy_malformed_messages_count_toward_partial_status() {
+    let scratch = Scratch::new();
+    let storage = scratch.0.join("storage");
+    fs::create_dir_all(storage.join("session/project")).unwrap();
+    fs::create_dir_all(storage.join("message/ses_legacy")).unwrap();
+    fs::write(
+        storage.join("session/project/ses_legacy.json"),
+        r#"{"id":"ses_legacy"}"#,
+    )
+    .unwrap();
+    fs::write(storage.join("message/ses_legacy/msg_bad.json"), "not json").unwrap();
+    let session = read(&scratch.0, "ses_legacy");
+    assert_eq!(session.total_records, 1);
+    assert_eq!(session.skipped_records, 1);
+    assert!(session.partial);
+}
+
+#[test]
+fn opencode_rejects_session_ids_with_path_components() {
+    let scratch = Scratch::new();
+    assert!(
+        OpencodeAdapter::new()
+            .read_session(&source(&scratch.0, "../outside"))
+            .is_err()
+    );
+}
+
 #[cfg(unix)]
 #[test]
 fn export_fallback_invokes_fake_opencode() {
