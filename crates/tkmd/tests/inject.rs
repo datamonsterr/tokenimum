@@ -110,7 +110,7 @@ async fn identical_prompt_and_candidates_hit_the_cache() {
     let env = Env::new();
     seed_fact(&env, "example.com");
     let decider = ScriptedDecider::new(relevance(&[("boundary:example.com", 3.0)]));
-    let daemon = daemon_with(&env, Settings::default(), decider.clone());
+    let daemon = daemon_with(&env, calibrated_relevance(&env), decider.clone());
     daemon.handle(prompt()).await;
     daemon.handle(session_end()).await; // new session state, same repo and prompt
     daemon.handle(prompt()).await;
