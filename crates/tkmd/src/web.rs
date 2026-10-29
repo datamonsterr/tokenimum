@@ -86,33 +86,9 @@ impl DaemonActions {
         if !owned.contains(tool) {
             return Err("tool is not an active owned deny rule".into());
         }
-        let mut plan = tkm_core::prune::denylist::DenyState::default();
-        plan.applied.insert(checkout.to_owned(), owned.clone());
-        let requested = BTreeSet::from([tool.to_owned()]);
-        let (_, delta) = tkm_core::prune::denylist::restore(&plan, checkout, &owned, &requested);
-        let settings = path.join(".claude/settings.local.json");
-        let current: serde_json::Value = match std::fs::read_to_string(settings) {
-            Ok(contents) => {
-                serde_json::from_str(&contents).map_err(|e| format!("invalid settings: {e}"))?
-            }
-            Err(e) if e.kind() == io::ErrorKind::NotFound => serde_json::json!({}),
-            Err(e) => return Err(e.to_string()),
-        };
-        let present: BTreeSet<String> = current
-            .pointer("/permissions/deny")
-            .and_then(serde_json::Value::as_array)
-            .into_iter()
-            .flatten()
-            .filter_map(serde_json::Value::as_str)
-            .map(str::to_owned)
-            .collect();
         after_read();
-        let desired = owned
-            .intersection(&present)
-            .filter(|entry| !delta.remove.contains(*entry))
-            .cloned()
-            .collect();
-        tkm_hosts::writer::deny::update_deny(path, &owned, &desired, false)
+        let requested = BTreeSet::from([tool.to_owned()]);
+        tkm_hosts::writer::deny::update_deny(path, &requested, &BTreeSet::new(), false)
             .map_err(|e| e.to_string())?;
         store
             .mark_denylist_restored(path, host, tool)
