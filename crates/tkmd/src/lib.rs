@@ -38,3 +38,7 @@ pub mod server;
 pub mod service;
 pub mod settings;
 pub mod state;
+
+/// Optional local dashboard.
+#[cfg(feature = "web")]
+pub mod web;

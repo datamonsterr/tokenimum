@@ -10,6 +10,9 @@ publish.workspace = true
 [lints]
 workspace = true
 
+[features]
+web = ["tkm-ui/web"]
+
 [dependencies]
 tokio = { workspace = true, features = ["rt-multi-thread", "net", "io-util", "time", "sync", "signal", "macros", "fs"] }
 serde = { workspace = true }

@@ -35,6 +35,10 @@
     "version": "0.47.0",
     "used_unsafe": 715
   },
+  "axum": {
+    "version": "0.8.9",
+    "used_unsafe": 0
+  },
   "base64": {
     "version": "0.23.1",
     "used_unsafe": 295
@@ -265,7 +269,7 @@
   },
   "hyper-util": {
     "version": "0.1.21",
-    "used_unsafe": 49
+    "used_unsafe": 53
   },
   "icu_collections": {
     "version": "2.4.0",
@@ -402,6 +406,10 @@
   "lru": {
     "version": "0.18.5",
     "used_unsafe": 617
+  },
+  "matchit": {
+    "version": "0.8.4",
+    "used_unsafe": 18
   },
   "memchr": {
     "version": "2.8.3",
@@ -601,7 +609,7 @@
   },
   "serde_json": {
     "version": "1.0.154",
-    "used_unsafe": 75
+    "used_unsafe": 81
   },
   "sha2": {
     "version": "0.10.9",
