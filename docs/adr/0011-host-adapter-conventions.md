@@ -36,11 +36,19 @@ indentation detected at the insertion point.
 
 - Backup: before the first write, copy the file to `<file>.tkm-bak` unless that backup exists.
 - Uninstall: after removing tokenimum's spans, if the result parses equal to the backup, write
-  the backup's exact bytes and delete the backup. If the file did not exist before install and
-  only `{}` (or whitespace-equivalent) remains, delete it.
+  the backup's exact bytes and delete the backup.
 - Symlinks: a target that is a symlink resolving outside the agent home (user scope) or the
   repository (project scope) is refused with `AdapterError::UnsafeTarget`.
 - Writes are atomic (temporary file in the same directory, then rename) and honour `dry_run`.
+  Before the rename the writer re-reads the target; if it changed since the first read, it
+  recomputes once from the new contents, and refuses on a second change, so a concurrent edit by
+  the person is never overwritten.
+- Accepted risk: containment is checked by path, then the write uses the path again. A process
+  that can replace a directory inside the agent home or repository between the check and the
+  write could redirect it. Closing this needs `openat`-style no-follow directory handles, which
+  safe `std` does not offer; such a process can already edit the settings file itself.
+- Install creating a file that did not exist writes an empty `<file>.tkm-bak` meaning "did not
+  exist"; uninstall deletes the file only with that marker and only when an empty object remains.
 - Idempotence: a second install computes no change and reports no changed files.
 
 ### Prune writer (Claude Code `permissions.deny`)
