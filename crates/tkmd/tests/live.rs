@@ -11,15 +11,17 @@ use tkm_decide::client::{NoDecisionReason, Outcome};
 use tkm_proto::Host;
 use tkmd::settings::{LoopMode, Settings};
 
-fn calibrate(daemon: &tkmd::daemon::Daemon) {
-    daemon.calibration().refresh(&[tkm_store::CalibrationRecord {
+fn calibrate(env: &Env, daemon: &tkmd::daemon::Daemon) {
+    let row = tkm_store::CalibrationRecord {
         model_version: MODEL.into(),
         purpose: "loop_guard".into(),
         thresholds: serde_json::json!({"t_stuck": 0.85, "t_progress": 0.3, "t_low": 0.3, "t_high": 0.8}),
         sample_count: 200,
         precision: 0.9,
         recall: 0.6,
-    }]);
+    };
+    env.store().upsert_calibration(&row).unwrap();
+    daemon.calibration().refresh(&[row]);
 }
 
 fn redirect_settings() -> Settings {
@@ -46,7 +48,7 @@ async fn undelivered_redirect_does_not_leak_into_next_turn() {
         .adapters()
         .register(Box::new(ToolBlind(tkm_hosts::claude::ClaudeAdapter::new())));
     daemon.start_workers();
-    calibrate(&daemon);
+    calibrate(&env, &daemon);
     daemon.handle(session_start()).await;
     daemon.handle(prompt()).await;
     run_calls(&daemon, 18);
@@ -63,7 +65,7 @@ async fn stuck_sequence_opens_gate_judges_once_and_redirects_on_a_later_call() {
     let decider = ScriptedDecider::new(stuck_decision());
     let daemon = daemon_with(&env, redirect_settings(), decider.clone());
     daemon.start_workers();
-    calibrate(&daemon);
+    calibrate(&env, &daemon);
     daemon.handle(session_start()).await;
     daemon.handle(prompt()).await;
 
@@ -138,7 +140,7 @@ async fn verdict_is_dropped_when_the_turn_ends_first() {
     let (decider, gate) = ScriptedDecider::gated(stuck_decision());
     let daemon = daemon_with(&env, redirect_settings(), decider.clone());
     daemon.start_workers();
-    calibrate(&daemon);
+    calibrate(&env, &daemon);
     daemon.handle(session_start()).await;
     daemon.handle(prompt()).await;
     run_calls(&daemon, 18);
@@ -173,7 +175,7 @@ async fn shadow_mode_records_decision_and_event_and_injects_nothing() {
     };
     let daemon = daemon_with(&env, settings, decider.clone());
     daemon.start_workers();
-    calibrate(&daemon); // calibrated, but the configured mode is shadow
+    calibrate(&env, &daemon); // calibrated, but the configured mode is shadow
     daemon.handle(session_start()).await;
     daemon.handle(prompt()).await;
     let first = run_calls(&daemon, 18);
@@ -295,7 +297,7 @@ async fn second_stuck_segment_after_the_redirect_budget_escalates_with_a_notice(
     let decider = ScriptedDecider::new(stuck_decision());
     let daemon = daemon_with(&env, redirect_settings(), decider.clone());
     daemon.start_workers();
-    calibrate(&daemon);
+    calibrate(&env, &daemon);
     daemon.handle(session_start()).await;
     daemon.handle(prompt()).await;
     let mut all = String::new();
@@ -360,4 +362,41 @@ async fn judged_turn_outcomes_label_decisions_for_calibration() {
             .unwrap();
         assert_eq!(actual.as_deref(), Some(expected));
     }
+}
+
+#[tokio::test]
+async fn below_target_precision_keeps_loop_decisions_in_shadow() {
+    let env = Env::new();
+    env.seed_envelope(FIXTURE_REPO, Host::Claude, &[5; 5]);
+    env.store().upsert_calibration(&tkm_store::CalibrationRecord {
+        model_version: MODEL.into(), purpose: "loop_guard".into(),
+        thresholds: serde_json::json!({"t_stuck":0.85,"t_progress":0.3,"t_low":0.3,"t_high":0.8}),
+        sample_count: 200, precision: 0.899, recall: 0.8,
+    }).unwrap();
+    let daemon = daemon_with(
+        &env,
+        redirect_settings(),
+        ScriptedDecider::new(stuck_decision()),
+    );
+    daemon.start_workers();
+    daemon.handle(session_start()).await;
+    daemon.handle(prompt()).await;
+    run_calls(&daemon, 18);
+    daemon.settle().await;
+    assert!(
+        daemon
+            .handle_tool_done(&failing_tool_done())
+            .stdout
+            .is_empty()
+    );
+    daemon.flush_now().await;
+    let db = tkm_store::open_read_only(&env.paths.db).unwrap();
+    let shadow: i64 = db
+        .query_row(
+            "SELECT shadow FROM decisions WHERE purpose = 'loop_guard'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(shadow, 1);
 }
