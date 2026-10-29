@@ -94,8 +94,8 @@ fn read_synthetic_session_fixture() {
     let session = adapter.read_session(&source).unwrap();
     assert_eq!(session.host, Host::Kimi);
     assert_eq!(session.session_id, "9a1b2c3d-4e5f-6a7b-8c9d-0e1f2a3b4c5d");
-    assert_eq!(session.started, Timestamp(1730198400100));
-    assert_eq!(session.ended, Some(Timestamp(1730198403000)));
+    assert_eq!(session.started, Timestamp(1_730_198_400_100));
+    assert_eq!(session.ended, Some(Timestamp(1_730_198_403_000)));
     assert!(!session.partial);
     assert_eq!(session.skipped_records, 0);
 
@@ -110,7 +110,7 @@ fn read_synthetic_session_fixture() {
     assert_eq!(call1.tool, "bash");
     assert_eq!(call1.args_digest, "ls -la");
     assert!(!call1.is_error);
-    assert!(call1.output_digest.contains("Cargo.toml"));
+    assert!(call1.output_digest.contains("README.md"));
 
     let call2 = &turn.calls[1];
     assert_eq!(call2.tool, "bash");

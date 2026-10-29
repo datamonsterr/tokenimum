@@ -33,11 +33,11 @@ fn synthetic_journal_session_walks_active_branch_and_excludes_off_branch() {
     assert_eq!(session.repo_key, RepoKey("repo-123".to_owned()));
     assert_eq!(
         session.started,
-        Timestamp(1793268000000) // 2026-10-29T10:00:00Z
+        Timestamp(1_793_268_000_000) // 2026-10-29T10:00:00Z
     );
     assert_eq!(
         session.ended,
-        Some(Timestamp(1793268300000)) // 2026-10-29T10:05:00Z
+        Some(Timestamp(1_793_268_300_000)) // 2026-10-29T10:05:00Z
     );
     assert!(!session.partial);
     assert_eq!(session.skipped_records, 0);

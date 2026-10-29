@@ -71,7 +71,7 @@ fn real_local_session_folds() {
 
     // Usage: 9189+10249+10571 = 30009 input; 973+233+509 = 1715 output; 0 cache
     let expected_usage = Usage {
-        input: 30009,
+        input: 30_009,
         output: 1715,
         cache_read: 0,
         cache_write: 0,
@@ -84,7 +84,7 @@ fn real_local_session_folds() {
     assert!(!session.partial);
     assert_eq!(turn.stopped_by, StopReason::OwnStop);
     assert_eq!(session.ended, None);
-    assert_eq!(session.started, Timestamp(1793249757000));
+    assert_eq!(session.started, Timestamp(1_793_249_757_000));
 }
 
 #[test]
@@ -144,7 +144,7 @@ fn read_session_with_writes_edits_and_failing_command() {
 
     // Usage: 9202+9809+10118+10248 = 39377 input; 531+130+43+44 = 748 output
     let expected_usage = Usage {
-        input: 39377,
+        input: 39_377,
         output: 748,
         cache_read: 0,
         cache_write: 0,

@@ -338,7 +338,7 @@ fn malformed_payloads_fail_without_panicking_and_render_noop() {
     let req_bad_prompt = request(json!({
         "conversation_id": "c1",
         "hook_event_name": "beforeSubmitPrompt",
-        "prompt": 12345
+        "prompt": 12_345
     }));
     assert!(matches!(
         adapter.map_event(&req_bad_prompt),
