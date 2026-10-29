@@ -24,7 +24,10 @@ Further facts the adapter depends on (same sources, same date):
 - `chat.message` runs with `(input: {sessionID, agent?, model?, messageID?, variant?}, output:
   {message: UserMessage, parts: Part[]})`; parts pushed into `output.parts` are persisted with the
   message (`session/prompt.ts` triggers the hook, then saves `resolvedParts`). Injected parts carry
-  `synthetic: true`.
+  `synthetic: true` and must have an id starting with `prt`: `PartID` checks `isStartsWith("prt")`
+  ([session/schema.ts L19](https://github.com/anomalyco/opencode/blob/v1.18.35/packages/opencode/src/session/schema.ts));
+  prompt.ts L1033-1048 logs a part that fails decoding and persists the parts. The shim uses
+  `prt_tkm_<message id>`.
 - `tool.execute.after` runs with `(input: {tool, sessionID, callID, args}, output: {title, output,
   metadata})`; `metadata.exit` is present for `bash`, `metadata.exists` for `write`. It carries
   no duration or working directory (the shim runs `tkm-hook` in the plugin `directory`).

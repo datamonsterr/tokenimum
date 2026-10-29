@@ -36,15 +36,26 @@ its reply. This ADR fixes the wire contract between shim, `tkm-hook` (epic E4) a
    character boundary. Injection is allowed only on opencode `chat.message` and Pi
    `before_agent_start`; a notice on every event except session end. Parts an event does not allow
    are dropped. A request that fails mapping validation renders `""`.
-4. **Applying the reply.** opencode `chat.message`: push `{id:"tkm-"+output.message.id, sessionID,
-   messageID, type:"text", text:context, synthetic:true}` into `output.parts`; the parts are saved
-   after the hook returns (verified in `session/prompt.ts`), so the context persists as a synthetic
-   part, which the readers exclude from prompts. Notice: `client.tui.showToast({body:{message,
+4. **Applying the reply.** opencode `chat.message`: push `{id:"prt_tkm_"+output.message.id, sessionID,
+   messageID, type:"text", text:context, synthetic:true}` into `output.parts`. The id must start with
+   `prt`: `PartID` is `Schema.String.check(Schema.isStartsWith("prt"))`
+   ([session/schema.ts L19](https://github.com/anomalyco/opencode/blob/v1.18.35/packages/opencode/src/session/schema.ts)),
+   and `createUserMessage` builds parts with `PartID.make(part.id)` for given ids (`assign`, L694-697),
+   triggers `chat.message` (L999-1009), logs `invalid user part before save` for a part that fails
+   decoding (L1033-1045) and then persists every part with `sessions.updatePart` (L1047-1048,
+   [session/prompt.ts](https://github.com/anomalyco/opencode/blob/v1.18.35/packages/opencode/src/session/prompt.ts)).
+   An id without the prefix (the first draft used `tkm-...`) would fail that validation. Parts
+   are saved after the hook returns, so the context persists as a synthetic part, which the readers
+   exclude from prompts. Applying the reply is wrapped in `try`/`catch`, so a throw can never fail
+   the prompt. Notice: `client.tui.showToast({body:{message,
    variant:"info"}})`, errors ignored. Pi `before_agent_start`: return `{message:{customType:
    "tokenimum", content:context, display:false}}`; notice via `ctx.ui.notify(notice, "info")`.
    Any spawn failure, timeout, non-zero exit, empty or invalid stdout leaves the host untouched.
-5. **Timeouts.** `prompt` 3,000 ms, every other event 1,000 ms. opencode races Bun `$`
-   (`.cwd(directory).quiet().nothrow()`, stdin redirected from a `Response`) against a timer: its
+5. **Timeouts and size.** `prompt` 3,000 ms, every other event 1,000 ms. opencode races Bun `$`
+   (`.cwd(directory).quiet().nothrow()`, stdin redirected from a `Response`) against a timer,
+   cleared once the race settles. `$` (`shell.d.ts`) has no abort signal or kill handle, so a timed-out
+   `tkm-hook` is not killed; it ends by its own read timeout (SPEC 6.2). The opencode shim also
+   fails open above 100,000 bytes of payload, like Pi. Its
    plugin runner has no hook timeout and awaits `chat.message` and `tool.execute.after` in
    sequence. The `event` hook is not awaited by opencode. Pi uses the `timeout` option of
    `pi.exec`. `tool_done` is awaited (not fire-and-forget); the 5 ms daemon read timeout of
@@ -99,9 +110,11 @@ its reply. This ADR fixes the wire contract between shim, `tkm-hook` (epic E4) a
     `cache.write` map to cache read and write; usage is also kept per `modelID`. A tool part with
     status `error` is a call with `is_error`; `exit_code` is `state.metadata.exit`; the duration is
     `time.end - time.start`. Records are messages plus parts of the session; unreadable JSON and
-    unknown part types are skipped. Known parts: text, reasoning, tool, step-start, step-finish,
-    patch, file, compaction, agent, retry, subtask. More than 20% skipped marks the session
-    partial. The tool catalog lists tools in first-use order (built-ins; a non-built-in name with an
+    unknown part types are skipped. Only damage is skipped: a row whose JSON does not parse, is not an object or has no string
+    `type`; a message without a `role`. The `Part` union of the v1.18.35 SDK (text, subtask,
+    reasoning, file, tool, step-start, step-finish, snapshot, patch, agent, retry, compaction) and
+    types added later are valid and kept; the reader interprets text and tool parts and ignores the
+    rest. More than 20% skipped marks the session partial. The tool catalog lists tools in first-use order (built-ins; a non-built-in name with an
     underscore is `Mcp` with no server, since `<server>_<tool>` cannot be split reliably).
 13. **Deferred: legacy `storage/` JSON tree and `opencode export <id>` fallback.** A source
     directory without `opencode.db` is `AdapterError::Unsupported`. v1.18.35 (the verified
@@ -109,10 +122,15 @@ its reply. This ADR fixes the wire contract between shim, `tkm-hook` (epic E4) a
     that are not available. Fold-only mode (run B) reports the gap and the user keeps live shims.
 14. **Pi reader.** Parses session JSONL v2/v3 (a missing header is `InvalidPayload`; version 1 is
     `Unsupported`). Entries form a tree; the active branch is the path from the last entry that has
-    an `id` back to the root through `parentId`; abandoned branches contribute nothing, including
-    their usage (they were billed but are not part of the session the person sees). Usage comes
-    from assistant messages, tool-result `usage` (nested model work), standalone `usage` entries and
-    summary usage on the branch; Pi's `reasoning` is inside `output`. Calls pair `toolCall` blocks
+    an `id` back to the root through `parentId`; every record with an `id` joins the tree, so a
+    parent link passes through entry types the reader does not interpret, but the leaf is the last
+    interpreted conversation entry (never a `usage` entry). Abandoned branches contribute no turns,
+    calls or usage: the ledger counts the active context, an intended choice (their tokens were
+    billed, but belong to history the person left). Standalone `usage` entries are spend outside
+    any conversation (cache warming) and count for the session on any branch. Usage comes from
+    assistant messages, tool-result `usage` (nested model work, attributed to the turn and to the
+    model of the latest assistant message, so the per-model totals always sum to the session
+    total), standalone `usage` entries and summary usage on the branch; Pi's `reasoning` is inside `output`. Calls pair `toolCall` blocks
     with `toolResult` messages by id. Unknown entry types and unreadable lines are skipped (same 20%
     rule); unknown message roles are ignored, not skipped (the docs tell consumers to tolerate
     them). The tool catalog is built from `toolsAdded` of system messages.

@@ -3,28 +3,30 @@
 import type { Plugin } from "@opencode-ai/plugin"
 export const Tokenimum: Plugin = async ({ client, $, directory }) => {
   const call = async (kind: string, host: string, payload: object, ms: number): Promise<any> => {
+    let timer: any
     try {
-      const stdin = new Response(JSON.stringify(payload))
-      const run = $`tkm-hook --host opencode --event ${kind} --host-event ${host} < ${stdin}`.cwd(directory).quiet().nothrow().text()
-      const out = await Promise.race([run, new Promise<string>((done) => setTimeout(() => done(""), ms))])
+      const body = JSON.stringify(payload)
+      if (new TextEncoder().encode(body).length > 100000) return {}
+      const run = $`tkm-hook --host opencode --event ${kind} --host-event ${host} < ${new Response(body)}`.cwd(directory).quiet().nothrow().text()
+      const out = await Promise.race([run, new Promise<string>((done) => (timer = setTimeout(() => done(""), ms)))])
       return out.trim() ? (JSON.parse(out) ?? {}) : {}
     } catch {
       return {}
+    } finally {
+      clearTimeout(timer)
     }
   }
   const notify = async (message?: string) => {
-    try {
-      if (message) await client.tui.showToast({ body: { message, variant: "info" } })
-    } catch {}
+    try { if (message) await client.tui.showToast({ body: { message, variant: "info" } }) } catch {}
   }
   const kinds: Record<string, string> = { "session.created": "session_start", "session.idle": "turn_end", "session.deleted": "session_end" }
   return {
     "chat.message": async (input, output) => {
       const reply = await call("prompt", "chat.message", { hook: "chat.message", input, output }, 3000)
-      if (typeof reply.context === "string") {
+      try {
         const id = output.message.id
-        output.parts.push({ id: "tkm-" + id, sessionID: input.sessionID, messageID: id, type: "text", text: reply.context, synthetic: true })
-      }
+        if (typeof reply.context === "string") output.parts.push({ id: "prt_tkm_" + id, sessionID: input.sessionID, messageID: id, type: "text", text: reply.context, synthetic: true })
+      } catch {}
       await notify(reply.notice)
     },
     "tool.execute.after": async (input, output) => {
