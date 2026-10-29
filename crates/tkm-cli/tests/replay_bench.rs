@@ -178,6 +178,7 @@ fn report_contains_only_aggregates_and_counts_decision_overhead() {
             id,
             Measurement {
                 decision_cost_usd: 0.0,
+                decision_tokens: 0,
                 ..measurement.clone()
             },
         );

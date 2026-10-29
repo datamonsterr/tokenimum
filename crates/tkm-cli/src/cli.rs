@@ -18,6 +18,9 @@ pub struct Cli {
 /// Every supported top-level command.
 #[derive(Debug, Subcommand)]
 pub enum Command {
+    /// Private history replay benchmark.
+    #[command(hide = true)]
+    Bench(crate::replay_bench::BenchArgs),
     /// Detect harnesses and install tokenimum.
     Init(InitArgs),
     /// Remove tokenimum's recorded entries and shims.
@@ -70,7 +73,7 @@ pub struct InitArgs {
     #[arg(long, value_name = "DIR")]
     pub home: Option<PathBuf>,
     /// Select the host associated with an explicit agent home.
-    #[arg(long, value_name = "HOST")]
+    #[arg(long, value_name = "HOST", value_parser = |s: &str| if s == "claude-code" { Ok(Host::Claude) } else { s.parse::<Host>() })]
     pub host: Option<Host>,
     /// Include superorchestrator account homes in detection.
     #[arg(long)]

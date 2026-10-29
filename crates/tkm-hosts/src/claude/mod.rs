@@ -90,3 +90,11 @@ fn native_event(request: &Request) -> Result<&str, AdapterError> {
             .ok_or_else(|| invalid("native event is missing"))
     }
 }
+
+/// Parse a Claude transcript RFC3339 timestamp, including offsets and fractions.
+///
+/// Benchmark readers use this for agent records that the normalized reader skips.
+#[must_use]
+pub fn parse_timestamp(text: &str) -> Option<tkm_core::model::Timestamp> {
+    time::parse(text)
+}

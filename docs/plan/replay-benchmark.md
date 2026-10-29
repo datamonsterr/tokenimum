@@ -1,6 +1,6 @@
 # Replay benchmark: taphoa-mini history with and without tokenimum
 
-Status: planned for E10 (task E10.6). This adds an end-to-end token benchmark to the E10
+Status: harness implemented for E10 (task E10.6); live sample pending secrets. This adds an end-to-end token benchmark to the E10
 calibration bench (E10.1), which measures decisions only. It answers one question: does an agent
 spend fewer tokens on the same real work when tokenimum is installed?
 
@@ -102,3 +102,154 @@ synthetic transcripts.
 A full anchored replay costs roughly as much as the original history. That is about 4 G cache-read
 and 15 M output tokens. The job prints an estimate from `baseline.json` and needs an explicit
 `confirm_full: true` input for `full`.
+
+## Running it
+
+The harness is implemented in `crates/tkm-cli/src/replay_bench/` (ADR
+[0048](../adr/0048-history-replay-benchmark.md)). The actual pilot/sample/full run is deferred
+until you add the private inputs below. Nothing in ordinary PR CI calls live Claude models.
+
+Prepare the bundle **on your own machine**, outside the tokenimum checkout. These commands are
+instructions for the owner; implementation agents and CI must not inspect your real home.
+The builder uses only the explicitly selected transcript files and a reviewed AI configuration
+template. It never collects `.credentials.json`, account files, or your ambient Claude login.
+Python 3.12+, Git and GnuPG are needed.
+
+1. Make a private staging directory, for example `mkdir -m 700 /tmp/taphoa-replay-input`. Inventory the
+   historical files, including worktree directories and nested agent JSONL files:
+
+   ```bash
+   python3 scripts/replay_bundle.py inventory \
+     --source-root "$HOME/.claude/projects" \
+     > /tmp/taphoa-replay-input/inventory.json
+   ```
+
+2. Write `metadata.json` in that staging directory. Describe **every** inventoried transcript
+   exactly once. Give every `so/*` or other agent transcript its spawning session's `parent`;
+   nested parents are supported. Do not guess agent ownership from timestamps. `path` is relative
+   to `~/.claude/projects`. Top-level sessions also need their original `end_commit` and a
+   branch-specific git log file. Capture each relevant branch log in staging:
+
+   ```bash
+   git -C /path/to/taphoa-mini log --format='%H%x09%ct' ORIGINAL_BRANCH \
+     > /tmp/taphoa-replay-input/main.log
+   ```
+
+   The anchor is the last commit at or before the transcript's first timestamp, using committer
+   dates. A log cannot recover a historical checkout/branch switch: provide a verified full
+   `start_commit` from that original worktree's HEAD/reflog in those cases. Before the first
+   commit, leave the override absent and supply a log whose first commit is later than the
+   session; the harness uses an empty initial commit. End commits are explicit because a nearby
+   timestamp is not reliable evidence of the original outcome. All referenced commits must be
+   fetchable from the reference repository before dispatch.
+
+   Schema example (replace all paths/IDs and fill **actual historical USD rates per million**;
+   `null` is deliberately not an invented price):
+
+   ```json
+   {
+     "claude_version": "2.1.310",
+     "effort": "high",
+     "permission_mode": "default",
+     "tests": [["npm", "ci"], ["npm", "test"]],
+     "prices": {
+       "claude-opus-5-5": {
+         "input": null, "cache_creation": null, "cache_read": null, "output": null
+       }
+     },
+     "sessions": [
+       {
+         "id": "main-session-id",
+         "path": "-home-dat-dev-taphoa-mini/main-session-id.jsonl",
+         "parent": null,
+         "git_log": "main.log",
+         "end_commit": "FULL_ORIGINAL_END_COMMIT_HASH"
+       },
+       {
+         "id": "so/agent-session-id",
+         "path": "-home-dat-dev-taphoa-mini-agent/agent-session-id.jsonl",
+         "parent": "main-session-id"
+       }
+     ]
+   }
+   ```
+
+   Add prices for **every** recorded model, including sonnet/fable or other agent models.
+   Unknown/invalid rates refuse accounting. Choose the effort and permission mode matching the
+   history and the actual project's CI-equivalent setup/test commands; the example commands
+   above are placeholders, not a claim about taphoa-mini's test runner. The common configuration
+   must match the selected sessions; split incompatible configurations into separate bundles.
+
+3. Create a reviewed, portable `home-template/` in staging. Copy the required `~/.claude`
+   configuration into it deliberately: `.claude/CLAUDE.md`, `.claude/settings*.json`, skills,
+   agents, commands, plugins and their pinned data. Include MCP configuration as needed. If using
+   `.claude.json`, it may contain **only** a reviewed `mcpServers` object, never account/login
+   state. Remove secrets and use environment references for required server credentials. Resolve
+   symlinks and original-machine absolute paths into portable equivalents. Do not include
+   projects, logs, caches containing conversations, `.credentials.json`, credential files, or an
+   existing tokenimum installation. The builder refuses files outside its AI-config allowlist.
+   Preserve foreign hook entries. Repository `CLAUDE.md`, `.claude/settings*.json`, skills and
+   `.mcp.json` come from each session's start commit. Ensure any external plugin/MCP tools are
+   available on the runner and supply their required credentials separately.
+
+4. Encrypt the private bundle. Set a strong `REPLAY_BUNDLE_KEY` in your local environment or let
+   the builder ask for it; never put the key in argv or a committed file:
+
+   ```bash
+   python3 scripts/replay_bundle.py build \
+     --source-root "$HOME/.claude/projects" \
+     --metadata /tmp/taphoa-replay-input/metadata.json \
+     --config-template /tmp/taphoa-replay-input/home-template \
+     --output /tmp/taphoa-replay-bundle.tar.gz.gpg
+   ```
+
+   Upload the encrypted file to private storage with an HTTPS download URL. Keep plaintext
+   staging and the encrypted bundle outside git. Delete plaintext staging when finished. The
+   script prints no transcript content; the only normal output is a completion message.
+
+5. Add repository Actions secrets:
+
+   | Secret | Value |
+   |---|---|
+   | `REPLAY_BUNDLE_URL` | Private HTTPS download URL for the encrypted bundle (a time-limited signed URL is supported). |
+   | `REPLAY_BUNDLE_KEY` | The GnuPG symmetric passphrase used above. |
+   | `ANTHROPIC_API_KEY` **or** `CLAUDE_CODE_OAUTH_TOKEN` | Claude Code headless authentication; configure one, not both. The official CI documentation supports both names. |
+   | `OPENROUTER_API_KEY` | tokenimum's decision-model credentials; decision usage and USD cost count against the treatment arm. |
+   | `REPLAY_REPO_TOKEN` | Read-only repository access token for the private `datamonsterr/taphoa-mini` clone. The token is not persisted into Git config. |
+
+   Current official headless/CLI/authentication and Action references, with verification date,
+   are recorded in [docs/verified/e10-replay-benchmark.md](../verified/e10-replay-benchmark.md).
+
+6. Dispatch **Private history replay benchmark** with `subset=pilot`, then `sample` when ready.
+   Pilot replays five treatment sessions **and ten controls**; sample replays 20 treatment
+   sessions and ten controls. Selection is deterministic, oldest intact top-level sessions first.
+   The job refuses fewer than ten eligible control sessions. Full additionally requires
+   `confirm_full=true` in the dispatch inputs; the hidden CLI independently enforces the same
+   guard. The job prints a historical-price replay/control estimate calculated from private
+   `baseline.json` before its first live call; decision-model overhead is additional.
+
+The workflow pins the bundle's Claude release, leaves clone A at latest main, and creates B and a
+separate no-tokenimum control checkout. Every prompt uses `claude -p --output-format stream-json
+--verbose --model <recorded-model>`; later prompts resume the newly assigned session UUID.
+Configuration snapshots are checked before prompts are sent. Normal persisted JSONL transcripts,
+including agents spawned in the isolated HOME, supply usage; cumulative stream result totals
+are never added again. Tokenimum is installed using `tkm init --host claude-code --home
+<throwaway-home>/.claude --yes`, and its daemon is managed directly inside the run.
+
+The private working directory holds baseline, plan, measurements and skipped-session IDs/reasons.
+A skipped descendant of a malformed parent is also excluded. A missing parent, model price,
+configuration mismatch, incomplete measured transcript, or failed control outcome refuses the
+comparison. Controls establish the maximum absolute relative cost deviation; a saving must
+strictly exceed it. Replay outcomes require all configured project tests and changed-file Jaccard
+overlap >=0.5 against the original end commit (both sets empty gives 1). An outcome failure is a
+regression even if tokens fall. Decision cost is added once; its total token overhead is reported
+separately from Claude's four classes.
+
+Download the `replay-benchmark-<subset>` artifact. Its sole file is
+`docs/reports/replay-benchmark.md`, containing only totals, model/size buckets, outcome counts and
+control variance. Private inputs and model output are never artifacts; runner cleanup removes
+private state even after failures. Review the aggregate report before committing it after the
+future sample run. To do one explicit free-running pass, invoke the driver in the same prepared
+CI environment with `--free-running`; its report is labelled and controls remain anchored.
+For offline inspection, `tkm bench history --help` exposes `baseline`, `plan`, `config-check`, and
+`report`; treat the plan as private because it contains extracted prompts.
