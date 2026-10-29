@@ -43,7 +43,6 @@ fn other_commands_dispatch_to_stubs() {
         (vec!["models", "probe"], "models"),
         (vec!["calibrate"], "calibrate"),
         (vec!["replay", "fixture.json"], "replay"),
-        (vec!["run", "claude", "--model", "y"], "run"),
         (vec!["doctor", "--probe"], "doctor"),
         (vec!["export", "--show-digests"], "export"),
     ] {
