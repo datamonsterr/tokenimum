@@ -3026,6 +3026,7 @@ dependencies = [
  "directories",
  "serde",
  "thiserror 2.0.21",
+ "tkm-core",
  "toml_edit",
 ]
 
@@ -3105,7 +3106,9 @@ version = "0.0.0"
 dependencies = [
  "rusqlite",
  "serde",
+ "serde_json",
  "thiserror 2.0.21",
+ "tkm-core",
 ]
 
 [[package]]
