@@ -1,9 +1,9 @@
 #![forbid(unsafe_code)]
-#![allow(clippy::unwrap_used, clippy::expect_used)]
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::too_many_lines)] // long fixture-driven test bodies
 
 use serde_json::{Value, json};
 use std::{collections::BTreeMap, fs, path::PathBuf};
-use tkm_core::model::{Call, EditKind, EditVia, FileEdit, HookEvent, StopReason};
+use tkm_core::model::{EditKind, EditVia, FileEdit, HookEvent, StopReason};
 use tkm_hosts::{AdapterError, HostAdapter, PruneTarget, agy::AgyAdapter};
 use tkm_proto::{EventKind, Host, PROTOCOL_VERSION, ReplyAction, Request};
 
