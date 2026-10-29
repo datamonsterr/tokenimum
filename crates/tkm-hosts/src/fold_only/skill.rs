@@ -60,7 +60,7 @@ pub fn render(host: Host) -> String {
 /// | Kimi Code | `<agent_home>/skills` | `.kimi/skills` |
 /// | Codewhale | `<agent_home>/skills` | `.codewhale/skills` |
 /// | opencode | `<agent_home>/skills` | `.opencode/skills` |
-/// | Pi | none | `.agents/skills` |
+/// | Pi | `<agent_home>/skills` | `.agents/skills` |
 ///
 /// Evidence for these locations is recorded in ADR 0026.
 #[must_use]
@@ -79,7 +79,8 @@ pub fn skill_path(host: Host, agent_home: &Path, repo_root: Option<&Path>) -> Op
             | Host::Kimi
             | Host::Codex
             | Host::Cursor
-            | Host::Deepseek,
+            | Host::Deepseek
+            | Host::Pi,
             None,
         ) => agent_home.join("skills"),
         _ => return None,

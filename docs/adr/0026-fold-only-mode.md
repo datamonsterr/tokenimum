@@ -84,7 +84,7 @@ Each line is added once. Exclude lines stay after removal (harmless).
 | Claude Code | user `<agent_home>/skills/tokenimum/SKILL.md`, project `.claude/skills/...` | https://code.claude.com/docs/en/skills |
 | opencode | user `<agent_home>/skills/...` (`~/.config/opencode`), project `.opencode/skills/...` | https://opencode.ai/docs/skills/ |
 | Kimi Code | user `<agent_home>/skills/...` (`~/.kimi/skills/`), project `.kimi/skills` | https://github.com/MoonshotAI/kimi-cli/blob/main/docs/en/customization/skills.md |
-| Pi | project `.agents/skills/...` only | https://github.com/badlogic/pi-mono/blob/main/packages/coding-agent/docs/skills.md documents `~/.agents/skills/` and `.agents/skills/`, not a path under the Pi agent home |
+| Pi | user `<agent_home>/skills`, project `.agents/skills` | https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/configuration.md (2026-10-29) |
 | Codex | user `<agent_home>/skills`, project `.agents/skills` | https://developers.openai.com/cookbook/examples/codex/iterating-development-workflows-with-codex and https://developers.openai.com/blog/skills-agents-sdk (2026-10-29) |
 | agy CLI | user `<agent_home>/antigravity-cli/skills`, project `.agents/skills` | https://antigravity.google/docs/skills/ (2026-10-29) |
 | Cursor | user `<agent_home>/skills`, project `.cursor/skills` | https://cursor.com/help/customization/skills (2026-10-29) |
