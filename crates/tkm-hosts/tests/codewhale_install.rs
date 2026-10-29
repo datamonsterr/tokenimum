@@ -236,7 +236,10 @@ fn project_scope_preserves_foreign_hooks_and_uses_project_shape() {
     assert_foreign_bytes_preserved(original.as_bytes(), text.as_bytes());
     let doc: toml_edit::DocumentMut = text.parse().unwrap();
     assert_eq!(doc["hooks"].as_array_of_tables().unwrap().len(), 8);
-    assert!(adapter.install(&ctx).unwrap().changed_files.is_empty());
+    assert_eq!(
+        adapter.install(&ctx).unwrap().changed_files,
+        Vec::<std::path::PathBuf>::new()
+    );
     adapter.uninstall(&ctx).unwrap();
     assert_eq!(fs::read_to_string(path).unwrap(), original);
 }
