@@ -23,5 +23,10 @@ pub(super) fn render_reply(request: &Request, action: &ReplyAction) -> String {
         _ => return String::new(),
     };
 
+    // Kimi parses JSON stdout for a permission decision; never let injected text look like one.
+    if text.trim_start().starts_with('{') {
+        return String::new();
+    }
+
     truncate(text, 10_000)
 }

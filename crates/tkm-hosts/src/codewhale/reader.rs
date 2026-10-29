@@ -66,6 +66,7 @@ pub(super) fn read_session(source: &SessionSource) -> Result<Session, AdapterErr
         .and_then(|j| j.get("entries"))
         .and_then(Value::as_array);
 
+    let mut leaf_fallback = false;
     let items_to_process: Vec<&Value> = if let Some(entries) = journal_entries {
         let leaf_id = doc_map
             .get("journal")
@@ -96,7 +97,13 @@ pub(super) fn read_session(source: &SessionSource) -> Result<Session, AdapterErr
                 }
             }
             branch.reverse();
-            branch
+            if branch.is_empty() {
+                // leaf_id matches no entry: read in file order rather than lose the session.
+                leaf_fallback = true;
+                entries.iter().collect()
+            } else {
+                branch
+            }
         } else {
             entries.iter().collect()
         }
@@ -165,7 +172,8 @@ pub(super) fn read_session(source: &SessionSource) -> Result<Session, AdapterErr
         }
     }
 
-    let partial = total_records > 0 && skipped_records.saturating_mul(5) > total_records;
+    let partial =
+        leaf_fallback || (total_records > 0 && skipped_records.saturating_mul(5) > total_records);
 
     let mut session = Session::new(Host::Deepseek);
     session.agent_home.clone_from(&source.agent_home);

@@ -160,6 +160,14 @@ impl Reader {
         }
     }
 
+    /// Moves calls that never got a result into the current turn, unchanged, in call order.
+    fn flush_pending(&mut self) {
+        let pending = std::mem::take(&mut self.pending_calls);
+        if let Some(turn) = self.current_turn.as_mut() {
+            turn.calls.extend(pending);
+        }
+    }
+
     fn record(&mut self, record: &Value) -> bool {
         if self.first_created_at.is_none()
             && let Some(ts_str) = record.get("created_at").and_then(Value::as_str)
@@ -173,6 +181,7 @@ impl Reader {
 
         match step_type {
             "USER_INPUT" => {
+                self.flush_pending();
                 if let Some(mut prev) = self.current_turn.take() {
                     if prev.stopped_by == StopReason::Unknown {
                         prev.stopped_by = StopReason::OwnStop;
@@ -192,6 +201,7 @@ impl Reader {
                 true
             }
             "PLANNER_RESPONSE" => {
+                self.flush_pending();
                 let input = record
                     .get("input_tokens")
                     .and_then(Value::as_u64)
@@ -291,6 +301,7 @@ pub(super) fn read_session(source: &SessionSource) -> Result<Session, AdapterErr
         }
     }
 
+    reader.flush_pending();
     if let Some(mut turn) = reader.current_turn.take() {
         if turn.stopped_by == StopReason::Unknown {
             turn.stopped_by = StopReason::OwnStop;

@@ -14,6 +14,7 @@ pub mod cursor;
 pub mod digest;
 pub mod kimi;
 pub mod probe;
+mod toml_util;
 pub mod writer;
 
 use std::io;

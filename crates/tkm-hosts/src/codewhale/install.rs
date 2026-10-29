@@ -98,10 +98,13 @@ pub(super) fn install(context: &InstallContext) -> Result<InstallReport, Adapter
             });
         };
 
-        hooks_arr.retain(|t| !is_owned(t));
+        let mut carry = crate::toml_util::remove_owned(hooks_arr, is_owned);
 
         for (ev, kind, timeout) in HOOK_SPECS {
             let mut table = Table::new();
+            if !carry.is_empty() {
+                table.decor_mut().set_prefix(std::mem::take(&mut carry));
+            }
             table["event"] = toml_edit::value(ev);
             table["command"] = toml_edit::value(format!(
                 "tkm-hook --host deepseek --event {}",
@@ -150,12 +153,13 @@ pub(super) fn uninstall(context: &InstallContext) -> Result<InstallReport, Adapt
         let mut doc: DocumentMut = text.parse().map_err(|e| AdapterError::InvalidPayload {
             message: format!("malformed config TOML: {e}"),
         })?;
+        let mut leftover = String::new();
         if let Some(hooks_table) = doc.get_mut("hooks").and_then(Item::as_table_mut) {
             if let Some(hooks_arr) = hooks_table
                 .get_mut("hooks")
                 .and_then(Item::as_array_of_tables_mut)
             {
-                hooks_arr.retain(|t| !is_owned(t));
+                leftover = crate::toml_util::remove_owned(hooks_arr, is_owned);
                 if hooks_arr.is_empty() {
                     hooks_table.remove("hooks");
                 }
@@ -164,31 +168,16 @@ pub(super) fn uninstall(context: &InstallContext) -> Result<InstallReport, Adapt
                 doc.remove("hooks");
             }
         }
+        if !leftover.is_empty() {
+            let existing = doc.trailing().as_str().unwrap_or_default().to_owned();
+            doc.set_trailing(format!("{existing}{leftover}"));
+        }
         Ok(doc.to_string())
     };
 
-    let same = |a: &str, b: &str| -> Result<bool, AdapterError> {
-        if a == b {
-            return Ok(true);
-        }
-        let val_a: Result<serde_json::Value, _> = toml_edit::de::from_str(a);
-        let val_b: Result<serde_json::Value, _> = toml_edit::de::from_str(b);
-        match (val_a, val_b) {
-            (Ok(va), Ok(vb)) => Ok(va == vb),
-            _ => Ok(false),
-        }
-    };
+    let same = |a: &str, b: &str| -> Result<bool, AdapterError> { Ok(a == b) };
 
-    let empty = |text: &str| -> Result<bool, AdapterError> {
-        if text.trim().is_empty() {
-            return Ok(true);
-        }
-        let doc: DocumentMut = match text.parse() {
-            Ok(d) => d,
-            Err(_) => return Ok(false),
-        };
-        Ok(doc.as_table().is_empty())
-    };
+    let empty = |text: &str| -> Result<bool, AdapterError> { Ok(text.trim().is_empty()) };
 
     crate::writer::uninstall_text_file(root, &path, context.dry_run, &edit, &same, &empty)
 }

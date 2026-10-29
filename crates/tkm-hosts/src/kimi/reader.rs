@@ -86,7 +86,11 @@ fn read_context(
     let reader = BufReader::new(file);
 
     for line in reader.lines() {
-        let line = line?;
+        let Ok(line) = line else {
+            session.total_records = session.total_records.saturating_add(1);
+            session.skipped_records = session.skipped_records.saturating_add(1);
+            continue;
+        };
         let trimmed = line.trim();
         if trimmed.is_empty() {
             continue;
@@ -211,7 +215,12 @@ fn read_wire(path: &Path, session: &mut Session) -> Result<(), AdapterError> {
     let mut last_msg_type: Option<String> = None;
 
     for line in reader.lines() {
-        let line = line?;
+        let Ok(line) = line else {
+            session.total_records = session.total_records.saturating_add(1);
+            session.skipped_records = session.skipped_records.saturating_add(1);
+            is_first = false;
+            continue;
+        };
         let trimmed = line.trim();
         if trimmed.is_empty() {
             continue;
@@ -219,20 +228,27 @@ fn read_wire(path: &Path, session: &mut Session) -> Result<(), AdapterError> {
 
         session.total_records = session.total_records.saturating_add(1);
 
-        if is_first {
-            is_first = false;
-            continue;
-        }
-
         let Ok(record) = serde_json::from_str::<Value>(trimmed) else {
             session.skipped_records = session.skipped_records.saturating_add(1);
+            is_first = false;
             continue;
         };
 
         let Some(obj) = record.as_object() else {
             session.skipped_records = session.skipped_records.saturating_add(1);
+            is_first = false;
             continue;
         };
+
+        // The first line is a header (`{"type":"metadata",...}`, or a version/session
+        // object without `timestamp`/`message`); an event line there must still be read.
+        let first = std::mem::replace(&mut is_first, false);
+        if first
+            && (obj.get("type").and_then(Value::as_str) == Some("metadata")
+                || (!obj.contains_key("timestamp") && !obj.contains_key("message")))
+        {
+            continue;
+        }
 
         let ts = obj
             .get("timestamp")
