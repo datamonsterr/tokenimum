@@ -1,0 +1,8 @@
+[
+  {"fixture": "sessionStart",         "event": "session_start", "action": "Nothing", "stdout": "{}"},
+  {"fixture": "beforeSubmitPrompt",   "event": "prompt",        "action": "Nothing", "stdout": "{}"},
+  {"fixture": "postToolUse",          "event": "tool_done",     "action": "Nothing", "stdout": "{}"},
+  {"fixture": "postToolUseFailure",   "event": "tool_done",     "action": "Nothing", "stdout": "{}"},
+  {"fixture": "stop",                 "event": "turn_end",      "action": "Nothing", "stdout": "{}"},
+  {"fixture": "sessionEnd",           "event": "session_end",   "action": "Nothing", "stdout": "{}"}
+]

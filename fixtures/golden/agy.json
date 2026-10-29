@@ -1,0 +1,7 @@
+[
+  {"fixture": "SessionStart",    "event": "session_start", "host_event": "SessionStart",    "action": "Nothing", "stdout": "{}"},
+  {"fixture": "PreInvocation",   "event": "prompt",        "host_event": "PreInvocation",   "action": "Nothing", "stdout": "{}"},
+  {"fixture": "PreInvocation-2", "event": "prompt",        "host_event": "PreInvocation",   "action": "Nothing", "stdout": "{}"},
+  {"fixture": "PostInvocation",  "event": "tool_done",     "host_event": "PostInvocation",  "action": "Nothing", "stdout": "{}"},
+  {"fixture": "Stop",            "event": "turn_end",      "host_event": "Stop",            "action": "Nothing", "stdout": "{}"}
+]

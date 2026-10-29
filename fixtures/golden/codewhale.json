@@ -1,0 +1,5 @@
+[
+  {"fixture": "message_submit",       "event": "prompt",        "host_event": "message_submit",     "action": "Nothing", "stdout": ""},
+  {"fixture": "tool_call_after-shell","event": "tool_done",     "host_event": "tool_call_after",    "action": "Nothing", "stdout": ""},
+  {"fixture": "turn_end",             "event": "turn_end",      "host_event": "turn_end",           "action": "Nothing", "stdout": ""}
+]

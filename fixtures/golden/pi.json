@@ -1,0 +1,8 @@
+[
+  {"fixture": "session_start",     "event": "session_start", "host_event": "session_start",     "action": "Nothing", "stdout": ""},
+  {"fixture": "before_agent_start","event": "prompt",        "host_event": "before_agent_start","action": "Nothing", "stdout": ""},
+  {"fixture": "tool_result_bash",  "event": "tool_done",     "host_event": "tool_result",       "action": "Nothing", "stdout": ""},
+  {"fixture": "tool_result_bash_error", "event": "tool_done","host_event": "tool_result",       "action": "Nothing", "stdout": ""},
+  {"fixture": "turn_end",          "event": "turn_end",      "host_event": "turn_end",          "action": "Nothing", "stdout": ""},
+  {"fixture": "agent_end",         "event": "session_end",   "host_event": "agent_end",         "action": "Nothing", "stdout": ""}
+]

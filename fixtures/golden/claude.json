@@ -1,0 +1,11 @@
+[
+  {"fixture": "SessionStart",        "event": "session_start", "action": "Nothing", "stdout": ""},
+  {"fixture": "UserPromptSubmit",    "event": "prompt",        "action": "Nothing", "stdout": ""},
+  {"fixture": "PostToolUse-bash",    "event": "tool_done",     "action": "Nothing", "stdout": ""},
+  {"fixture": "PostToolUse-read",    "event": "tool_done",     "action": "Nothing", "stdout": ""},
+  {"fixture": "PostToolUse-write",   "event": "tool_done",     "action": "Nothing", "stdout": ""},
+  {"fixture": "PostToolUse-edit",    "event": "tool_done",     "action": "Nothing", "stdout": ""},
+  {"fixture": "PostToolUseFailure-bash", "event": "tool_done", "action": "Nothing", "stdout": ""},
+  {"fixture": "Stop",                "event": "turn_end",      "action": "Nothing", "stdout": ""},
+  {"fixture": "SessionEnd",          "event": "session_end",   "action": "Nothing", "stdout": ""}
+]

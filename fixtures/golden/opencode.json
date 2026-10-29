@@ -1,0 +1,7 @@
+[
+  {"fixture": "event-session-created",        "event": "session_start", "host_event": "session.created",   "action": "Nothing", "stdout": ""},
+  {"fixture": "chat-message",                 "event": "prompt",        "host_event": "chat.message",      "action": "Nothing", "stdout": ""},
+  {"fixture": "tool-execute-after-bash",      "event": "tool_done",     "host_event": "tool.execute.after","action": "Nothing", "stdout": ""},
+  {"fixture": "tool-execute-after-bash-exit1","event": "tool_done",     "host_event": "tool.execute.after","action": "Nothing", "stdout": ""},
+  {"fixture": "event-session-deleted",        "event": "session_end",   "host_event": "session.deleted",   "action": "Nothing", "stdout": ""}
+]
