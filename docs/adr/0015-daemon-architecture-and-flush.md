@@ -28,6 +28,8 @@ Date: 2026-10-29. Status: accepted (epic E4.2).
    at shutdown, on `spawn_blocking`. Items leave the batch as they are written; after a failure
    (database locked) the unwritten rest is re-queued and one `errors.log` line is written. Session
    upserts are emitted at start and end only, so a later fold status is never overwritten.
+   Turns and events whose session has not resolved remain queued while other rows progress; the
+   existing per-kind queue cap applies on requeue, and dropped rows are reported in errors.log.
 6. **Storage behind `Backing::open`.** All database access goes through one trait method, so a
    counting fake proves the `tool_done` handler makes no storage access. The default busy timeout
    is 100 ms (below the 300 ms `session_start` budget).

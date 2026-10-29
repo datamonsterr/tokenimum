@@ -109,12 +109,14 @@ impl FlushBatch {
     }
 
     /// Puts the unapplied remainder of `rest` back in front of whatever was queued meanwhile.
-    pub fn requeue(&mut self, mut rest: FlushBatch) {
+    pub fn requeue(&mut self, mut rest: FlushBatch) -> usize {
+        let mut dropped = 0;
         macro_rules! merge {
             ($field:ident) => {
                 rest.$field.append(&mut self.$field);
                 while rest.$field.len() > MAX_QUEUED {
                     rest.$field.pop_front();
+                    dropped += 1;
                 }
                 self.$field = std::mem::take(&mut rest.$field);
             };
@@ -126,6 +128,7 @@ impl FlushBatch {
         merge!(decisions);
         merge!(envelope);
         merge!(calibration);
+        dropped
     }
 
     /// Queues a session upsert, replacing an older queued upsert of the same session.
@@ -195,7 +198,8 @@ pub fn apply(store: &Store, batch: &mut FlushBatch) -> Result<(), StoreError> {
         );
         batch.sessions.pop_front();
     }
-    while let Some(turn) = batch.turns.front() {
+    for _ in 0..batch.turns.len() {
+        let Some(turn) = batch.turns.front() else { break };
         if let Some(id) = session_id(store, &mut ids, &turn.key)? {
             store.upsert_turn(&TurnRecord {
                 session_id: id,
@@ -205,10 +209,13 @@ pub fn apply(store: &Store, batch: &mut FlushBatch) -> Result<(), StoreError> {
                 escalated: turn.escalated,
                 digest_hash: None,
             })?;
+            batch.turns.pop_front();
+        } else if let Some(turn) = batch.turns.pop_front() {
+            batch.turns.push_back(turn);
         }
-        batch.turns.pop_front();
     }
-    while let Some(event) = batch.events.front() {
+    for _ in 0..batch.events.len() {
+        let Some(event) = batch.events.front() else { break };
         if let Some(id) = session_id(store, &mut ids, &event.key)? {
             store.insert_event(&NewEvent {
                 kind: event.kind.clone(),
@@ -218,8 +225,10 @@ pub fn apply(store: &Store, batch: &mut FlushBatch) -> Result<(), StoreError> {
                 explanation_template_id: event.template.clone(),
                 params: event.params.clone(),
             })?;
+            batch.events.pop_front();
+        } else if let Some(event) = batch.events.pop_front() {
+            batch.events.push_back(event);
         }
-        batch.events.pop_front();
     }
     while let Some(decision) = batch.decisions.front() {
         store.insert_decision(decision)?;

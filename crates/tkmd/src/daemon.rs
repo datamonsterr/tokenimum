@@ -1045,7 +1045,10 @@ impl Daemon {
             Ok((rest, result)) => {
                 if let Err(error) = result {
                     self.log_error(&format!("flush: {error}"));
-                    lock(&self.outbox).requeue(rest);
+                }
+                let dropped = lock(&self.outbox).requeue(rest);
+                if dropped > 0 {
+                    self.log_error(&format!("flush queue overflow: dropped {dropped} rows"));
                 }
             }
             Err(error) => self.log_error(&format!("flush task: {error}")),
