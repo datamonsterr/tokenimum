@@ -252,7 +252,6 @@ impl WebServer {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
     use tkm_core::model::Timestamp;
@@ -337,11 +336,13 @@ mod tests {
             daemon: Daemon::new(crate::daemon::DaemonOptions::new(paths)),
             deny_lock: Mutex::new(()),
         };
+        let mut edit_result = Ok(());
         actions
             .restore_tool_with_hook(&dir.path().to_string_lossy(), "claude", "A", || {
-                std::fs::write(&file, r#"{"permissions":{"deny":["A"]}}"#).unwrap();
+                edit_result = std::fs::write(&file, r#"{"permissions":{"deny":["A"]}}"#);
             })
             .map_err(std::io::Error::other)?;
+        edit_result?;
         let value: serde_json::Value = serde_json::from_slice(&std::fs::read(file)?)?;
         assert_eq!(value["permissions"]["deny"], serde_json::json!([]));
         Ok(())
@@ -418,10 +419,14 @@ mod tests {
         let task = tokio::spawn(async move {
             let mut channels = Some((ready_tx, rx));
             resync_after_lag(&shared, || {
-                let (ready_tx, rx) = channels.take().unwrap();
+                let channels = channels.take();
                 async move {
-                    let _ = ready_tx.send(());
-                    rx.await
+                    if let Some((ready_tx, rx)) = channels {
+                        let _ = ready_tx.send(());
+                        rx.await.map_err(|_| ())
+                    } else {
+                        Err(())
+                    }
                 }
             })
             .await;
@@ -528,6 +533,6 @@ mod tests {
         })
         .await;
         assert_eq!(attempts.load(Ordering::SeqCst), 2);
-        assert!(!monitor.read().unwrap().degraded);
+        assert!(monitor.read().is_ok_and(|state| !state.degraded));
     }
 }
