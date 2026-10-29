@@ -499,7 +499,7 @@ fn apply_twice_different_bodies_bytes_outside_block_unchanged() {
 
 #[test]
 fn apply_existing_file_backs_up_original_bytes_and_excludes_only_backup() {
-    let scratch = Scratch::new();
+    let scratch = Scratch::new("new1");
     scratch.init_git();
     fs::write(scratch.0.join("AGENTS.md"), "# mine\r\nkeep\n").unwrap();
     let report = apply(&scratch.0, Host::Codex, "fact", ApplyOptions::default()).unwrap();
@@ -516,7 +516,7 @@ fn apply_existing_file_backs_up_original_bytes_and_excludes_only_backup() {
 
 #[test]
 fn backup_is_written_once_and_never_overwritten() {
-    let scratch = Scratch::new();
+    let scratch = Scratch::new("new2");
     scratch.init_git();
     fs::write(scratch.0.join("AGENTS.md"), "original\n").unwrap();
     apply(&scratch.0, Host::Codex, "one", ApplyOptions::default()).unwrap();
@@ -529,7 +529,7 @@ fn backup_is_written_once_and_never_overwritten() {
 
 #[test]
 fn remove_from_restores_original_bytes_and_deletes_backup() {
-    let scratch = Scratch::new();
+    let scratch = Scratch::new("new3");
     scratch.init_git();
     let path = scratch.0.join("AGENTS.md");
     fs::write(&path, "# mine\n\nkeep\n").unwrap();
@@ -546,7 +546,7 @@ fn remove_from_restores_original_bytes_and_deletes_backup() {
 
 #[test]
 fn remove_from_keeps_file_and_backup_when_person_edited_elsewhere() {
-    let scratch = Scratch::new();
+    let scratch = Scratch::new("new4");
     scratch.init_git();
     let path = scratch.0.join("AGENTS.md");
     fs::write(&path, "# mine\n").unwrap();
@@ -690,7 +690,7 @@ fn markers_in_prose_and_code_fences_are_not_blocks() {
 
 #[test]
 fn apply_leaves_prose_and_fenced_markers_byte_identical() {
-    let scratch = Scratch::new();
+    let scratch = Scratch::new("new5");
     scratch.init_git();
     let path = scratch.0.join("AGENTS.md");
     fs::write(&path, PROSE_AND_FENCE).unwrap();
@@ -724,7 +724,7 @@ fn marker_with_leading_text_does_not_count() {
 
 #[test]
 fn apply_refuses_two_begin_markers() {
-    let scratch = Scratch::new();
+    let scratch = Scratch::new("new6");
     scratch.init_git();
     let path = scratch.0.join("AGENTS.md");
     let text = "<!-- tokenimum:begin -->\na\n<!-- tokenimum:end -->\n\n<!-- tokenimum:begin -->\nb\n<!-- tokenimum:end -->\n";
@@ -740,7 +740,7 @@ fn apply_refuses_two_begin_markers() {
 
 #[test]
 fn remove_from_refuses_two_begin_markers() {
-    let scratch = Scratch::new();
+    let scratch = Scratch::new("new7");
     scratch.init_git();
     let text = "<!-- tokenimum:begin -->\na\n<!-- tokenimum:begin -->\nb\n<!-- tokenimum:end -->\n";
     fs::write(scratch.0.join("AGENTS.md"), text).unwrap();
@@ -753,7 +753,7 @@ fn remove_from_refuses_two_begin_markers() {
 
 #[test]
 fn begin_in_fence_does_not_count_as_second_begin() {
-    let scratch = Scratch::new();
+    let scratch = Scratch::new("new8");
     scratch.init_git();
     let text =
         format!("{PROSE_AND_FENCE}\n<!-- tokenimum:begin -->\nold\n<!-- tokenimum:end -->\n");
@@ -811,7 +811,7 @@ fn replacing_a_block_is_idempotent_for_crlf() {
 
 #[test]
 fn apply_then_remove_from_round_trips_crlf_file() {
-    let scratch = Scratch::new();
+    let scratch = Scratch::new("new9");
     scratch.init_git();
     let path = scratch.0.join("AGENTS.md");
     fs::write(&path, "A\r\nB").unwrap();
@@ -826,7 +826,7 @@ fn apply_then_remove_from_round_trips_crlf_file() {
 #[test]
 fn failed_creation_leaves_exclude_untouched() {
     use std::os::unix::fs::PermissionsExt;
-    let scratch = Scratch::new();
+    let scratch = Scratch::new("new10");
     scratch.init_git();
     fs::set_permissions(&scratch.0, fs::Permissions::from_mode(0o555)).unwrap();
     let probe = scratch.0.join("probe");
@@ -843,7 +843,7 @@ fn failed_creation_leaves_exclude_untouched() {
 
 #[test]
 fn dry_run_reports_exclude_without_writing_it() {
-    let scratch = Scratch::new();
+    let scratch = Scratch::new("new11");
     scratch.init_git();
     let before = fs::read_to_string(scratch.0.join(".git/info/exclude")).unwrap_or_default();
     let opts = ApplyOptions {

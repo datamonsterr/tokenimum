@@ -63,7 +63,7 @@ fn fence_of(line: &str) -> Option<char> {
 }
 
 /// A marker counts only alone on its line (trailing whitespace and CR ignored)
-/// and outside ``` or ~~~ fences, so prose and examples that quote it are inert.
+/// and outside fenced code blocks (backtick or tilde fences), so prose and examples that quote it are inert.
 fn scan(text: &str) -> Scan {
     let mut fence = None;
     let mut offset = 0;
