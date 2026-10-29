@@ -1,4 +1,5 @@
-#![allow(clippy::unwrap_used, clippy::expect_used)]
+#![forbid(unsafe_code)]
+#![allow(clippy::float_cmp, clippy::unwrap_used, clippy::expect_used)]
 use tkm_core::{
     ledger::{CostLedger, Overhead, effective_exec, overhead},
     model::Usage,

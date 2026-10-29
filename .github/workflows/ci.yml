@@ -107,3 +107,9 @@ jobs:
             tkmd-geiger.json
             tkm-cli-geiger.json
             tkm-hook-geiger.json
+  core-pure:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - run: rustup show
+      - run: bash scripts/check-core-pure.sh
