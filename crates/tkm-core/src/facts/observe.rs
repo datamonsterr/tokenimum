@@ -1198,6 +1198,7 @@ mod tests {
     use super::*;
     use crate::facts::{self, FactsConfig, FactsState, SessionEvidence, lifecycle::Status};
     use crate::model::{Call, Turn};
+    use std::collections::BTreeSet;
 
     fn session(command: &str, output: &str, code: i32) -> Session {
         let mut session = Session::new(Host::Claude);
@@ -1277,6 +1278,21 @@ mod tests {
     }
 
     #[test]
+    fn invalid_git_reference_names_abstain() {
+        for (command, output) in [
+            ("git remote", "warning:\n"),
+            ("git remote", "bad..name\n"),
+            ("git branch -r", "  origin/main -> warning:\n"),
+            ("git branch -r", "  origin/bad..name\n"),
+            ("git tag --contains HEAD", "invalid tag name\n"),
+            ("git tag --contains HEAD", "bad..name\n"),
+        ] {
+            let digest = observe(&session(command, output, 0));
+            assert_eq!(digest.observations[0].outcome, Outcome::Unknown);
+        }
+    }
+
+    #[test]
     fn only_empty_successful_vcs_output_counts_as_empty() {
         for command in [
             "git remote",
@@ -1311,7 +1327,7 @@ mod tests {
                     state,
                     &SessionEvidence {
                         session,
-                        injected_ids: Default::default(),
+                        injected_ids: BTreeSet::default(),
                         decisions: None,
                     },
                     &FactsConfig::default(),
@@ -1331,6 +1347,7 @@ mod tests {
             ("# python -m pytest; git remote", vec![]),
             ("echo ok;# python -m pytest", vec!["echo ok"]),
             ("echo ok |# python -m pytest", vec!["echo ok"]),
+            ("echo ok &&# python -m pytest", vec!["echo ok"]),
             (
                 "echo ok # 'unterminated ; pytest\npython -m pytest # ;git remote",
                 vec!["echo ok", "python -m pytest"],
@@ -1357,6 +1374,8 @@ mod tests {
             r"echo \#literal",
             r"echo escaped\ #literal",
             "echo ''#literal",
+            "echo a\\\n#literal",
+            "echo 'multi\n# literal'",
         ] {
             let command = format!("{first}; python -m pytest");
             assert_eq!(segments(&command), vec![first, "python -m pytest"]);
@@ -1392,6 +1411,6 @@ mod tests {
         );
         let digest = observe(&input);
         assert_eq!(digest.observations.len(), 1);
-        assert!(facts::extract::extract(&digest).is_empty());
+        assert_eq!(facts::extract::extract(&digest), []);
     }
 }
