@@ -10,6 +10,7 @@ failure-loop guard, with their default parameters) are derived from microsoft/To
 https://github.com/microsoft/TokenEconomizer, Copyright (c) Microsoft Corporation, licensed under
 the Apache License, Version 2.0. Any code later ported from TokenEconomizer keeps its original
 copyright notices and is marked as such.
+crates/tkm-config/src/repo.rs is ported from tokeneconomizer/plugin/paths.py at commit d0675a3385948d330a793863794a432f3490b1ac.
 
 Third-party agent skills
 ------------------------
