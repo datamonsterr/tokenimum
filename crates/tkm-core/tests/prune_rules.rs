@@ -395,3 +395,52 @@ fn deny_ownership_keep_and_checkout_isolation() {
         set(&["owned"])
     );
 }
+
+#[test]
+fn failed_deny_apply_and_restore_are_retryable() {
+    use std::collections::BTreeSet;
+    use tkm_core::prune::denylist::{DenyState, apply, restore};
+    let requested: BTreeSet<_> = ["tool".to_owned()].into_iter().collect();
+    let empty = BTreeSet::new();
+    let mut state = DenyState::default();
+    let original = state.clone();
+    let first = apply(&mut state, "checkout", &empty, &requested);
+    assert_eq!(state, original, "planning must not commit on failed apply");
+    let retry = apply(&mut state, "checkout", &empty, &requested);
+    assert_eq!(first, retry);
+    assert_eq!(retry.add, requested);
+    // Model a successfully applied addition, then a failed restore.
+    state.applied.insert("checkout".into(), requested.clone());
+    let original = state.clone();
+    let first = restore(&mut state, "checkout", &requested, &requested);
+    assert_eq!(
+        state, original,
+        "planning must not commit on failed restore"
+    );
+    let retry = restore(&mut state, "checkout", &requested, &requested);
+    assert_eq!(first, retry);
+    assert_eq!(retry.remove, requested);
+}
+
+#[test]
+fn skill_json_extra_fields_incomplete_catalog_and_ambiguity() {
+    use tkm_core::prune::skills::{SkillReport, fold_skills};
+    let mut s = session("x", 1, false);
+    for digest in [
+        r#"{"skill":"review","args":"focused"}"#,
+        r#"{"skill":"review","skill":"other"}"#,
+        r#"{"skill":42}"#,
+        r#"{"skill":"review"} trailing"#,
+    ] {
+        s.turns[0].calls.push(Call {
+            tool: "Skill".into(),
+            args_digest: digest.into(),
+            ..Call::default()
+        });
+    }
+    let mut report = SkillReport::default();
+    fold_skills(&mut report, &s);
+    assert_eq!(report.skills["review"].loaded_sessions, 0);
+    assert_eq!(report.skills["review"].invocations, 1);
+    assert!(!report.skills.contains_key("other"));
+}
