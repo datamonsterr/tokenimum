@@ -449,6 +449,49 @@ fn test_non_utf8_argument_does_not_panic() {
 }
 
 #[test]
+fn test_stdin_timeout_fails_open() {
+    let tmp = TempDir::new().unwrap();
+    let mut child = hook_cmd(&tmp, "cursor", "tool_done")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let start = Instant::now();
+    while child.try_wait().unwrap().is_none() && start.elapsed() < Duration::from_secs(2) {
+        thread::sleep(Duration::from_millis(10));
+    }
+    if child.try_wait().unwrap().is_none() {
+        child.kill().unwrap();
+        child.wait().unwrap();
+        panic!("hook blocked on stdin");
+    }
+    let output = child.wait_with_output().unwrap();
+    assert_eq!(output.status.code(), Some(0));
+    assert_eq!(output.stdout, b"{}");
+    let log = std::fs::read_to_string(errors_log_path(&tmp)).unwrap();
+    assert_eq!(log.lines().count(), 1);
+    assert!(log.contains("stdin"));
+}
+
+#[test]
+fn test_oversize_stdin_fails_open() {
+    let tmp = TempDir::new().unwrap();
+    let mut input = tempfile::tempfile().unwrap();
+    input.write_all(&vec![b'x'; MAX_REQUEST_FRAME + 1]).unwrap();
+    use std::io::Seek;
+    input.rewind().unwrap();
+    let output = hook_cmd(&tmp, "cursor", "tool_done")
+        .stdin(Stdio::from(input))
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(0));
+    assert_eq!(output.stdout, b"{}");
+    let log = std::fs::read_to_string(errors_log_path(&tmp)).unwrap();
+    assert_eq!(log.lines().count(), 1);
+    assert!(log.contains("stdin"));
+}
+
+#[test]
 fn test_bad_args_unknown_host_logs_error_and_prints_empty() {
     let tmp = TempDir::new().unwrap();
     let mut cmd = hook_cmd(&tmp, "notahost", "tool_done");
