@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 use rusqlite::Connection;
 use std::sync::atomic::{AtomicU64, Ordering};

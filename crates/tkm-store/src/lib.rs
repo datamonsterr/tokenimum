@@ -25,6 +25,7 @@
 
 mod decisions;
 mod mechanisms;
+mod migrations;
 mod queries;
 mod sessions;
 
@@ -40,7 +41,6 @@ use std::time::Duration;
 
 use rusqlite::{Connection, ErrorCode, OpenFlags, TransactionBehavior};
 
-const MIGRATIONS: &[&str] = &[include_str!("migrations/001.sql")];
 const SCHEMA_VERSION: i64 = 1;
 const DEFAULT_BUSY_TIMEOUT: Duration = Duration::from_secs(2);
 
@@ -196,7 +196,7 @@ impl Store {
             let index = usize::try_from(found).map_err(|_| {
                 std::io::Error::new(std::io::ErrorKind::InvalidData, "negative schema version")
             })?;
-            let sql = MIGRATIONS.get(index).ok_or_else(|| {
+            let sql = migrations::MIGRATIONS.get(index).ok_or_else(|| {
                 std::io::Error::new(std::io::ErrorKind::InvalidData, "missing migration")
             })?;
             tx.execute_batch(sql).map_err(migration_error)?;
@@ -204,7 +204,7 @@ impl Store {
                 .map_err(migration_error)?;
             tx.commit().map_err(migration_error)?;
         }
-        Ok(Self { conn: conn })
+        Ok(Self { conn })
     }
 }
 

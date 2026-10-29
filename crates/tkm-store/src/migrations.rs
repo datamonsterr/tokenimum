@@ -1,4 +1,7 @@
-CREATE TABLE repos (
+//! Embedded database schema migrations.
+
+/// Initial database schema migration.
+pub(crate) const V001: &str = r"CREATE TABLE repos (
     repo_key TEXT PRIMARY KEY, -- normalized repository identity
     display_name TEXT NOT NULL, -- human-readable repository name
     first_seen INTEGER NOT NULL, -- first observation, Unix milliseconds
@@ -113,3 +116,7 @@ CREATE TABLE installs (
     shim_hashes TEXT NOT NULL, -- shim hashes as JSON
     PRIMARY KEY(host, agent_home)
 );
+";
+
+/// Migrations in schema version order.
+pub(crate) const MIGRATIONS: &[&str] = &[V001];
