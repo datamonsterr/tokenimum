@@ -23,9 +23,11 @@
 //! # }
 //! ```
 
+mod decisions;
 mod queries;
 mod sessions;
 
+pub use decisions::{CalibrationRecord, DecisionRecord, InstallRecord, NewDecision};
 pub use queries::Repo;
 pub use sessions::{
     EventRecord, LedgerRecord, NewEvent, NewSession, SessionKey, SessionRecord, TurnRecord,
