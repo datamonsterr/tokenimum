@@ -36,6 +36,7 @@ toml = { version = "1.1.6", default-features = false, features = ["std", "parse"
 toml_edit = { version = "0.25.17" }
 directories = { version = "6.0.0" }
 thiserror = { version = "2.0.21" }
+ruzstd = { version = "0.9.1", default-features = false, features = ["std"] }
 notify = { version = "8.2.1" }
 criterion = { version = "0.8.2", default-features = false, features = ["cargo_bench_support"] }
 proptest = { version = "1.12.0" }

@@ -1,0 +1,23 @@
+{
+  "session_id": "01a18562-fb1c-7522-9939-dda89fa83662",
+  "transcript_path": "~/.codex/sessions/2026/10/29/rollout-2026-10-29T09-00-20-01a18562-fb1c-7522-9939-dda89fa83662.jsonl",
+  "cwd": "~/dev/example",
+  "model": "gpt-6.1-sol",
+  "hook_event_name": "PostToolUse",
+  "permission_mode": "default",
+  "turn_id": "01a18563-0161-7532-ad25-1247eddeda68",
+  "tool_name": "mcp__fs__read",
+  "tool_use_id": "call_7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b",
+  "tool_input": {
+    "path": "a.txt"
+  },
+  "tool_response": {
+    "content": [
+      {
+        "type": "text",
+        "text": "hello"
+      }
+    ],
+    "isError": false
+  }
+}

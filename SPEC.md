@@ -260,7 +260,7 @@ The host adapter maps a tokenimum action to the harness format:
 
 | Harness | Inject context | Notice to person | Nothing |
 |---|---|---|---|
-| Claude Code | `{"hookSpecificOutput":{"hookEventName":"<Event>","additionalContext":"..."}}` (cap 10,000 chars) | `{"systemMessage":"..."}` | exit 0, empty stdout |
+| Claude Code | `{"hookSpecificOutput":{"hookEventName":"<Event>","additionalContext":"..."}}` (cap 10,000 chars); not on `Stop` (would continue the turn) or `SessionEnd` (output discarded) | `{"systemMessage":"..."}` | exit 0, empty stdout |
 | Codex | same shape as Claude Code; allowed on `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `SubagentStart`; not `Stop`/`SessionEnd`. Default cap ~2,500 tokens, raised with handler `additionalContextLimit` | `systemMessage` | exit 0, empty stdout |
 | agy | `{"injectSteps":[{"systemMessage":{"systemMessage":"..."}}]}` on `SessionStart`; `injectSteps` with `ephemeralMessage` on `PreInvocation` (as otherskill does) | no notice field documented: **to verify** (https://antigravity.google/docs/hooks?tab=cli) | `{}` (inferred, **to verify**) |
 | Cursor | `{"additional_context":"..."}` on `sessionStart`, `postToolUse`, `postToolUseFailure` | `user_message` exists only on block/deny replies; tokenimum uses no notice on Cursor and logs instead | exit 0, `{}` |
@@ -309,11 +309,13 @@ session `partial` and the fold uses it for the ledger only.
   `tool_name`, `tool_input`, `tool_response`, `duration_ms`, `agent_id`.
 - Timeouts: command default 600 s; `SessionEnd` hooks share a 1.5 s budget, so `session_end` only
   records an end marker and the fold runs in `tkmd`.
-- Tool pruning target: `<repo>/.claude/settings.local.json` `permissions.deny`. Permissions doc
-  **to verify**: https://code.claude.com/docs/en/permissions
-- Trust: project settings hooks follow the workspace trust dialog; exact rule **to verify**
-  (https://code.claude.com/docs/en/hooks, security section).
-- Stop and SessionEnd payload field lists **to verify** (same page).
+- Tool pruning target: `<repo>/.claude/settings.local.json` `permissions.deny`; a bare tool name
+  removes the tool from context, MCP rules are `mcp__<server>__<tool>` (verified 2026-10-29,
+  `docs/verified/claude-codex.md`).
+- Trust: interactive sessions run hooks from any settings file only after the workspace trust
+  dialog for the folder; `-p`/SDK sessions treat the folder as trusted (verified 2026-10-29).
+- `Stop` adds `stop_hook_active`, `last_assistant_message`, `background_tasks`, `session_crons`;
+  `SessionEnd` adds `reason` and discards JSON output (verified 2026-10-29).
 
 ### 6.6 Codex
 
@@ -326,14 +328,16 @@ session `partial` and the fold uses it for the ledger only.
   `PreCompact`, `PostCompact`, `UserPromptSubmit`, `SubagentStart`, `SubagentStop`, `Stop`,
   `Interrupt`. `SessionEnd` default timeout 1 s, max 3 s.
 - Trust: non-managed hooks are skipped until reviewed. Trust is stored per hook hash in
-  `config.toml` (`[hooks.state."<path>:<event>:<i>:<j>"] trusted_hash = "sha256:..."`); the person
+  `config.toml` (`[hooks.state."<path>:<event_snake_case>:<i>:<j>"] trusted_hash = "sha256:..."`); the person
   trusts with `/hooks` in the TUI. A changed hook needs trust again. `tkm init` prints the exact
   step and never writes `trusted_hash` itself. `codex exec --dangerously-bypass-hook-trust` exists;
   tokenimum never adds it.
-- Whether hooks fire under `codex exec`: **to verify** (https://developers.openai.com/codex/hooks).
-  If they do not, delegated Codex runs fall back to idle-fold.
-- Tool pruning target: exact deny key in `config.toml` or `rules/` **to verify**
-  (https://developers.openai.com/codex/config-reference). Until verified: report only.
+- Handlers have no `args`: `command` is a shell string.
+- `codex exec` runs trusted hooks and skips untrusted ones (docs plus local probe, 2026-10-29,
+  `docs/verified/claude-codex.md`). Delegated runs whose hooks are not trusted fall back to
+  idle-fold.
+- Tool pruning: Codex has no deny key for built-in tools (only MCP `disabled_tools`; verified
+  2026-10-29). Report only.
 
 ### 6.7 Antigravity (`agy`)
 
@@ -566,7 +570,7 @@ Port TE `toolprune` and `plugin/denylist.py`:
   | Cursor | `<repo>/.cursor/cli.json` `permissions.deny` | verified surface |
   | opencode | `<repo>/opencode.json` `permission.<tool> = "deny"` | verified surface; MCP keys to verify |
   | Pi | project settings `defaultTools` with `-name` | verified surface |
-  | Codex | `<repo>/.codex/config.toml` | deny key **to verify**; report only until then |
+  | Codex | none for built-in tools (MCP `disabled_tools` only) | verified 2026-10-29; report only |
   | agy | `settings.json` `permissions` | deny syntax **to verify**; report only until then |
   | Kimi Code | none documented | report only |
   | DeepSeek harness | none documented | report only |
@@ -1119,10 +1123,10 @@ Benchmarks (criterion + hyperfine) run in CI against fixtures; a regression over
 
 | Harness | Item | Link |
 |---|---|---|
-| Claude Code | project-settings hook trust rule; Stop/SessionEnd payload fields | https://code.claude.com/docs/en/hooks |
-| Claude Code | permissions deny syntax | https://code.claude.com/docs/en/permissions |
-| Codex | hooks under `codex exec` | https://developers.openai.com/codex/hooks |
-| Codex | tool deny key in `config.toml` / `rules/`; MCP tool filters | https://developers.openai.com/codex/config-reference |
+| Claude Code | ~~project-settings hook trust rule; Stop/SessionEnd payload fields~~ closed 2026-10-29, `docs/verified/claude-codex.md` | https://code.claude.com/docs/en/hooks |
+| Claude Code | ~~permissions deny syntax~~ closed 2026-10-29 | https://code.claude.com/docs/en/permissions |
+| Codex | ~~hooks under `codex exec`~~ closed 2026-10-29 (trusted hooks only) | https://developers.openai.com/codex/hooks |
+| Codex | ~~tool deny key in `config.toml` / `rules/`; MCP tool filters~~ closed 2026-10-29: no built-in deny key, report only | https://developers.openai.com/codex/config-reference |
 | agy | exit-code semantics; no-op reply; project-hook trust; notice field | https://antigravity.google/docs/hooks?tab=cli |
 | agy | permissions deny syntax | https://antigravity.google/docs/cli/features |
 | agy | `transcriptPath` format; conversation DB blob schema | dump a hook payload locally |

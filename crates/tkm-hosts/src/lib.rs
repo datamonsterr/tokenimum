@@ -6,6 +6,11 @@
 //! are synchronous: the daemon runs log readers and installers on blocking
 //! workers, while payload mapping and reply rendering stay in memory.
 
+pub mod claude;
+pub mod codex;
+pub mod digest;
+pub mod writer;
+
 use std::io;
 use std::path::PathBuf;
 
@@ -92,6 +97,14 @@ pub enum AdapterError {
     InvalidPayload {
         /// Explanation of the invalid or absent metadata, without secret values.
         message: String,
+    },
+    /// A settings target escapes its permitted root or is tracked by git.
+    #[error("unsafe adapter target {path}: {reason}", path = .path.display())]
+    UnsafeTarget {
+        /// Refused settings or auxiliary path.
+        path: PathBuf,
+        /// Safe explanation of the refusal.
+        reason: String,
     },
     /// A host surface is unavailable or not yet verified.
     #[error("unsupported adapter operation: {operation}")]

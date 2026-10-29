@@ -110,6 +110,7 @@ observed count per crate name, without adding the same crate repeatedly.
 | rustls-platform-verifier | Platform certificate verification. | 2026-10-29 |
 | rustls-webpki | TLS certificate verification. | 2026-10-29 |
 | rustversion | Compiler version detection and conditional compilation. | 2026-10-29 |
+| ruzstd | Pure-Rust zstd decoding of old Codex rollouts. | 2026-10-29 |
 | ryu | Floating-point formatting. | 2026-10-29 |
 | same-file | Filesystem identity checks. | 2026-10-29 |
 | scopeguard | Cleanup guard implementation. | 2026-10-29 |
