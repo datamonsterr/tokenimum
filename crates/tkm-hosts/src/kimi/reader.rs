@@ -205,6 +205,45 @@ fn read_context(
     Ok(())
 }
 
+fn add_status_usage(
+    session: &mut Session,
+    obj: &serde_json::Map<String, Value>,
+    turn_begins_count: usize,
+) {
+    if let Some(usage_val) = obj
+        .get("message")
+        .and_then(|m| m.get("payload"))
+        .and_then(|p| p.get("token_usage"))
+    {
+        let input = usage_val
+            .get("input_other")
+            .and_then(Value::as_u64)
+            .unwrap_or(0);
+        let output = usage_val.get("output").and_then(Value::as_u64).unwrap_or(0);
+        let cache_read = usage_val
+            .get("input_cache_read")
+            .and_then(Value::as_u64)
+            .unwrap_or(0);
+        let cache_write = usage_val
+            .get("input_cache_creation")
+            .and_then(Value::as_u64)
+            .unwrap_or(0);
+
+        let step_usage = Usage {
+            input,
+            output,
+            cache_read,
+            cache_write,
+        };
+        session.usage = session.usage.add(step_usage);
+
+        let cur_idx = turn_begins_count.saturating_sub(1);
+        if let Some(turn) = session.turns.get_mut(cur_idx) {
+            turn.usage = turn.usage.add(step_usage);
+        }
+    }
+}
+
 fn read_wire(path: &Path, session: &mut Session) -> Result<(), AdapterError> {
     let file = File::open(path)?;
     let reader = BufReader::new(file);
@@ -280,38 +319,7 @@ fn read_wire(path: &Path, session: &mut Session) -> Result<(), AdapterError> {
                 turn_begins_count = turn_begins_count.saturating_add(1);
             }
             Some("StatusUpdate") => {
-                if let Some(usage_val) = obj
-                    .get("message")
-                    .and_then(|m| m.get("payload"))
-                    .and_then(|p| p.get("token_usage"))
-                {
-                    let input = usage_val
-                        .get("input_other")
-                        .and_then(Value::as_u64)
-                        .unwrap_or(0);
-                    let output = usage_val.get("output").and_then(Value::as_u64).unwrap_or(0);
-                    let cache_read = usage_val
-                        .get("input_cache_read")
-                        .and_then(Value::as_u64)
-                        .unwrap_or(0);
-                    let cache_write = usage_val
-                        .get("input_cache_creation")
-                        .and_then(Value::as_u64)
-                        .unwrap_or(0);
-
-                    let step_usage = Usage {
-                        input,
-                        output,
-                        cache_read,
-                        cache_write,
-                    };
-                    session.usage = session.usage.add(step_usage);
-
-                    let cur_idx = turn_begins_count.saturating_sub(1);
-                    if let Some(turn) = session.turns.get_mut(cur_idx) {
-                        turn.usage = turn.usage.add(step_usage);
-                    }
-                }
+                add_status_usage(session, obj, turn_begins_count);
             }
             Some(_) => {
                 // TurnEnd is recorded in last_msg_type; other known wire event

@@ -168,6 +168,69 @@ impl Reader {
         }
     }
 
+    fn planner_response(&mut self, record: &Value) {
+        self.flush_pending();
+        let input = record
+            .get("input_tokens")
+            .and_then(Value::as_u64)
+            .unwrap_or(0);
+        let output = record
+            .get("output_tokens")
+            .and_then(Value::as_u64)
+            .unwrap_or(0);
+        let cache_read = record
+            .get("cache_read_tokens")
+            .and_then(Value::as_u64)
+            .unwrap_or(0);
+        let cache_write = record
+            .get("cache_write_tokens")
+            .and_then(Value::as_u64)
+            .unwrap_or(0);
+        let usage = Usage {
+            input,
+            output,
+            cache_read,
+            cache_write,
+        };
+        self.session.usage = self.session.usage.add(usage);
+        if let Some(turn) = self.current_turn.as_mut() {
+            turn.usage = turn.usage.add(usage);
+        }
+        if let Some(tool_calls) = record.get("tool_calls").and_then(Value::as_array) {
+            for tc in tool_calls {
+                let tool_name = tc.get("name").and_then(Value::as_str).unwrap_or("");
+                let args = tc.get("args").unwrap_or(&Value::Null);
+                let args_digest = map::call_args_digest(tool_name, args);
+                let edits = map::edits(tool_name, args, Some(&self.session.cwd));
+                self.pending_calls.push_back(Call {
+                    tool: tool_name.to_owned(),
+                    args_digest,
+                    output_digest: String::new(),
+                    exit_code: None,
+                    is_error: false,
+                    duration_ms: None,
+                    edits,
+                });
+            }
+        }
+    }
+
+    fn generic_result(&mut self, record: &Value) {
+        if let Some(mut call) = self.pending_calls.pop_front() {
+            let content = record.get("content").and_then(Value::as_str).unwrap_or("");
+            let cleaned = strip_leading_header_lines(content);
+            call.output_digest = digest::output_digest(&Value::String(cleaned.to_owned()));
+            call.exit_code = parse_exit_code(content);
+            let status = record.get("status").and_then(Value::as_str).unwrap_or("");
+            let error_val = record.get("error").and_then(Value::as_str).unwrap_or("");
+            call.is_error = status == "ERROR" || !error_val.is_empty();
+            call.duration_ms = parse_duration_ms(content);
+            if let Some(turn) = self.current_turn.as_mut() {
+                turn.calls.push(call);
+            }
+        }
+    }
+
     fn record(&mut self, record: &Value) -> bool {
         if self.first_created_at.is_none()
             && let Some(ts_str) = record.get("created_at").and_then(Value::as_str)
@@ -201,66 +264,11 @@ impl Reader {
                 true
             }
             "PLANNER_RESPONSE" => {
-                self.flush_pending();
-                let input = record
-                    .get("input_tokens")
-                    .and_then(Value::as_u64)
-                    .unwrap_or(0);
-                let output = record
-                    .get("output_tokens")
-                    .and_then(Value::as_u64)
-                    .unwrap_or(0);
-                let cache_read = record
-                    .get("cache_read_tokens")
-                    .and_then(Value::as_u64)
-                    .unwrap_or(0);
-                let cache_write = record
-                    .get("cache_write_tokens")
-                    .and_then(Value::as_u64)
-                    .unwrap_or(0);
-                let usage = Usage {
-                    input,
-                    output,
-                    cache_read,
-                    cache_write,
-                };
-                self.session.usage = self.session.usage.add(usage);
-                if let Some(turn) = self.current_turn.as_mut() {
-                    turn.usage = turn.usage.add(usage);
-                }
-                if let Some(tool_calls) = record.get("tool_calls").and_then(Value::as_array) {
-                    for tc in tool_calls {
-                        let tool_name = tc.get("name").and_then(Value::as_str).unwrap_or("");
-                        let args = tc.get("args").unwrap_or(&Value::Null);
-                        let args_digest = map::call_args_digest(tool_name, args);
-                        let edits = map::edits(tool_name, args, Some(&self.session.cwd));
-                        self.pending_calls.push_back(Call {
-                            tool: tool_name.to_owned(),
-                            args_digest,
-                            output_digest: String::new(),
-                            exit_code: None,
-                            is_error: false,
-                            duration_ms: None,
-                            edits,
-                        });
-                    }
-                }
+                self.planner_response(record);
                 true
             }
             "GENERIC" => {
-                if let Some(mut call) = self.pending_calls.pop_front() {
-                    let content = record.get("content").and_then(Value::as_str).unwrap_or("");
-                    let cleaned = strip_leading_header_lines(content);
-                    call.output_digest = digest::output_digest(&Value::String(cleaned.to_owned()));
-                    call.exit_code = parse_exit_code(content);
-                    let status = record.get("status").and_then(Value::as_str).unwrap_or("");
-                    let error_val = record.get("error").and_then(Value::as_str).unwrap_or("");
-                    call.is_error = status == "ERROR" || !error_val.is_empty();
-                    call.duration_ms = parse_duration_ms(content);
-                    if let Some(turn) = self.current_turn.as_mut() {
-                        turn.calls.push(call);
-                    }
-                }
+                self.generic_result(record);
                 true
             }
             "SYSTEM_MESSAGE" | "EPHEMERAL_MESSAGE" | "CHECKPOINT" => true,
