@@ -5,7 +5,7 @@
 //! as `fold_status = 'error'`; nothing here can panic the daemon (a panicking task becomes a
 //! `JoinError`).
 
-use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::collections::{BTreeSet, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -669,7 +669,7 @@ mod tests {
                     event,
                     host_event: Some(native.into()),
                     payload: serde_json::json!({"session_id": session_id, "hook_event_name": native, "cwd": "/tmp"}),
-                    env: BTreeMap::default(),
+                    env: std::collections::BTreeMap::default(),
                     cwd: None,
                 };
                 daemon.handle(request).await;
