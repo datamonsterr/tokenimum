@@ -354,7 +354,10 @@ impl Daemon {
                 Scope::Neutral => true,
                 Scope::Host(host) => host == context.host,
             };
-            if !for_host || !fact.life.injectable(&context.settings.facts) {
+            if !context.settings.facts_enabled
+                || !for_host
+                || !fact.life.injectable(&context.settings.facts)
+            {
                 continue;
             }
             let text = tkm_core::facts::render::claim(&fact.candidate);

@@ -277,13 +277,15 @@ fn fold_inner(
             > session.total_records.saturating_mul(PARTIAL_PERCENT);
     session.partial = session.partial || skipped_too_many;
 
-    store.upsert_ledger(&LedgerRecord {
-        session_id: record.id,
-        usage: session.usage,
-        priced_cost: 0.0,
-        overhead_tokens: job.overhead.0,
-        overhead_cost: job.overhead.1,
-    })?;
+    if job.settings.ledger_enabled {
+        store.upsert_ledger(&LedgerRecord {
+            session_id: record.id,
+            usage: session.usage,
+            priced_cost: 0.0,
+            overhead_tokens: job.overhead.0,
+            overhead_cost: job.overhead.1,
+        })?;
+    }
     if session.partial {
         store.set_session_fold_status(record.id, "partial")?;
         return Ok(FoldReport {
@@ -308,21 +310,23 @@ fn fold_inner(
             }
         }
         let result = replay_fold(&session, state, &job.injected, &job.settings.facts);
-        persist_facts(
-            store,
-            &job.repo,
-            &before,
-            &result.facts,
-            Timestamp(job.ended_ms),
-        )?;
-        events = result.events;
-        crate::persist::fact_actions(
-            store,
-            &job.repo,
-            record.id,
-            Timestamp(job.ended_ms),
-            &events,
-        )?;
+        if job.settings.facts_enabled {
+            persist_facts(
+                store,
+                &job.repo,
+                &before,
+                &result.facts,
+                Timestamp(job.ended_ms),
+            )?;
+            events = result.events;
+            crate::persist::fact_actions(
+                store,
+                &job.repo,
+                record.id,
+                Timestamp(job.ended_ms),
+                &events,
+            )?;
+        }
         fold_prune(store, &session, Timestamp(job.ended_ms), &result.prune)?;
     }
     store.set_session_fold_status(record.id, "folded")?;

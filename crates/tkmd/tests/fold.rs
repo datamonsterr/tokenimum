@@ -119,6 +119,31 @@ async fn session_end_marks_the_session_and_a_detached_fold_writes_the_ledger() {
 }
 
 #[tokio::test]
+async fn disabled_facts_and_ledger_do_not_persist_fold_results() {
+    let env = Env::new();
+    let settings = Settings {
+        facts_enabled: false,
+        ledger_enabled: false,
+        ..Settings::default()
+    };
+    let daemon = daemon_with(&env, settings, Arc::new(NullDecider));
+    daemon.handle(start_request(&transcript())).await;
+    daemon.handle(end_request(&transcript())).await;
+    daemon.settle().await;
+    let store = tkm_store::open_read_only(&env.paths.db).unwrap();
+    for table in ["facts", "ledger"] {
+        let rows: i64 = store
+            .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(rows, 0, "{table} must be disabled");
+    }
+    let status: String = store
+        .query_row("SELECT fold_status FROM sessions", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(status, "folded");
+}
+
+#[tokio::test]
 async fn partial_session_contributes_to_the_ledger_only() {
     let env = Env::new();
     // 3 of 10 records are unreadable: more than 20% skipped.

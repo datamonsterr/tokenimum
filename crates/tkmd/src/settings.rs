@@ -37,6 +37,10 @@ pub struct Settings {
     pub inject_enabled: bool,
     /// Inject budget (`inject.max_tokens`, `inject.memory`, `facts.max_*`).
     pub inject: inject::Config,
+    /// Whether repository facts are collected and injected.
+    pub facts_enabled: bool,
+    /// Whether session usage is recorded in the ledger.
+    pub ledger_enabled: bool,
     /// Fact lifecycle settings.
     pub facts: FactsConfig,
     /// Pruning evidence settings.
@@ -67,6 +71,8 @@ impl Default for Settings {
                 max_fact_tokens: facts.max_tokens,
                 memory: true,
             },
+            facts_enabled: true,
+            ledger_enabled: true,
             facts,
             prune: PruneConfig::default(),
             otherskill_mode: tkm_integrations::detect::Mode::Auto,
@@ -164,6 +170,8 @@ impl Settings {
             out.inject.memory = v;
         }
 
+        out.facts_enabled = config.get_bool("facts.enabled").unwrap_or(true);
+        out.ledger_enabled = config.get_bool("ledger.enabled").unwrap_or(true);
         let facts = &mut out.facts;
         if let Some(v) = unsigned(config, "facts.promote_confirmations") {
             facts.promote_confirmations = v;

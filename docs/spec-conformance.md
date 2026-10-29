@@ -30,7 +30,7 @@ in [ADR 0050](../docs/adr/0050-conformance-gaps.md); that record does not close 
 
 - SPEC 8.2: “`tkm doctor` re-probes `:free` slugs daily and moves a free model to the front when it answers.” [doctor models](../crates/tkm-cli/src/cmd/doctor/models.rs) performs an explicit probe, with no daily scheduler established.
 
-- SPEC 10.4: `[facts]    enabled = true`, `[ledger]   enabled = true`, and `[hosts.claude]   enabled = true  # one table per harness; level = "auto" | "hooks" | "shim" | "fold-only"`: [settings.rs](../crates/tkmd/src/settings.rs) does not apply these registered keys.
+- SPEC 10.4: `[hosts.claude]   enabled = true  # one table per harness; level = "auto" | "hooks" | "shim" | "fold-only"`: [settings.rs](../crates/tkmd/src/settings.rs) does not apply these registered host keys.
 
 - SPEC 16: “Golden: replay fixtures per harness (all eight); expected actions committed as JSON.” A single loop golden exists, but no all-host expected-action JSON suite was identified.
 - SPEC 16: “Parity: for Claude Code and Codex fixtures, tokenimum's fact formation and loop gate agree with TE run over the same logs (TE is the oracle in M2; differences documented).” Ported tests exist, but no same-log TE oracle comparison was identified.
@@ -693,14 +693,14 @@ will replace the placeholder row after that work lands.
 
 | ID | Requirement | Status | Evidence |
 |---|---|---|---|
-| S10.4-1 | facts.enabled | deferred | [ADR 0050](../docs/adr/0050-conformance-gaps.md) |
+| S10.4-1 | facts.enabled | met | [settings.rs](../crates/tkmd/src/settings.rs), [fold.rs](../crates/tkmd/tests/fold.rs), [injection.rs](../crates/tkmd/src/injection.rs) |
 | S10.4-2 | inject.enabled | met | [config.rs](../crates/tkm-config/src/config.rs) |
 | S10.4-3 | inject.max_tokens | met | [config.rs](../crates/tkm-config/src/config.rs) |
 | S10.4-4 | inject.memory | met | [config.rs](../crates/tkm-config/src/config.rs) |
 | S10.4-5 | inject.instructions_file | met | [config.rs](../crates/tkm-config/src/config.rs) |
 | S10.4-6 | loop.mode: off/shadow/redirect | met | [config.rs](../crates/tkm-config/src/config.rs) |
 | S10.4-7 | prune.mode: off/report/propose/apply | met | [config.rs](../crates/tkm-config/src/config.rs) |
-| S10.4-8 | ledger.enabled | deferred | [ADR 0050](../docs/adr/0050-conformance-gaps.md) |
+| S10.4-8 | ledger.enabled | met | [settings.rs](../crates/tkmd/src/settings.rs), [fold.rs](../crates/tkmd/tests/fold.rs) |
 | S10.4-9 | decide.enabled | met | [config.rs](../crates/tkm-config/src/config.rs) |
 | S10.4-10 | decide.chain and budget settings | met | [config.rs](../crates/tkm-config/src/config.rs) |
 | S10.4-11 | hosts.claude.enabled and per-host level auto/hooks/shim/fold-only | deferred | [ADR 0050](../docs/adr/0050-conformance-gaps.md) |
