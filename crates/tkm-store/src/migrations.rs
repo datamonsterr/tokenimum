@@ -119,9 +119,20 @@ CREATE TABLE installs (
 ";
 
 /// Migrations in schema version order.
-pub(crate) const MIGRATIONS: &[&str] = &[V001, V002];
+pub(crate) const MIGRATIONS: &[&str] = &[V001, V002, V003];
 
 /// Nullable reporting context; historical rows deliberately retain unknown times.
+pub(crate) const V003: &str = r"
+CREATE TABLE skill_evidence_sessions (session_id INTEGER PRIMARY KEY REFERENCES sessions(id) ON DELETE CASCADE);
+CREATE TABLE skill_evidence (
+    session_id INTEGER NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    loaded INTEGER NOT NULL,
+    used INTEGER NOT NULL,
+    PRIMARY KEY(session_id, name)
+);
+";
+
 pub(crate) const V002: &str = r"
 ALTER TABLE events ADD COLUMN created_at INTEGER;
 ALTER TABLE decisions ADD COLUMN created_at INTEGER;
@@ -196,7 +207,7 @@ mod report_schema_tests {
         let version: i64 = conn
             .pragma_query_value(None, "user_version", |row| row.get(0))
             .unwrap();
-        assert_eq!(version, 2);
+        assert_eq!(version, 3);
         let legacy = store
             .get_fact(&tkm_core::model::RepoKey("legacy".into()), "f")
             .unwrap()

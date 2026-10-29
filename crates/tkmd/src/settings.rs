@@ -45,6 +45,8 @@ pub struct Settings {
     pub otherskill_mode: tkm_integrations::detect::Mode,
     /// Session orchestrator integration mode.
     pub superorchestrator_mode: tkm_integrations::detect::Mode,
+    /// Local cache-aware model prices.
+    pub pricing: tkm_core::ledger::PriceTable,
     /// Decision client settings.
     pub decide: DecideConfig,
     /// How long `prompt` waits for relevance scoring before using the cached default block.
@@ -72,6 +74,7 @@ impl Default for Settings {
             otherskill_mode: tkm_integrations::detect::Mode::Auto,
             superorchestrator_mode: tkm_integrations::detect::Mode::Auto,
             decide: DecideConfig::default(),
+            pricing: tkm_core::ledger::PriceTable::default(),
             relevance_timeout_ms: 1_200,
             config_errors: Vec::new(),
         }
@@ -245,13 +248,27 @@ impl Settings {
             env,
             flags: Vec::new(),
         };
-        match load(&inputs) {
+        let mut settings = match load(&inputs) {
             Ok(config) => Self::from_config(&config),
             Err(error) => Self {
                 config_errors: vec![error.to_string()],
                 ..Self::default()
             },
+        };
+        let pricing_path = paths.config_dir.join("pricing.toml");
+        match std::fs::read_to_string(&pricing_path) {
+            Ok(text) => match tkm_core::ledger::PriceTable::parse(&text) {
+                Ok(pricing) => settings.pricing = pricing,
+                Err(error) => settings
+                    .config_errors
+                    .push(format!("{}: {error}", pricing_path.display())),
+            },
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => settings
+                .config_errors
+                .push(format!("{}: {error}", pricing_path.display())),
         }
+        settings
     }
 }
 

@@ -280,7 +280,11 @@ fn fold_inner(
     store.upsert_ledger(&LedgerRecord {
         session_id: record.id,
         usage: session.usage,
-        priced_cost: 0.0,
+        priced_cost: job
+            .settings
+            .pricing
+            .price_session(&session, None)
+            .unwrap_or(0.0),
         overhead_tokens: job.overhead.0,
         overhead_cost: job.overhead.1,
     })?;
@@ -291,6 +295,20 @@ fn fold_inner(
             events: Vec::new(),
         });
     }
+    let mut skills = tkm_core::prune::skills::SkillReport::default();
+    tkm_core::prune::skills::fold_skills(&mut skills, &session);
+    for name in job
+        .injected
+        .iter()
+        .filter_map(|id| id.strip_prefix("skill:"))
+    {
+        skills
+            .skills
+            .entry(name.to_owned())
+            .or_default()
+            .loaded_sessions = 1;
+    }
+    store.replace_skill_evidence(record.id, &skills)?;
     let mut events = Vec::new();
     if record.fold_status != "folded" {
         let before = store.list_facts(&job.repo, None)?;
@@ -529,7 +547,11 @@ impl Daemon {
                 agent_home,
                 settings: resolved.settings.clone(),
                 injected: BTreeSet::new(),
-                overhead: (0, 0.0),
+                overhead: self.ledger.session_overhead(&format!(
+                    "{}:{}",
+                    record.key.host.as_str(),
+                    record.key.session_id
+                )),
                 ended_ms: record.ended.unwrap_or(record.started).0,
             });
             let _ = seed;

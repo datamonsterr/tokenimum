@@ -113,6 +113,11 @@ async fn main() -> ExitCode {
     integrations.redetect_if_due(&cwd);
     write_integration_status(&paths, &integrations);
     let mut options = DaemonOptions::new(paths.clone());
+    if let Ok(store) = tkm_store::Store::open(&paths.db)
+        && let Err(error) = options.ledger.restore(&store)
+    {
+        eprintln!("tkmd: could not restore decision spend: {error}");
+    }
     options.skills = integrations.clone();
     options.escalator = integrations.clone();
     options.ledger.set_spend_sink(

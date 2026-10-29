@@ -123,6 +123,49 @@ impl Default for StoreLedger {
 }
 
 impl StoreLedger {
+    /// Restore previously persisted decisions before serving requests.
+    ///
+    /// # Errors
+    /// Returns an error if the stored decisions or sessions cannot be read.
+    pub fn restore(&self, store: &tkm_store::Store) -> Result<(), tkm_store::StoreError> {
+        for decision in store.list_recent_decisions(-1)? {
+            let Some(ts_ms) = decision.created_at.and_then(|t| u64::try_from(t.0).ok()) else {
+                continue;
+            };
+            let Some(session) = decision
+                .session_id
+                .map(|id| store.get_session(id))
+                .transpose()?
+                .flatten()
+            else {
+                continue;
+            };
+            let purpose = match decision.purpose.as_str() {
+                "loop_guard" => tkm_decide::cache::Purpose::LoopGuard,
+                "relevance" => tkm_decide::cache::Purpose::Relevance,
+                "fact_filter" => tkm_decide::cache::Purpose::FactFilter,
+                "redirect" => tkm_decide::cache::Purpose::Redirect,
+                _ => continue,
+            };
+            self.inner.record(DecisionRow {
+                ts_ms,
+                session_id: format!("{}:{}", session.key.host.as_str(), session.key.session_id),
+                purpose,
+                requested_model: decision.model.clone(),
+                model_version: Some(decision.model),
+                provider: None,
+                input_tokens: 0,
+                output_tokens: 0,
+                cost_usd: Some(decision.cost_usd),
+                latency_ms: u64::from(decision.latency_ms),
+                question_names: Vec::new(),
+                outcome: "restored".into(),
+                cached: false,
+            });
+        }
+        Ok(())
+    }
+
     /// Waits up to two seconds for previously queued spend records.
     pub fn flush(&self) {
         let (tx, rx) = std::sync::mpsc::channel();

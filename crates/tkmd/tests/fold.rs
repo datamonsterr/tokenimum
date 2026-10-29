@@ -273,7 +273,9 @@ async fn fold_prices_session_with_configured_model_rates() {
             .unwrap();
     let text = std::fs::read_to_string(transcript()).unwrap();
     let model = "example-model";
-    let replaced = text.replace("claude-sonnet-4-5-20250929", model);
+    let replaced = text
+        .replace("claude-haiku-5-5", model)
+        .replace("claude-opus-5-5", model);
     let path = env.dir.path().join("priced.jsonl");
     std::fs::write(&path, replaced).unwrap();
     let daemon = daemon_with(&env, settings, Arc::new(NullDecider));
