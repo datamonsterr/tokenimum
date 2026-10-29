@@ -83,9 +83,12 @@ Each line is added once. Exclude lines stay after removal (harmless).
 |---|---|---|
 | Claude Code | user `<agent_home>/skills/tokenimum/SKILL.md`, project `.claude/skills/...` | https://code.claude.com/docs/en/skills |
 | opencode | user `<agent_home>/skills/...` (`~/.config/opencode`), project `.opencode/skills/...` | https://opencode.ai/docs/skills/ |
-| Kimi Code | user `<agent_home>/skills/...` (`~/.kimi/skills/`) | https://github.com/MoonshotAI/kimi-cli/blob/main/docs/en/customization/skills.md |
+| Kimi Code | user `<agent_home>/skills/...` (`~/.kimi/skills/`), project `.kimi/skills` | https://github.com/MoonshotAI/kimi-cli/blob/main/docs/en/customization/skills.md |
 | Pi | project `.agents/skills/...` only | https://github.com/badlogic/pi-mono/blob/main/packages/coding-agent/docs/skills.md documents `~/.agents/skills/` and `.agents/skills/`, not a path under the Pi agent home |
-| Codex, agy, Cursor, Codewhale | none | no skill directory verified |
+| Codex | user `<agent_home>/skills`, project `.agents/skills` | https://developers.openai.com/cookbook/examples/codex/iterating-development-workflows-with-codex and https://developers.openai.com/blog/skills-agents-sdk (2026-10-29) |
+| agy CLI | user `<agent_home>/antigravity-cli/skills`, project `.agents/skills` | https://antigravity.google/docs/skills/ (2026-10-29) |
+| Cursor | user `<agent_home>/skills`, project `.cursor/skills` | https://cursor.com/help/customization/skills (2026-10-29) |
+| Codewhale | user `<agent_home>/skills`, project `.codewhale/skills` | https://github.com/codewhale-hq/Codewhale/blob/main/docs/CONFIGURATION.md (2026-10-29) |
 
 `skill_path` returns `None` where nothing is verified; `install` and `uninstall` then return a
 report-only result. The file starts with YAML frontmatter (`name: tokenimum`) and has the
