@@ -1,0 +1,9 @@
+:root { color-scheme: dark; font-family: system-ui, sans-serif; background: #10151d; color: #e5ecf4; }
+body { margin: 0 auto; max-width: 75rem; padding: 1.5rem; }
+header { display: flex; justify-content: space-between; align-items: center; }
+nav, form { display: flex; flex-wrap: wrap; gap: .6rem; align-items: end; }
+button, input, select { background: #202b3b; color: inherit; border: 1px solid #53647b; border-radius: .3rem; padding: .5rem; }
+button { cursor: pointer; } button[aria-selected=true] { background: #276a77; }
+label { display: grid; gap: .25rem; } main, section { margin-top: 1.5rem; }
+pre { white-space: pre-wrap; overflow-wrap: anywhere; background: #182231; padding: 1rem; }
+svg { width: 100%; max-width: 600px; height: 120px; color: #69d8c5; }

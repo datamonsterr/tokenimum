@@ -57,7 +57,7 @@ pub(crate) enum Effect {
 }
 
 /// What is known about a session before repository resolution.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub(crate) struct SessionSeed {
     pub host: Host,
     pub session_id: String,
@@ -65,6 +65,7 @@ pub(crate) struct SessionSeed {
     pub agent_home: PathBuf,
     pub log_path: Option<PathBuf>,
     pub delegated: bool,
+    pub env: std::collections::BTreeMap<String, String>,
 }
 
 /// Constructor arguments. [`DaemonOptions::new`] gives production defaults; tests replace the
@@ -344,10 +345,24 @@ impl Daemon {
         tasks.push(crate::fold::spawn_log_watcher(self.clone()));
     }
 
+    /// Refreshes integration-dependent settings on all live sessions after detection.
+    pub fn refresh_integration_settings(&self) {
+        let enabled = self.escalator.superorchestrator_enabled();
+        for session in lock(&self.state).sessions.values_mut() {
+            if session.settings.prune.superorchestrator_adapter_enabled != enabled {
+                Arc::make_mut(&mut session.settings)
+                    .prune
+                    .superorchestrator_adapter_enabled = enabled;
+            }
+        }
+    }
+
     /// Final flush and worker shutdown.
     pub async fn shutdown(self: &Arc<Self>) {
         self.settle().await;
         self.flush_now().await;
+        let ledger = self.ledger.clone();
+        let _ = tokio::task::spawn_blocking(move || ledger.flush()).await;
         for task in lock(&self.tasks).drain(..) {
             task.abort();
         }
@@ -522,10 +537,12 @@ impl Daemon {
         SessionSeed {
             host: event.host,
             session_id: event.session_id.clone(),
-            cwd,
+            cwd: cwd.clone(),
             agent_home: self.agent_home(event.host, request),
             log_path,
-            delegated: request.env.contains_key("TKM_DELEGATED"),
+            delegated: request.env.contains_key("TKM_DELEGATED")
+                || self.escalator.delegated_run(&cwd, &request.env).is_some(),
+            env: request.env.clone(),
         }
     }
 
@@ -536,6 +553,8 @@ impl Daemon {
         now: u64,
         generation: u64,
     ) -> SessionState {
+        self.escalator
+            .observe_session(seed.host, &seed.session_id, &seed.cwd, &seed.env);
         SessionState {
             generation,
             key: SessionKey {
@@ -569,7 +588,9 @@ impl Daemon {
     }
 
     fn escalation_mode(&self, session: &SessionState) -> EscalationMode {
-        if self.escalator.handles(session.host, &session.session_id) {
+        if session.settings.superorchestrator_mode != tkm_integrations::detect::Mode::Off
+            && self.escalator.handles(session.host, &session.session_id)
+        {
             EscalationMode::DelegatedWithAdapter
         } else if session.delegated {
             EscalationMode::DelegatedNoAdapter
@@ -592,6 +613,8 @@ impl Daemon {
             calls: Vec::new(),
             total_calls: 0,
             redirects: 0,
+            redirect_kind: None,
+            judge_scores: None,
             escalated: false,
             judging: false,
             pending_redirect: None,
@@ -772,6 +795,7 @@ impl Daemon {
                             self.record_loop_event(session, "loop.shadow", kind, &text, true);
                         } else {
                             turn.redirects += 1;
+                            turn.redirect_kind = Some(kind.to_owned());
                             session.loop_state = "redirected";
                             self.record_loop_event(session, "loop.redirect", kind, &text, false);
                             redirect_text = join_text(redirect_text, Some(text));
@@ -805,11 +829,37 @@ impl Daemon {
                                         session_id: session.session_id.clone(),
                                         repo: session.repo.clone(),
                                         turn_calls: turn.total_calls,
+                                        envelope: session.envelope.map_or(0, |v| {
+                                            format!("{v:.0}").parse().unwrap_or_default()
+                                        }),
+                                        redirect_given: turn.redirect_kind.clone(),
+                                        scores: turn.judge_scores,
+                                        prompt: turn.prompt.clone(),
+                                        calls: turn.calls.clone(),
+                                        repo_root: session
+                                            .root
+                                            .clone()
+                                            .unwrap_or_else(|| session.cwd.clone()),
+                                        decide_enabled: settings.decide.enabled,
                                         with_adapter: matches!(
                                             mode,
                                             EscalationMode::DelegatedWithAdapter
                                         ),
+                                        delegated_run: self
+                                            .escalator
+                                            .delegated_run_for(session.host, &session.session_id),
                                         command: settings.escalate_command.clone(),
+                                        secrets: request
+                                            .env
+                                            .iter()
+                                            .filter(|(name, _)| {
+                                                let name = name.to_ascii_uppercase();
+                                                ["KEY", "TOKEN", "SECRET"]
+                                                    .iter()
+                                                    .any(|part| name.contains(part))
+                                            })
+                                            .map(|(name, value)| (name.clone(), value.clone()))
+                                            .collect(),
                                     }));
                                 }
                             }
@@ -1045,7 +1095,10 @@ impl Daemon {
             session.repo.clone_from(&resolved.repo);
             session.repo_label.clone_from(&resolved.label);
             session.root = Some(resolved.root.clone());
-            session.settings.clone_from(&resolved.settings);
+            let mut settings = (*resolved.settings).clone();
+            settings.prune.superorchestrator_adapter_enabled =
+                self.escalator.superorchestrator_enabled();
+            session.settings = Arc::new(settings);
             session.resolved = true;
             let remembered = turn_bases.get(&tag).copied().unwrap_or(0);
             session.next_turn_idx = session
@@ -1126,6 +1179,17 @@ impl Daemon {
         }
     }
 
+    pub(crate) fn refresh_session_credentials(&self, seed: &SessionSeed) {
+        if seed.env.contains_key("SUPERORCHESTRATOR_RUN_ID")
+            && lock(&self.state)
+                .sessions
+                .contains_key(&(seed.host, seed.session_id.clone()))
+        {
+            self.escalator
+                .observe_session(seed.host, &seed.session_id, &seed.cwd, &seed.env);
+        }
+    }
+
     async fn session_start(
         self: &Arc<Self>,
         request: &Request,
@@ -1133,6 +1197,7 @@ impl Daemon {
         event: HookEvent,
     ) -> HResult<Reply> {
         let seed = self.seed(request, &event);
+        self.refresh_session_credentials(&seed);
         self.ensure_session(seed, true).await;
         let tag: Tag = (event.host, event.session_id.clone());
         {

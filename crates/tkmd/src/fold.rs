@@ -456,6 +456,8 @@ impl Daemon {
             let Some(session) = sessions.remove(tag) else {
                 return;
             };
+            self.escalator
+                .forget_session(session.host, &session.session_id);
             turn_bases.insert(tag.clone(), session.next_turn_idx);
             let now = i64::try_from(self.clock.now_ms()).unwrap_or(i64::MAX);
             let ended_ms = if ended {
@@ -695,8 +697,69 @@ pub(crate) fn spawn_log_watcher(daemon: Arc<Daemon>) -> JoinHandle<()> {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::pedantic)]
     use super::*;
     use tkm_core::facts::Family;
+
+    #[tokio::test]
+    async fn redetection_refreshes_live_session_prune_protection() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use tkm_integrations::{EscalationEvent, Escalator};
+        use tkm_proto::{EventKind, PROTOCOL_VERSION, Request};
+        struct Adapter(AtomicBool);
+        impl Escalator for Adapter {
+            fn superorchestrator_enabled(&self) -> bool {
+                self.0.load(Ordering::SeqCst)
+            }
+            fn handles(&self, _: Host, _: &str) -> bool {
+                false
+            }
+            fn escalate(&self, _: &EscalationEvent) {}
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let paths = tkm_config::paths::Paths::from_dirs(
+            dir.path(),
+            Some(&dir.path().join("data")),
+            Some(&dir.path().join("config")),
+            Some(&dir.path().join("run")),
+        );
+        let adapter = Arc::new(Adapter(AtomicBool::new(false)));
+        let mut options = crate::daemon::DaemonOptions::new(paths);
+        options.escalator = adapter.clone();
+        let daemon = Daemon::new(options);
+        daemon.handle(Request { version: PROTOCOL_VERSION, host: Host::Claude, event: EventKind::SessionStart, host_event: Some("SessionStart".into()), payload: serde_json::json!({"session_id":"s", "hook_event_name":"SessionStart", "cwd":"/tmp"}), env: Default::default(), cwd: None }).await;
+        adapter.0.store(true, Ordering::SeqCst);
+        daemon.refresh_integration_settings();
+        let state = lock(&daemon.state);
+        let session = state.sessions.get(&(Host::Claude, "s".into())).unwrap();
+        let mut evidence = PruneEvidence::default();
+        evidence.tools.insert(
+            "mcp__superorchestrator__report_progress".into(),
+            tkm_core::prune::ToolEvidence {
+                prompts: 20,
+                sessions: 5,
+                ..Default::default()
+            },
+        );
+        let decision = prune::decide(
+            &evidence,
+            Host::Claude,
+            &session.settings.prune,
+            None,
+            Timestamp(0),
+        );
+        assert!(
+            decision
+                .candidates
+                .iter()
+                .all(|name| !name.starts_with("mcp__superorchestrator__"))
+        );
+        assert!(
+            decision
+                .protected_skipped
+                .contains(&"mcp__superorchestrator__report_progress".to_owned())
+        );
+    }
 
     #[tokio::test]
     async fn folded_sessions_release_turn_bases() {

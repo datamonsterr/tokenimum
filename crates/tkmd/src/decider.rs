@@ -13,6 +13,7 @@ use tkm_decide::client::{
 };
 use tkm_decide::config::DecideConfig;
 use tkm_decide::key::ApiKey;
+use tkm_integrations::{Escalator, superorchestrator::SpendSink};
 use tkm_store::CalibrationRecord;
 
 use crate::clock::SystemClock;
@@ -80,15 +81,65 @@ pub fn build_decider(
     }
 }
 
+type SpendTarget = (Arc<dyn SpendSink>, Arc<dyn Escalator>);
+enum SpendMessage {
+    Record(Arc<dyn SpendSink>, String, String, f64, Option<String>),
+    Flush(Option<Arc<dyn SpendSink>>, std::sync::mpsc::Sender<()>),
+}
+
 /// Spend ledger for the decision client. Rows live in memory (cap checks must not touch disk);
 /// each decision is also written to the `decisions` table by the daemon through the outbox,
 /// where it carries the answers and the shadow flag the client row lacks.
-#[derive(Debug, Default)]
 pub struct StoreLedger {
     inner: InMemoryLedger,
+    sink: Mutex<Option<SpendTarget>>,
+    spend_tx: std::sync::mpsc::Sender<SpendMessage>,
+}
+
+impl Default for StoreLedger {
+    fn default() -> Self {
+        let (spend_tx, rx) = std::sync::mpsc::channel::<SpendMessage>();
+        std::thread::spawn(move || {
+            while let Ok(message) = rx.recv() {
+                match message {
+                    SpendMessage::Record(sink, purpose, model, cost, run_id) => {
+                        sink.record(&purpose, &model, cost, run_id.as_deref());
+                    }
+                    SpendMessage::Flush(sink, ack) => {
+                        if let Some(sink) = sink {
+                            sink.flush();
+                        }
+                        let _ = ack.send(());
+                    }
+                }
+            }
+        });
+        Self {
+            inner: InMemoryLedger::default(),
+            sink: Mutex::new(None),
+            spend_tx,
+        }
+    }
 }
 
 impl StoreLedger {
+    /// Waits up to two seconds for previously queued spend records.
+    pub fn flush(&self) {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let sink = self
+            .sink
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .as_ref()
+            .map(|(sink, _)| Arc::clone(sink));
+        if self.spend_tx.send(SpendMessage::Flush(sink, tx)).is_ok() {
+            let _ = rx.recv_timeout(std::time::Duration::from_secs(2));
+        }
+    }
+    /// Enables reporting to an integration sink while the adapter is active.
+    pub fn set_spend_sink(&self, sink: Arc<dyn SpendSink>, escalator: Arc<dyn Escalator>) {
+        *self.sink.lock().unwrap_or_else(PoisonError::into_inner) = Some((sink, escalator));
+    }
     /// Tokens and cost the daemon spent on decisions for one session id.
     pub fn session_overhead(&self, session_id: &str) -> (u64, f64) {
         self.inner
@@ -119,6 +170,32 @@ impl SpendLedger for StoreLedger {
     }
 
     fn record(&self, row: DecisionRow) {
+        let target = self
+            .sink
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone();
+        if !row.cached
+            && let Some(cost) = row.cost_usd
+            && let Some((sink, escalator)) = target
+            && escalator.superorchestrator_enabled()
+        {
+            let run_id = row.session_id.split_once(':').and_then(|(host, session)| {
+                host.parse::<tkm_proto::Host>()
+                    .ok()
+                    .and_then(|h| escalator.run_id(h, session))
+            });
+            let _ = self.spend_tx.send(SpendMessage::Record(
+                sink,
+                row.purpose.as_str().to_owned(),
+                row.model_version
+                    .as_deref()
+                    .unwrap_or(&row.requested_model)
+                    .to_owned(),
+                cost,
+                run_id,
+            ));
+        }
         self.inner.record(row);
     }
 }

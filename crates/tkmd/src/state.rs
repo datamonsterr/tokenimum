@@ -35,6 +35,10 @@ pub struct TurnState {
     pub total_calls: u32,
     /// Redirects delivered.
     pub redirects: u32,
+    /// Last delivered redirect kind.
+    pub redirect_kind: Option<String>,
+    /// Last judge scores for this turn.
+    pub judge_scores: Option<(f64, f64)>,
     /// Whether this turn escalated.
     pub escalated: bool,
     /// Whether a judge request is in flight.
