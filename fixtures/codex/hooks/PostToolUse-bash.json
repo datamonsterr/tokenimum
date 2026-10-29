@@ -1,0 +1,15 @@
+{
+  "session_id": "01a18562-fb1c-7522-9939-dda89fa83662",
+  "transcript_path": "~/.codex/sessions/2026/10/29/rollout-2026-10-29T09-00-20-01a18562-fb1c-7522-9939-dda89fa83662.jsonl",
+  "cwd": "~/dev/example",
+  "model": "gpt-6.1-sol",
+  "hook_event_name": "PostToolUse",
+  "permission_mode": "default",
+  "turn_id": "01a18563-0161-7532-ad25-1247eddeda68",
+  "tool_name": "Bash",
+  "tool_use_id": "call_83a0b7011ada4ff6ad7c3b924322af2c",
+  "tool_input": {
+    "command": "cat a.txt"
+  },
+  "tool_response": "hello\n"
+}

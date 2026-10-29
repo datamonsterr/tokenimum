@@ -1,0 +1,26 @@
+{
+  "session_id": "e928a2cf-e31b-4154-805b-919991d042ea",
+  "transcript_path": "~/.claude/projects/-home-user-dev-example/e928a2cf-e31b-4154-805b-919991d042ea.jsonl",
+  "cwd": "~/dev/example",
+  "scratchpad_dir": "~/.cache/tmp/scratch",
+  "prompt_id": "1e8a18ae-3cc4-4c70-89a1-a9d7f06795b6",
+  "permission_mode": "default",
+  "effort": {
+    "level": "medium"
+  },
+  "hook_event_name": "PostToolUse",
+  "tool_name": "Bash",
+  "tool_input": {
+    "command": "rtk read a.txt",
+    "description": "Print contents of a.txt"
+  },
+  "tool_response": {
+    "stdout": "hello",
+    "stderr": "",
+    "interrupted": false,
+    "isImage": false,
+    "noOutputExpected": false
+  },
+  "tool_use_id": "toolu_01CuNYG6oGMQDwVF7vdXB2v9",
+  "duration_ms": 46
+}

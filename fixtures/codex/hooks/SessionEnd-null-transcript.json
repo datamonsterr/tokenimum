@@ -1,0 +1,8 @@
+{
+  "session_id": "01a18562-fb1c-7522-9939-dda89fa83662",
+  "transcript_path": null,
+  "cwd": "~/dev/example",
+  "model": "gpt-6.1-sol",
+  "hook_event_name": "SessionEnd",
+  "reason": "other"
+}

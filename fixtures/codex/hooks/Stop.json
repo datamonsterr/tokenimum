@@ -1,0 +1,11 @@
+{
+  "session_id": "01a18562-fb1c-7522-9939-dda89fa83662",
+  "transcript_path": "~/.codex/sessions/2026/10/29/rollout-2026-10-29T09-00-20-01a18562-fb1c-7522-9939-dda89fa83662.jsonl",
+  "cwd": "~/dev/example",
+  "model": "gpt-6.1-sol",
+  "hook_event_name": "Stop",
+  "permission_mode": "default",
+  "turn_id": "01a18563-0161-7532-ad25-1247eddeda68",
+  "stop_hook_active": false,
+  "last_assistant_message": "done"
+}

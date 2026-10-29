@@ -1,0 +1,19 @@
+# Shape of a real ~/.codex/config.toml (values replaced). tokenimum never writes this file's
+# [hooks.state] tables; installers must leave it byte-identical.
+model = "gpt-6.1-sol"
+model_reasoning_effort = "high"
+
+[features]
+hooks = true
+
+[hooks.state]
+
+[hooks.state."~/.codex/hooks.json:user_prompt_submit:0:0"]
+trusted_hash = "sha256:0000000000000000000000000000000000000000000000000000000000000001"
+
+[hooks.state."~/.codex/hooks.json:pre_tool_use:0:0"]
+trusted_hash = "sha256:0000000000000000000000000000000000000000000000000000000000000002"
+
+[mcp_servers.fs]
+command = "mcp-fs"
+disabled_tools = ["write_file"]

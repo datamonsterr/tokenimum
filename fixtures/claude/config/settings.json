@@ -1,0 +1,52 @@
+{
+  "env": {
+    "TMPDIR": "~/.cache/tmp"
+  },
+  "permissions": {
+    "allow": [
+      "Bash",
+      "Edit",
+      "Read",
+      "mcp__superorchestrator"
+    ]
+  },
+  "model": "opus",
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "'~/.local/share/otherskill/bin/otherskill' 'find' '--agent' 'claude' '--home' '~'",
+            "timeout": 107
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/mem-admission.sh",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/rtk-pretooluse.sh"
+          }
+        ]
+      }
+    ]
+  },
+  "enabledPlugins": {
+    "caveman@caveman": true
+  },
+  "theme": "auto"
+}
