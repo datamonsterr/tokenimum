@@ -1,5 +1,5 @@
-#![forbid(unsafe_code)]
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::pedantic)]
+#![forbid(unsafe_code)]
 
 mod support_report;
 use support_report::Fixture;
@@ -9,14 +9,30 @@ use tkm_store::{FactRecord, FactState, NewEvent, NewSession, SessionKey};
 const SECRET: &str = "sk-or-v1-review-fixture-credential";
 
 fn secret_fact(f: &Fixture) -> i64 {
+    fact_with_params(
+        f,
+        &serde_json::json!({"params": {"variable": "OPENROUTER_API_KEY", "good": {SECRET: 3}, "sample": SECRET}}),
+    )
+}
+
+fn fact_with_params(f: &Fixture, text_params: &serde_json::Value) -> i64 {
     let store = f.store();
-    store.insert_candidate_fact(&FactRecord {
-        repo_key: f.repo.clone(), fact_id: "secret-fact".into(), family: "env_value".into(),
-        scope: "neutral".into(),
-        text_params: serde_json::json!({"params": {"variable": "OPENROUTER_API_KEY", "good": {SECRET: 3}, "sample": SECRET}}),
-        state: FactState::Candidate, score: 3.0, confirmations: 3, contradictions: 0,
-        fire_count: 3, fire_sessions: 4, state_changed_at: None,
-    }).unwrap();
+    store
+        .insert_candidate_fact(&FactRecord {
+            repo_key: f.repo.clone(),
+            fact_id: "secret-fact".into(),
+            family: "env_value".into(),
+            scope: "neutral".into(),
+            text_params: text_params.clone(),
+            state: FactState::Candidate,
+            score: 3.0,
+            confirmations: 3,
+            contradictions: 0,
+            fire_count: 3,
+            fire_sessions: 4,
+            state_changed_at: None,
+        })
+        .unwrap();
     store
         .transition_fact(&f.repo, "secret-fact", FactState::Active)
         .unwrap();
@@ -87,7 +103,7 @@ fn fact_and_explanation_reports_redact_env_value_credentials() {
 fn fact_reports_preserve_templates_while_redacting_secret_settings() {
     let f = Fixture::new();
     let event = secret_fact(&f).to_string();
-    let claim = "Code that imports the project needs `OPENROUTER_API_KEY` set here: `OPENROUTER_API_KEY=[redacted:openrouter]` works.";
+    let claim = "Code that imports the project needs `OPENROUTER_API_KEY` set here: `OPENROUTER_API_KEY=[redacted:env]` works.";
     for args in [
         vec!["facts"],
         vec!["facts", "--brief"],
@@ -100,6 +116,71 @@ fn fact_reports_preserve_templates_while_redacting_secret_settings() {
         let text = String::from_utf8(out.stdout).unwrap();
         assert!(text.contains(claim), "{args:?}: {text}");
         assert!(!text.contains(SECRET), "{args:?}: {text}");
+    }
+}
+
+#[test]
+fn facts_and_why_mask_named_secrets_absent_from_reporting_environment() {
+    let f = Fixture::new();
+    let event = fact_with_params(
+        &f,
+        &serde_json::json!({"params": {
+            "variable": "DATABASE_PASSWORD",
+            "good": {"fixture_good_password": 3},
+            "bad": {"fixture_bad_password": 1}
+        }}),
+    )
+    .to_string();
+    for args in [vec!["facts"], vec!["facts", "--brief"], vec!["why", &event]] {
+        let out = f.run(&args);
+        assert!(out.status.success(), "{args:?}: {out:?}");
+        let text = String::from_utf8(out.stdout).unwrap();
+        assert!(
+            text.contains("DATABASE_PASSWORD=[redacted:env]"),
+            "{args:?}: {text}"
+        );
+        assert!(
+            text.contains("`[redacted:env]` does not."),
+            "{args:?}: {text}"
+        );
+        assert!(!text.contains("fixture_good_password"), "{args:?}: {text}");
+        assert!(!text.contains("fixture_bad_password"), "{args:?}: {text}");
+    }
+}
+
+#[test]
+fn export_preserves_entries_when_secret_keys_redact_identically() {
+    let f = Fixture::new();
+    fact_with_params(
+        &f,
+        &serde_json::json!({"params": {
+            "variable": "OPENROUTER_API_KEY",
+            "good": {
+                "sk-or-v1-fixture-alpha": 3,
+                "sk-or-v1-fixture-beta": 5,
+                "[redacted:openrouter]": 7,
+                "[redacted:openrouter:1]": 11
+            }
+        }}),
+    );
+    for args in [&["export"][..], &["export", "--show-digests"][..]] {
+        let first = f.run(args);
+        let second = f.run(args);
+        assert!(first.status.success(), "{first:?}");
+        assert!(second.status.success(), "{second:?}");
+        assert_eq!(
+            first.stdout, second.stdout,
+            "redaction order must be stable"
+        );
+        let json: serde_json::Value = serde_json::from_slice(&first.stdout).unwrap();
+        let good = json["facts"][0]["text_params"]["params"]["good"]
+            .as_object()
+            .unwrap();
+        assert_eq!(good.len(), 4, "{json}");
+        let mut counts: Vec<_> = good.values().map(|v| v.as_u64().unwrap()).collect();
+        counts.sort_unstable();
+        assert_eq!(counts, [3, 5, 7, 11]);
+        assert!(!json.to_string().contains("sk-or-v1-fixture-"), "{json}");
     }
 }
 

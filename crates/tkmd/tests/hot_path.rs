@@ -1,6 +1,6 @@
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::pedantic)]
 //! E4.3 hot-path rule (SPEC 6.2, 14): `tool_done` does no network call and no disk access.
 #![forbid(unsafe_code)]
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::pedantic)]
 
 mod common;
 
@@ -18,6 +18,78 @@ impl tkmd::clock::Clock for CountingClock {
         self.0.fetch_add(1, Ordering::Relaxed);
         1_800_000_000_000
     }
+}
+
+#[tokio::test]
+async fn deduplicated_hooks_persist_latest_activity_only_during_flush() {
+    let env = Env::new();
+    let clock = Arc::new(tkmd::clock::ManualClock::new(1_800_000_000_000));
+    let backing = CountingBacking::new(env.paths.db.clone());
+    let mut options = tkmd::daemon::DaemonOptions::new(env.paths.clone());
+    options.clock = clock.clone();
+    options.backing = backing.clone();
+    options.settings = settings_fixed(Settings::default());
+    let daemon = tkmd::daemon::Daemon::new(options);
+    daemon.handle(session_start()).await;
+    daemon.handle(prompt()).await;
+    daemon.handle_tool_done(&tool_done());
+    daemon.flush_now().await;
+    let events_before = env.store().list_recent_events(-1).unwrap();
+    let observations_before = events_before
+        .iter()
+        .filter(|event| event.kind == "hook.seen")
+        .count();
+    let opens_before = backing.opens();
+    clock.set(1_800_000_120_000);
+    #[cfg(target_os = "linux")]
+    let writes_before = thread_write_calls();
+    for _ in 0..3 {
+        daemon.handle_tool_done(&tool_done());
+    }
+    #[cfg(target_os = "linux")]
+    assert_eq!(
+        thread_write_calls(),
+        writes_before,
+        "no handler-thread writes"
+    );
+    assert_eq!(backing.opens(), opens_before, "no handler storage access");
+    let events = env.store().list_recent_events(-1).unwrap();
+    assert_eq!(
+        events, events_before,
+        "activity waits for the existing flush"
+    );
+    daemon.flush_now().await;
+    let events = env.store().list_recent_events(-1).unwrap();
+    assert_eq!(
+        events
+            .iter()
+            .filter(|event| event.kind == "hook.seen")
+            .count(),
+        observations_before
+    );
+    assert_eq!(
+        events
+            .iter()
+            .filter(|event| event.kind == "hook.seen")
+            .filter_map(|event| event.created_at)
+            .map(|time| time.0)
+            .max(),
+        Some(1_800_000_120_000)
+    );
+    // Older activity must never move an observation backwards (including flush retries).
+    clock.set(1_800_000_060_000);
+    daemon.handle_tool_done(&tool_done());
+    daemon.flush_now().await;
+    let events = env.store().list_recent_events(-1).unwrap();
+    assert_eq!(
+        events
+            .iter()
+            .filter(|event| event.kind == "hook.seen")
+            .filter_map(|event| event.created_at)
+            .map(|time| time.0)
+            .max(),
+        Some(1_800_000_120_000)
+    );
 }
 
 #[tokio::test]

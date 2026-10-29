@@ -1,6 +1,6 @@
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::pedantic)]
 #![forbid(unsafe_code)]
 #![cfg(target_os = "linux")] // These real-binary fixtures assert Linux XDG path semantics.
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::pedantic)]
 
 mod support_init;
 use std::fs;
@@ -232,4 +232,109 @@ fn uninstall_running_detached_daemon_prints_stop_command_and_keeps_manifest() {
     let output = fixture.run(&["uninstall"]);
     assert!(output.status.success(), "{output:?}");
     assert_eq!(fixture.installs().len(), 0);
+}
+
+#[test]
+fn uninstall_preserves_recovery_state_when_only_hook_socket_is_live() {
+    let fixture = Fixture::new();
+    fs::remove_file(fixture.bin.join("systemctl")).unwrap();
+    fixture.init();
+    fs::create_dir_all(fixture.paths.socket.parent().unwrap()).unwrap();
+    let listener = std::os::unix::net::UnixListener::bind(&fixture.paths.socket).unwrap();
+    assert!(
+        !fixture
+            .paths
+            .socket
+            .with_file_name("tkmd-monitor.sock")
+            .exists()
+    );
+    let output = fixture.run(&["uninstall"]);
+    assert_eq!(output.status.code(), Some(1), "{output:?}");
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("pkill -x tkmd"),
+        "{output:?}"
+    );
+    assert!(!fixture.installs().is_empty());
+    assert!(
+        fixture
+            .temp
+            .path()
+            .join("config/systemd/user/tkmd.service")
+            .exists()
+    );
+    assert!(fixture.paths.global_config.exists());
+    drop(listener);
+    // A stale hook socket must not prevent a successful retry.
+    let output = fixture.run(&["uninstall"]);
+    assert!(output.status.success(), "{output:?}");
+    assert!(fixture.installs().is_empty());
+}
+
+#[test]
+fn uninstall_preserves_recovery_state_while_daemon_lock_is_held() {
+    let fixture = Fixture::new();
+    fs::remove_file(fixture.bin.join("systemctl")).unwrap();
+    fixture.init();
+    fs::create_dir_all(fixture.paths.socket.parent().unwrap()).unwrap();
+    let lock = fs::File::create(fixture.paths.socket.with_file_name("tkmd.lock")).unwrap();
+    lock.try_lock().unwrap();
+    let output = fixture.run(&["uninstall"]);
+    assert_eq!(output.status.code(), Some(1), "{output:?}");
+    assert!(!fixture.installs().is_empty());
+    drop(lock);
+    let output = fixture.run(&["uninstall"]);
+    assert!(output.status.success(), "{output:?}");
+    assert!(fixture.installs().is_empty());
+}
+
+#[test]
+fn uninstall_cleans_up_after_detached_start_failure_without_manager() {
+    for missing in [true, false] {
+        let fixture = Fixture::new();
+        let before = snapshot(&fixture.home);
+        let config_before = snapshot(&fixture.temp.path().join("config"));
+        fs::remove_file(fixture.bin.join("systemctl")).unwrap();
+        let executable = fixture.bin.join("unstartable-tkmd");
+        if !missing {
+            use std::os::unix::fs::PermissionsExt;
+            fs::write(
+                &executable,
+                format!(
+                    "#!{}\n",
+                    fixture.temp.path().join("missing-interpreter").display()
+                ),
+            )
+            .unwrap();
+            fs::set_permissions(&executable, fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        let output = fixture
+            .command(&["init", "--yes"])
+            .env("TKM_TKMD_BIN", &executable)
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{output:?}");
+        assert!(
+            String::from_utf8_lossy(&output.stderr).contains("detached tkmd could not start"),
+            "{output:?}"
+        );
+        let records = fixture.installs();
+        assert!(!records.is_empty());
+        for record in records {
+            let manifest: serde_json::Value = serde_json::from_str(
+                record
+                    .entry_ids
+                    .iter()
+                    .find_map(|entry| entry.strip_prefix("tkm-cli-v1:"))
+                    .unwrap(),
+            )
+            .unwrap();
+            assert_eq!(manifest["service"]["start_failed"], true, "{manifest}");
+            assert_eq!(manifest["service"]["detached"], false, "{manifest}");
+        }
+        let output = fixture.run(&["uninstall"]);
+        assert!(output.status.success(), "{output:?}");
+        assert_eq!(snapshot(&fixture.home), before);
+        assert_eq!(snapshot(&fixture.temp.path().join("config")), config_before);
+        assert!(fixture.installs().is_empty());
+    }
 }
