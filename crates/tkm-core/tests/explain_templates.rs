@@ -1,7 +1,11 @@
 #![forbid(unsafe_code)]
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-use tkm_core::inject::explain::*;
+use tkm_core::inject::explain::{
+    ActionKind, ActionParams, AdapterDisabledParams, BudgetReachedParams, DenyListProposalParams,
+    DenyListWriteParams, EscalationParams, Explanation, FactInjectedParams, FactPromotedParams,
+    FactRetiredParams, Params, RedirectParams, RestoreParams, render,
+};
 fn explanation(kind: ActionKind) -> Explanation {
     let p = Params {
         event: "Event 1".into(),

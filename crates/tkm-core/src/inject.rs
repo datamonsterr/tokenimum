@@ -1,5 +1,9 @@
 // Portions ported from microsoft/TokenEconomizer (tokeneconomizer/microskills/distiller.py, commit d0675a3),
 // Copyright (c) Microsoft Corporation, licensed under the Apache License, Version 2.0.
+// Portions ported from microsoft/TokenEconomizer (tokeneconomizer/microskills/envfacts.py, commit d0675a3),
+// Copyright (c) Microsoft Corporation, licensed under the Apache License, Version 2.0.
+// Portions ported from microsoft/TokenEconomizer (tokeneconomizer/microskills/stage.py, commit d0675a3),
+// Copyright (c) Microsoft Corporation, licensed under the Apache License, Version 2.0.
 //! Context injection assembly.
 
 use crate::model::Timestamp;
@@ -115,7 +119,16 @@ pub fn select(
     scores: Option<&BTreeMap<String, f64>>,
     config: Config,
 ) -> Vec<InjectCandidate> {
-    let mut items = dedupe(items);
+    let eligible: Vec<_> = items
+        .iter()
+        .filter(|item| {
+            scores.is_some()
+                || item.source == Source::Facts
+                || (config.memory && item.source == Source::Memory)
+        })
+        .cloned()
+        .collect();
+    let mut items = dedupe(&eligible);
     if let Some(scores) = scores {
         items.retain(|item| {
             scores.get(&item.id).is_some_and(|score| {
@@ -246,10 +259,11 @@ impl Cache {
     /// Reuse the no-prompt fallback block while candidates and limits are unchanged.
     pub fn default_block(&mut self, items: &[InjectCandidate], config: Config) -> String {
         let key = cache_key("", items).candidates;
-        if let Some((stored_key, stored_config, block)) = &self.default {
-            if *stored_key == key && *stored_config == config {
-                return block.clone();
-            }
+        if let Some((stored_key, stored_config, block)) = &self.default
+            && *stored_key == key
+            && *stored_config == config
+        {
+            return block.clone();
         }
         let block = render(&select(items, None, config));
         self.default = Some((key, config, block.clone()));

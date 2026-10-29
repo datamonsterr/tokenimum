@@ -174,3 +174,15 @@ fn score_ties_sort_by_id_and_invalid_scores_are_ignored() {
         ["a", "b"]
     );
 }
+
+#[test]
+fn fallback_does_not_let_disabled_sources_hide_facts() {
+    let items = vec![
+        item("skill", "same text", Source::Skills, 1, false),
+        item("fact", "same text", Source::Facts, 1, false),
+    ];
+    assert_eq!(
+        inject::select(&items, None, Config::default())[0].id,
+        "fact"
+    );
+}
