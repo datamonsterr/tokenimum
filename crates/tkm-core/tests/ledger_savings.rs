@@ -51,3 +51,29 @@ fn savings_groups_and_confidence() {
         0
     );
 }
+
+#[test]
+fn savings_classification_table() {
+    let repo = RepoKey("repo".into());
+    for (started, shadow, host, first, baseline_count, treatment_count) in [
+        (1, false, Host::Claude, Some(Timestamp(2)), 1, 0),
+        (2, false, Host::Claude, Some(Timestamp(2)), 0, 1),
+        (3, true, Host::Claude, Some(Timestamp(2)), 1, 0),
+        (3, false, Host::Claude, None, 1, 0),
+        (3, false, Host::Codex, Some(Timestamp(2)), 0, 0),
+    ] {
+        let session = SavingsSession {
+            repo: repo.clone(),
+            host,
+            started: Timestamp(started),
+            shadow,
+            cost: 1.0,
+        };
+        let estimate = estimate_savings(&[session], &repo, Host::Claude, first);
+        assert_eq!(
+            (estimate.baseline_count, estimate.treatment_count),
+            (baseline_count, treatment_count)
+        );
+        assert_eq!(estimate.band, None);
+    }
+}

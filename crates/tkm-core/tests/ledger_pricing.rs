@@ -91,3 +91,24 @@ fn decision_costs_are_summed() {
     assert_eq!(decision_overhead(&ds), 1.0);
     assert_eq!(decision_overhead(&[]), 0.0);
 }
+
+#[test]
+fn decision_overhead_table() {
+    for (costs, expected) in [
+        (&[][..], 0.0),
+        (&[0.25][..], 0.25),
+        (&[0.25, 0.75][..], 1.0),
+    ] {
+        let decisions: Vec<_> = costs
+            .iter()
+            .map(|&cost| DecisionOverhead {
+                input_tokens: 1,
+                cost,
+                model: "test".into(),
+                latency_ms: 1,
+                question_names: Vec::new(),
+            })
+            .collect();
+        assert_eq!(decision_overhead(&decisions), expected);
+    }
+}
