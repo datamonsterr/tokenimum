@@ -380,12 +380,11 @@ fn assignments(command: &str) -> (String, bool) {
 }
 fn normalized(command: &str) -> (String, bool) {
     let (mut body, mut assigned) = assignments(command);
-    if let Some(rest) = body.strip_prefix("rtk ") {
-        let rest = rest
-            .trim_start()
-            .strip_prefix("proxy ")
-            .unwrap_or(rest.trim_start());
-        let (next, has_assignments) = assignments(rest);
+    if let Ok(rx) = regex::Regex::new(r"^rtk\s+(?:proxy\s+)?")
+        && let Some(prefix) = rx.find(&body)
+        && prefix.end() < body.len()
+    {
+        let (next, has_assignments) = assignments(&body[prefix.end()..]);
         body = next;
         assigned |= has_assignments;
     }
@@ -861,6 +860,19 @@ fn attribute(obs: &mut [Observation], command: &str, output: &str, success: bool
         && obs
             .first()
             .is_some_and(|first| obs.iter().all(|o| o.intent == first.intent));
+    // Output producers can fabricate a successful fetch's entire digest. TE's
+    // pass-through rule is retained for probes but tightened for reachability.
+    let fetch_homogeneous = homogeneous
+        && !segments(&unwrap(command)).iter().any(|s| {
+            ["echo", "printf", "cat"].contains(
+                &s.split_whitespace()
+                    .next()
+                    .unwrap_or("")
+                    .rsplit('/')
+                    .next()
+                    .unwrap_or(""),
+            )
+        });
     let error = error_class(output);
     if let Some(error) = error {
         let targets: Vec<usize> = obs
@@ -939,7 +951,10 @@ fn attribute(obs: &mut [Observation], command: &str, output: &str, success: bool
         }
         if o.intent == Intent::FetchRemote
             && o.outcome == Outcome::Ran
-            && (!homogeneous || !success || output.trim().is_empty() || error.is_some_and(network))
+            && (!fetch_homogeneous
+                || !success
+                || output.trim().is_empty()
+                || error.is_some_and(network))
         {
             o.outcome = Outcome::Unknown;
         }

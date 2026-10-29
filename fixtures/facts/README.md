@@ -84,6 +84,7 @@ Fixtures are synthetic Rust Session/Call builders in `crates/tkm-core/tests/fact
 ## Adaptations and boundaries
 
 - TE absolute interpreter fixtures (`/opt/env/...`) and home paths are replaced by equivalent repository-relative `.venv/...`/`.local/...` paths. Classification can observe absolute forms, but candidate validation/rendering rejects them per SPEC 13.4.
+- Fetch reachability is stricter than TE for unrelated `echo`, `printf`, or `cat` segments: their output cannot prove a fetch succeeded. The pass-through probe rule is retained.
 - Exact template wording is retained from TE. Generic header is used; header, bullets and final newline all count under the four-characters-per-token cap. Relative cd forms render as subshells.
 - Environment setting values must match the test-label grammar; arbitrary strings, paths outside the repo and shell expressions are rejected. Errors render through a closed enum, never raw output.
 - `args_digest` must be normalized shell command text. No JSON decoding is introduced (serde_json remains a dev dependency). Explicit exit_code plus TE digest hints supply outcomes.
