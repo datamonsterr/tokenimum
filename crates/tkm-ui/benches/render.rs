@@ -50,13 +50,11 @@ fn render_benches(c: &mut Criterion) {
             pane,
             ..ViewState::default()
         };
-        let Ok(mut terminal) = Terminal::new(TestBackend::new(200, 50)) else {
-            return;
-        };
+        let Ok(mut terminal) = Terminal::new(TestBackend::new(200, 50));
         c.bench_function(name, |b| {
             b.iter(|| {
                 let _ = terminal.draw(|frame| tui::render(&state, &view, frame));
-            })
+            });
         });
     }
 }

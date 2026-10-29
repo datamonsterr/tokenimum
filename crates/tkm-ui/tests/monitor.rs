@@ -321,7 +321,12 @@ fn bad_hello_is_read_only() {
 
 #[test]
 fn snapshot_reads_persisted_decision() {
-    use tkm_store::{NewDecision, Store};
+    use tkm_core::model::{RepoKey, Timestamp, Usage};
+    use tkm_store::{
+        FactRecord, FactState, LedgerRecord, NewDecision, NewEvent, NewSession, Repo, SessionKey,
+        Store,
+    };
+    use tkm_ui::tui::WhySource;
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("monitor.db");
     let store = Store::open(&path).unwrap();
@@ -336,8 +341,6 @@ fn snapshot_reads_persisted_decision() {
             shadow: false,
         })
         .unwrap();
-    use tkm_core::model::{RepoKey, Timestamp, Usage};
-    use tkm_store::{FactRecord, FactState, LedgerRecord, NewEvent, NewSession, Repo, SessionKey};
     let repo = RepoKey("example/repo".into());
     store
         .upsert_repo(&Repo {
@@ -396,7 +399,6 @@ fn snapshot_reads_persisted_decision() {
     assert_eq!(state.redirect_event_ids[0], Some(event_id));
     assert_eq!(state.savings[0].cost, 1.25);
     assert_eq!(state.facts[0].score, Some(1.5));
-    use tkm_ui::tui::WhySource;
     let why = tkm_ui::tui::DatabaseWhy(&conn)
         .explain(&state, Pane::Sessions, 0)
         .unwrap();
