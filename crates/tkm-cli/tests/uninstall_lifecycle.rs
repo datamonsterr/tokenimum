@@ -113,3 +113,29 @@ fn uninstall_preserves_edited_shim_and_its_record() {
             .any(|row| row.host == tkm_proto::Host::Opencode)
     );
 }
+
+#[test]
+fn uninstall_retains_manifest_when_service_file_was_edited() {
+    let fixture = Fixture::new();
+    fixture.init();
+    let service = if cfg!(target_os = "macos") {
+        fixture
+            .home
+            .join("Library/LaunchAgents/com.tokenimum.tkmd.plist")
+    } else {
+        fixture.temp.path().join("config/systemd/user/tkmd.service")
+    };
+    let original = fs::read(&service).unwrap();
+    let mut edited = original.clone();
+    edited.extend_from_slice(b"\n# edited by person\n");
+    fs::write(&service, &edited).unwrap();
+    let output = fixture.run(&["uninstall"]);
+    assert_eq!(output.status.code(), Some(1), "{output:?}");
+    assert_eq!(fs::read(&service).unwrap(), edited);
+    assert!(!fixture.installs().is_empty());
+    fs::write(&service, original).unwrap();
+    let output = fixture.run(&["uninstall"]);
+    assert!(output.status.success(), "{output:?}");
+    assert!(!service.exists());
+    assert!(fixture.installs().is_empty());
+}

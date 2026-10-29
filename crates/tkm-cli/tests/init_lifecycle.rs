@@ -225,3 +225,35 @@ fn init_missing_service_manager_uses_fake_detached_daemon() {
     }
     panic!("fake detached daemon was not invoked");
 }
+
+#[test]
+fn init_detects_binary_aliases_without_existing_agent_homes() {
+    let fixture = Fixture::new();
+    fs::remove_dir_all(&fixture.home).unwrap();
+    fs::create_dir(&fixture.home).unwrap();
+    fixture.script("cursor-agent", "printf 'cursor fixture\\n'\n");
+    fixture.script("codewhale", "printf 'codewhale fixture\\n'\n");
+    let output = fixture.run(&["init", "--yes", "--only", "cursor,deepseek"]);
+    assert!(output.status.success(), "{output:?}");
+    assert_eq!(fixture.installs().len(), 2);
+    assert!(fixture.home.join(".cursor/hooks.json").is_file());
+    assert!(fixture.home.join(".codewhale/config.toml").is_file());
+}
+
+#[test]
+fn init_reuses_key_file_and_writes_selected_preset() {
+    let fixture = Fixture::new();
+    let path = tkm_decide::key::default_key_file(&fixture.home);
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    fs::write(&path, "OPENROUTER_API_KEY=fixture-reused-secret\n").unwrap();
+    use std::os::unix::fs::PermissionsExt;
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+    let before = fs::read(&path).unwrap();
+    let output = fixture.run(&["init", "--yes", "--only", "claude", "--preset", "observe"]);
+    assert!(output.status.success(), "{output:?}");
+    assert_eq!(fs::read(path).unwrap(), before);
+    let config = fs::read_to_string(&fixture.paths.global_config).unwrap();
+    assert!(config.contains("preset = \"observe\""), "{config}");
+    assert!(!stdout(&output).contains("fixture-reused-secret"));
+    assert!(!String::from_utf8_lossy(&output.stderr).contains("fixture-reused-secret"));
+}
