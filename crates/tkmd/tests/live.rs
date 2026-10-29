@@ -37,6 +37,24 @@ fn run_calls(daemon: &tkmd::daemon::Daemon, n: usize) -> Vec<tkm_proto::Reply> {
 }
 
 #[tokio::test]
+async fn undelivered_redirect_does_not_leak_into_next_turn() {
+    let env = Env::new();
+    env.seed_envelope(FIXTURE_REPO, Host::Claude, &[5; 5]);
+    let decider = ScriptedDecider::new(stuck_decision());
+    let daemon = daemon_with(&env, redirect_settings(), decider);
+    daemon.adapters().register(Box::new(ToolBlind(tkm_hosts::claude::ClaudeAdapter::new())));
+    daemon.start_workers();
+    calibrate(&daemon);
+    daemon.handle(session_start()).await;
+    daemon.handle(prompt()).await;
+    run_calls(&daemon, 18);
+    daemon.settle().await;
+    assert_eq!(daemon.handle_tool_done(&failing_tool_done()).stdout, "");
+    daemon.handle(stop()).await;
+    assert_eq!(daemon.handle(prompt()).await.stdout, "");
+}
+
+#[tokio::test]
 async fn stuck_sequence_opens_gate_judges_once_and_redirects_on_a_later_call() {
     let env = Env::new();
     env.seed_envelope(FIXTURE_REPO, Host::Claude, &[5; 5]);

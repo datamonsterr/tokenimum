@@ -379,6 +379,20 @@ pub fn fact_line(host_name: &str) -> String {
 /// Claude adapter that cannot inject on `prompt` (like Cursor's `beforeSubmitPrompt`).
 pub struct PromptBlind(pub tkm_hosts::claude::ClaudeAdapter);
 
+pub struct ToolBlind(pub tkm_hosts::claude::ClaudeAdapter);
+
+impl tkm_hosts::HostAdapter for ToolBlind {
+    fn host(&self) -> Host { Host::Claude }
+    fn map_event(&self, request: &Request) -> Result<Option<tkm_core::model::HookEvent>, tkm_hosts::AdapterError> { self.0.map_event(request) }
+    fn render_reply(&self, request: &Request, action: &tkm_proto::ReplyAction) -> String {
+        if request.event == EventKind::ToolDone { String::new() } else { self.0.render_reply(request, action) }
+    }
+    fn read_session(&self, source: &tkm_hosts::SessionSource) -> Result<tkm_core::model::Session, tkm_hosts::AdapterError> { self.0.read_session(source) }
+    fn install(&self, context: &tkm_hosts::InstallContext) -> Result<tkm_hosts::InstallReport, tkm_hosts::AdapterError> { self.0.install(context) }
+    fn uninstall(&self, context: &tkm_hosts::InstallContext) -> Result<tkm_hosts::InstallReport, tkm_hosts::AdapterError> { self.0.uninstall(context) }
+    fn prune_target(&self) -> tkm_hosts::PruneTarget { self.0.prune_target() }
+}
+
 impl tkm_hosts::HostAdapter for PromptBlind {
     fn host(&self) -> Host {
         Host::Claude
