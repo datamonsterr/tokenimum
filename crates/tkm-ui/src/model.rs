@@ -53,6 +53,8 @@ pub struct MonitorState {
     pub savings: Vec<Savings>,
     /// Facts and their lifecycle states.
     pub facts: Vec<Fact>,
+    #[serde(skip)]
+    live_fact_keys: VecDeque<(String, String)>,
     /// Recent redirects, oldest first.
     pub redirects: VecDeque<RedirectNotice>,
     /// Database event IDs corresponding to redirect rows.
@@ -111,9 +113,14 @@ impl MonitorState {
                         fact.state = state.into();
                     }
                 } else {
-                    if self.facts.len() >= 2_000 {
-                        self.facts.remove(0);
+                    if self.live_fact_keys.len() >= 2_000 {
+                        if let Some((repo, fact_id)) = self.live_fact_keys.pop_front() {
+                            self.facts
+                                .retain(|fact| fact.repo != repo || fact.fact_id != fact_id);
+                        }
                     }
+                    self.live_fact_keys
+                        .push_back((update.repo.clone(), update.fact_id.clone()));
                     self.facts.push(Fact {
                         repo: update.repo,
                         fact_id: update.fact_id,
