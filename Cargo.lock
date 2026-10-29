@@ -2577,6 +2577,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "serde_spanned"
+version = "1.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4e7523beb55eece201a2356bee0bbca0d1ab466c14c07703b2e0ee6d42cb0c2c"
+dependencies = [
+ "serde_core",
+]
+
+[[package]]
 name = "serde_urlencoded"
 version = "0.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3031,17 +3040,21 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.21",
  "tkm-proto",
+ "toml",
 ]
 
 [[package]]
 name = "tkm-decide"
 version = "0.0.0"
 dependencies = [
+ "regex",
  "reqwest",
  "serde",
  "serde_json",
  "thiserror 2.0.21",
+ "tkm-core",
  "tokio",
+ "toml_edit",
  "tracing",
 ]
 
@@ -3158,6 +3171,21 @@ checksum = "c9cc2678c2cdd569ef8215e2afd7954ada2ae20b4fdd2c5fe6139a3b02d105db"
 dependencies = [
  "rustls",
  "tokio",
+]
+
+[[package]]
+name = "toml"
+version = "1.1.8+spec-1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "20489e00e4d8741d6be680764cc12e270655e375a20d1011e844a9c3379e678d"
+dependencies = [
+ "indexmap",
+ "serde_core",
+ "serde_spanned",
+ "toml_datetime",
+ "toml_parser",
+ "toml_writer",
+ "winnow",
 ]
 
 [[package]]

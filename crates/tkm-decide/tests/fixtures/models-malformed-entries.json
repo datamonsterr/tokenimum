@@ -1,0 +1,131 @@
+{
+  "data": [
+    {
+      "id": "valid-model",
+      "context_length": 65536,
+      "pricing": {
+        "prompt": "0.00000002",
+        "completion": "0"
+      }
+    },
+    {
+      "id": "valid-model",
+      "canonical_slug": null,
+      "context_length": 65536,
+      "pricing": {
+        "prompt": "0.00000002",
+        "completion": "0"
+      }
+    },
+    {
+      "id": "valid-model",
+      "canonical_slug": "valid-model-20261029",
+      "pricing": {
+        "prompt": "0.00000002",
+        "completion": "0"
+      }
+    },
+    {
+      "id": "valid-model",
+      "canonical_slug": "valid-model-20261029",
+      "context_length": null,
+      "pricing": {
+        "prompt": "0.00000002",
+        "completion": "0"
+      }
+    },
+    {
+      "id": "valid-model",
+      "canonical_slug": "valid-model-20261029",
+      "context_length": 65536,
+      "pricing": {
+        "prompt": "garbage",
+        "completion": "0"
+      }
+    },
+    {
+      "id": "valid-model",
+      "canonical_slug": "valid-model-20261029",
+      "context_length": 65536,
+      "pricing": {
+        "prompt": "-0.1",
+        "completion": "0"
+      }
+    },
+    {
+      "id": "valid-model",
+      "canonical_slug": "valid-model-20261029",
+      "context_length": 65536,
+      "pricing": {
+        "prompt": "NaN",
+        "completion": "0"
+      }
+    },
+    {
+      "id": "valid-model",
+      "canonical_slug": "valid-model-20261029",
+      "context_length": 65536,
+      "pricing": {
+        "prompt": "inf",
+        "completion": "0"
+      }
+    },
+    {
+      "id": "valid-model",
+      "canonical_slug": "valid-model-20261029",
+      "context_length": 65536,
+      "pricing": {
+        "prompt": "0.00000002",
+        "completion": "garbage"
+      }
+    },
+    {
+      "id": "valid-model",
+      "canonical_slug": "valid-model-20261029",
+      "context_length": 65536,
+      "pricing": {
+        "prompt": "0.00000002",
+        "completion": "-0.1"
+      }
+    },
+    {
+      "id": "valid-model",
+      "canonical_slug": "valid-model-20261029",
+      "context_length": 65536,
+      "pricing": {
+        "prompt": "0.00000002",
+        "completion": "NaN"
+      }
+    },
+    {
+      "id": "valid-model",
+      "canonical_slug": "valid-model-20261029",
+      "context_length": 65536,
+      "pricing": {
+        "prompt": "0.00000002",
+        "completion": "inf"
+      }
+    },
+    null,
+    "not an entry",
+    {},
+    {
+      "id": "~alias",
+      "canonical_slug": "~alias",
+      "context_length": 100,
+      "pricing": {
+        "prompt": "0",
+        "completion": "0"
+      }
+    },
+    {
+      "id": "valid-model",
+      "canonical_slug": "valid-model-20261029",
+      "context_length": 65536,
+      "pricing": {
+        "prompt": "0.00000002",
+        "completion": "0"
+      }
+    }
+  ]
+}

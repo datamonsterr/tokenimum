@@ -24,6 +24,10 @@ jobs:
       - uses: taiki-e/install-action@v2
         with:
           tool: hyperfine@2.0.0
+      # rust-cache can restore a partial target/criterion from main; Criterion then fails on a
+      # missing base/sample.json. Baselines live in benchmark-data, so start Criterion clean.
+      - name: Clear restored Criterion state
+        run: rm -rf target/criterion
       - name: Run Criterion placeholder
         run: cargo bench --locked -p tkm-core --bench placeholder -- --output-format bencher | tee criterion.txt
       - name: Run hook benchmark

@@ -32,6 +32,7 @@ crossterm = { version = "0.29.0" }
 axum = { version = "0.8.9" }
 regex = { version = "1.13.1" }
 globset = { version = "0.4.21" }
+toml = { version = "1.1.6", default-features = false, features = ["std", "parse", "serde"] }
 toml_edit = { version = "0.25.17" }
 directories = { version = "6.0.0" }
 thiserror = { version = "2.0.21" }
