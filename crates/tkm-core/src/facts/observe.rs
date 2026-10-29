@@ -1191,3 +1191,207 @@ pub(super) fn is_bare(form: &str) -> bool {
         && !form.contains(" run ")
         && !form.starts_with("npx ")
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+    use crate::facts::{self, FactsConfig, FactsState, SessionEvidence, lifecycle::Status};
+    use crate::model::{Call, Turn};
+
+    fn session(command: &str, output: &str, code: i32) -> Session {
+        let mut session = Session::new(Host::Claude);
+        session.session_id = "review-regression".into();
+        session.turns.push(Turn {
+            calls: vec![Call {
+                tool: "Bash".into(),
+                args_digest: command.into(),
+                output_digest: output.into(),
+                exit_code: Some(code),
+                ..Call::default()
+            }],
+            ..Turn::default()
+        });
+        session
+    }
+
+    #[test]
+    fn native_git_reference_formats_are_hits() {
+        for (command, output, probe) in [
+            ("git remote", "origin\n", Probe::Remote),
+            ("git remote", "origin\nupstream\n", Probe::Remote),
+            (
+                "git remote -v",
+                "origin\thttps://example.org/repo.git (fetch)\norigin\thttps://example.org/repo.git (push)\n",
+                Probe::Remote,
+            ),
+            ("git branch -r", "  origin/main\n", Probe::Branch),
+            (
+                "git branch --remotes",
+                "  origin/HEAD -> origin/main\n  origin/main\n  upstream/topic/fix\n",
+                Probe::Branch,
+            ),
+            (
+                "git branch -a",
+                "* main\n  remotes/origin/main\n",
+                Probe::Branch,
+            ),
+            ("git tag --contains HEAD", "nightly\n", Probe::Tag),
+            (
+                "git tag --contains HEAD",
+                "release/preview\nbuild-2026_10\nv1.2.3\n",
+                Probe::Tag,
+            ),
+        ] {
+            let digest = observe(&session(command, output, 0));
+            assert_eq!(digest.observations.len(), 1, "{command}");
+            assert_eq!(digest.observations[0].probe, Some(probe), "{command}");
+            assert_eq!(
+                digest.observations[0].outcome,
+                Outcome::Hit,
+                "{command}: {output:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn unrecognized_nonempty_vcs_output_abstains() {
+        for command in [
+            "git remote",
+            "git branch -r",
+            "git tag --contains HEAD",
+            "git fsck",
+            "git stash list",
+            "git show-ref",
+            "git for-each-ref",
+        ] {
+            let digest = observe(&session(command, "warning: probe output unavailable\n", 0));
+            assert_eq!(digest.observations.len(), 1, "{command}");
+            assert_eq!(
+                digest.observations[0].outcome,
+                Outcome::Unknown,
+                "{command}"
+            );
+            assert!(facts::extract::extract(&digest).is_empty(), "{command}");
+        }
+    }
+
+    #[test]
+    fn only_empty_successful_vcs_output_counts_as_empty() {
+        for command in [
+            "git remote",
+            "git branch -r",
+            "git tag --contains HEAD",
+            "git fsck",
+        ] {
+            for output in ["", " \t\n"] {
+                for (code, expected) in [(0, Outcome::Empty), (1, Outcome::Unknown)] {
+                    let digest = observe(&session(command, output, code));
+                    assert_eq!(
+                        digest.observations[0].outcome, expected,
+                        "{command}, {code}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn native_git_hits_never_confirm_empty_history() {
+        for (command, output) in [
+            ("git remote", "origin\n"),
+            ("git branch -r", "  origin/main\n"),
+            ("git tag --contains HEAD", "nightly\n"),
+        ] {
+            let mut state = FactsState::default();
+            for index in 0..4 {
+                let mut session = session(command, output, 0);
+                session.session_id = format!("hit-{index}");
+                state = facts::update(
+                    state,
+                    &SessionEvidence {
+                        session,
+                        injected_ids: Default::default(),
+                        decisions: None,
+                    },
+                    &FactsConfig::default(),
+                )
+                .0;
+            }
+            let fact = &state.facts["empty_probe:vcs_refs"];
+            assert_eq!(fact.life.confirmations, 0, "{command}");
+            assert_eq!(fact.life.status, Status::Retired, "{command}");
+        }
+    }
+
+    #[test]
+    fn shell_comments_are_removed_before_segmentation() {
+        for (command, expected) in [
+            ("echo 4 passed # ;python -m pytest", vec!["echo 4 passed"]),
+            ("# python -m pytest; git remote", vec![]),
+            ("echo ok;# python -m pytest", vec!["echo ok"]),
+            ("echo ok |# python -m pytest", vec!["echo ok"]),
+            (
+                "echo ok # 'unterminated ; pytest\npython -m pytest # ;git remote",
+                vec!["echo ok", "python -m pytest"],
+            ),
+            (
+                "# ignored\necho ok # ignored\n# ignored\npython -m pytest",
+                vec!["echo ok", "python -m pytest"],
+            ),
+            (
+                "echo ok # ignored\\\npython -m pytest",
+                vec!["echo ok", "python -m pytest"],
+            ),
+        ] {
+            assert_eq!(segments(command), expected, "{command:?}");
+        }
+    }
+
+    #[test]
+    fn literal_hashes_do_not_start_shell_comments() {
+        for first in [
+            "echo a#b",
+            "echo '4 # passed'",
+            "echo \"4 # passed\"",
+            r"echo \#literal",
+            r"echo escaped\ #literal",
+            "echo ''#literal",
+        ] {
+            let command = format!("{first}; python -m pytest");
+            assert_eq!(segments(&command), vec![first, "python -m pytest"]);
+            assert_eq!(classify_command(&command).len(), 1, "{command}");
+        }
+    }
+
+    #[test]
+    fn commented_commands_produce_no_observations_or_evidence() {
+        for command in [
+            "echo 4 passed # ;python -m pytest",
+            "echo 4 passed # &&python -m pytest",
+            "echo 4 passed # |python -m pytest",
+            "# python -m pytest; git remote; export PYTHONPATH=src",
+            "echo ok # ;export PYTHONPATH=src\n# ;python -c 'print(1)'",
+        ] {
+            assert!(classify_command(command).is_empty(), "{command}");
+            let digest = observe(&session(command, "4 passed", 0));
+            assert!(digest.observations.is_empty(), "{command}");
+            assert!(digest.env.is_empty(), "{command}");
+            assert!(facts::extract::extract(&digest).is_empty(), "{command}");
+        }
+    }
+
+    #[test]
+    fn commented_repairs_cannot_create_facts() {
+        let mut input = session("pytest", "command not found", 127);
+        input.turns[0].calls.extend(
+            session("echo 4 passed # ;python -m pytest", "4 passed", 0)
+                .turns
+                .remove(0)
+                .calls,
+        );
+        let digest = observe(&input);
+        assert_eq!(digest.observations.len(), 1);
+        assert!(facts::extract::extract(&digest).is_empty());
+    }
+}
