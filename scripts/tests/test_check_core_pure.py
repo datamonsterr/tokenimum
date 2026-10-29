@@ -37,8 +37,20 @@ class PurityCheck(unittest.TestCase):
             with self.subTest(source=source):
                 self.assertNotEqual(self.check(source), 0)
 
+    def test_grouped_self_and_aliases(self):
+        for source in [
+            "use std::io::{self}; fn f() { io::stdin(); }",
+            "use std::{io::{self as console}}; fn f() { console::stdout(); }",
+            "use std::{fs as disk}; fn f() { disk::read(\"x\"); }",
+            "use std::{thread as worker}; fn f() { worker::spawn(|| ()); }",
+            "use std::io::{self as console, Read};",
+            "fn f() { io::stderr(); }",
+        ]:
+            with self.subTest(source=source):
+                self.assertNotEqual(self.check(source), 0)
+
     def test_allowed_sources(self):
-        for source in ["use std::collections::BTreeMap;", "use std::io::Error;", "use std::time::Duration;"]:
+        for source in ["use std::collections::BTreeMap;", "use std::io::Error;", "use std::time::Duration;", "use std::io::{Read, Write, Error as IoError};", "use std::{io::{Cursor, ErrorKind}, collections::BTreeMap};"]:
             with self.subTest(source=source):
                 self.assertEqual(self.check(source), 0)
 

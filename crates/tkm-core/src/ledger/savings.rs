@@ -181,3 +181,26 @@ fn t_critical(df: f64) -> f64 {
     z + (z.powi(3) + z) / (4.0 * df)
         + (5.0 * z.powi(5) + 16.0 * z.powi(3) + 3.0 * z) / (96.0 * df.powi(2))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::t_critical;
+
+    #[test]
+    fn student_t_quantiles_for_fractional_and_integer_degrees_of_freedom() {
+        for (df, expected) in [
+            (1.0, 12.706_205),
+            (1.5, 6.016_663),
+            (2.0, 4.302_653),
+            (10.0, 2.228_139),
+            (30.0, 2.042_272),
+            (1_000_000.0, 1.959_966),
+        ] {
+            let actual = t_critical(df);
+            assert!(
+                (actual - expected).abs() / expected < 0.005,
+                "df={df}, got {actual}, expected {expected}"
+            );
+        }
+    }
+}
