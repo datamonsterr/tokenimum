@@ -12,6 +12,15 @@ fn seed(s: &support_ops::Sandbox) {
     );
     let store = tkm_store::Store::open(paths.db).unwrap();
     let repo = tkm_config::repo::repo_identity(&s.repo, "", Some(s.home.path()));
+    store
+        .upsert_repo(&tkm_store::Repo {
+            repo_key: repo.key.clone(),
+            display_name: "test".into(),
+            first_seen: tkm_core::model::Timestamp(0),
+            last_seen: tkm_core::model::Timestamp(0),
+            delegated_runs: 0,
+        })
+        .unwrap();
     for name in ["Skill", "mcp__example__unused"] {
         for _ in 0..10 {
             store
@@ -69,6 +78,15 @@ fn prune_unsupported_host_reports_proposal_only() {
     );
     let store = tkm_store::Store::open(paths.db).unwrap();
     let repo = tkm_config::repo::repo_identity(&s.repo, "", Some(s.home.path()));
+    store
+        .upsert_repo(&tkm_store::Repo {
+            repo_key: repo.key.clone(),
+            display_name: "test".into(),
+            first_seen: tkm_core::model::Timestamp(0),
+            last_seen: tkm_core::model::Timestamp(0),
+            delegated_runs: 0,
+        })
+        .unwrap();
     for _ in 0..5 {
         store
             .record_tool_unused_session(&repo.key, Host::Codex, "example")
