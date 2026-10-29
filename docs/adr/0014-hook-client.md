@@ -29,6 +29,11 @@ The shim accepts two additional options in any order alongside `--host` and `--e
 
 Unknown options and options with a missing value are ignored. The library keeps its byte-based `run_hook` API and provides a lazy stdin entry point for the binary so stdin is only read when `--payload` is absent.
 
+Stdin is read on a helper thread with a deadline of the event's read timeout or 100 ms,
+whichever is longer. The floor tolerates normal pipe scheduling for the 5 ms events while
+bounding a host that leaves the pipe open. Reads stop after `MAX_REQUEST_FRAME + 1` bytes;
+timeout, read failure, or an oversized input logs one line and returns the host no-op.
+
 ## Environment allowlist
 
 Host processes may have extensive or sensitive environment variables. To prevent leaking credentials or unrelated data across process boundaries, `tkm-hook` never dumps or forwards the full environment.

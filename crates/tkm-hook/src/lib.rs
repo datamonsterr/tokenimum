@@ -507,6 +507,23 @@ pub fn run_hook_with_stdin<I, S, E, F>(
     E: IntoIterator<Item = (String, String)>,
     F: FnOnce() -> Vec<u8>,
 {
+    run_hook_with_fallible_stdin(args, env_iter, || Ok(read_stdin()), socket_path, log_path, out);
+}
+
+/// Like [`run_hook_with_stdin`], but a stdin failure logs once and returns the host's no-op.
+pub fn run_hook_with_fallible_stdin<I, S, E, F>(
+    args: I,
+    env_iter: E,
+    read_stdin: F,
+    socket_path: Option<&Path>,
+    log_path: Option<&Path>,
+    out: &mut dyn Write,
+) where
+    I: IntoIterator<Item = S>,
+    S: AsRef<str>,
+    E: IntoIterator<Item = (String, String)>,
+    F: FnOnce() -> Result<Vec<u8>, String>,
+{
     let args: Vec<String> = args.into_iter().map(|s| s.as_ref().to_owned()).collect();
     let env: Vec<(String, String)> = env_iter.into_iter().collect();
 
@@ -560,7 +577,17 @@ pub fn run_hook_with_stdin<I, S, E, F>(
             }
         }
     } else {
-        read_payload(std::io::Cursor::new(read_stdin()))
+        let bytes = match read_stdin() {
+            Ok(bytes) => bytes,
+            Err(error) => {
+                if let Some(log) = log_path {
+                    append_error_log(log, &error);
+                }
+                let _ = out.write_all(host.noop_reply().as_bytes());
+                return;
+            }
+        };
+        read_payload(std::io::Cursor::new(bytes))
     };
     let filtered_env = collect_env(env);
     let process_cwd = std::env::current_dir()
