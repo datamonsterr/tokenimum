@@ -622,6 +622,39 @@ mod tests {
     use super::*;
     use tkm_core::facts::Family;
 
+    #[tokio::test]
+    async fn folded_sessions_release_turn_bases() {
+        use tkm_proto::{EventKind, PROTOCOL_VERSION, Request};
+        let dir = tempfile::tempdir().unwrap();
+        let paths = tkm_config::paths::Paths::from_dirs(
+            dir.path(),
+            Some(&dir.path().join("data")),
+            Some(&dir.path().join("config")),
+            Some(&dir.path().join("run")),
+        );
+        let daemon = Daemon::new(crate::daemon::DaemonOptions::new(paths));
+        for index in 0..20 {
+            let session_id = format!("session-{index}");
+            for (event, native) in [
+                (EventKind::SessionStart, "SessionStart"),
+                (EventKind::SessionEnd, "SessionEnd"),
+            ] {
+                let request = Request {
+                    version: PROTOCOL_VERSION,
+                    host: Host::Claude,
+                    event,
+                    host_event: Some(native.into()),
+                    payload: serde_json::json!({"session_id": session_id, "hook_event_name": native, "cwd": "/tmp"}),
+                    env: Default::default(),
+                    cwd: None,
+                };
+                daemon.handle(request).await;
+            }
+            daemon.settle().await;
+        }
+        assert!(lock(&daemon.state).turn_bases.is_empty());
+    }
+
     #[test]
     fn fact_round_trips_through_the_store_record() {
         let mut params = Params::default();
