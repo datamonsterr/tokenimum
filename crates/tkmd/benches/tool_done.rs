@@ -114,6 +114,59 @@ fn request(event: EventKind, payload: &str) -> Request {
     }
 }
 
+fn bench_gate_open(
+    c: &mut Criterion,
+    runtime: &tokio::runtime::Runtime,
+    daemon: &Daemon,
+    failing: &Request,
+) {
+    c.bench_function("tool_done_gate_open", |b| {
+        b.iter_batched(
+            || {
+                runtime.block_on(async {
+                    daemon.settle().await;
+                    daemon.handle(request(EventKind::TurnEnd, STOP)).await;
+                    daemon.handle(request(EventKind::Prompt, PROMPT)).await;
+                });
+                for _ in 0..17 {
+                    daemon.handle_tool_done(failing);
+                }
+            },
+            |()| black_box(daemon.handle_tool_done(black_box(failing))),
+            BatchSize::PerIteration,
+        );
+    });
+}
+
+fn bench_pending_redirect(
+    c: &mut Criterion,
+    runtime: &tokio::runtime::Runtime,
+    daemon: &Daemon,
+    failing: &Request,
+    blind: &AtomicBool,
+) {
+    c.bench_function("tool_done_pending_redirect", |b| {
+        b.iter_batched(
+            || {
+                runtime.block_on(async {
+                    daemon.settle().await;
+                    daemon.handle(request(EventKind::TurnEnd, STOP)).await;
+                    daemon.handle(request(EventKind::Prompt, PROMPT)).await;
+                });
+                for _ in 0..18 {
+                    daemon.handle_tool_done(failing);
+                }
+                runtime.block_on(daemon.settle());
+                blind.store(true, Ordering::Relaxed);
+                daemon.handle_tool_done(failing);
+                blind.store(false, Ordering::Relaxed);
+            },
+            |()| black_box(daemon.handle_tool_done(black_box(failing))),
+            BatchSize::PerIteration,
+        );
+    });
+}
+
 fn tool_done(c: &mut Criterion) {
     let dir = tempfile::tempdir().unwrap();
     let home = dir.path().join("home");
@@ -194,42 +247,8 @@ fn tool_done(c: &mut Criterion) {
         daemon.handle_tool_done(&failing).action,
         tkm_proto::ReplyAction::Inject { .. }
     ));
-    c.bench_function("tool_done_gate_open", |b| {
-        b.iter_batched(
-            || {
-                runtime.block_on(async {
-                    daemon.settle().await;
-                    daemon.handle(request(EventKind::TurnEnd, STOP)).await;
-                    daemon.handle(request(EventKind::Prompt, PROMPT)).await;
-                });
-                for _ in 0..17 {
-                    daemon.handle_tool_done(&failing);
-                }
-            },
-            |()| black_box(daemon.handle_tool_done(black_box(&failing))),
-            BatchSize::PerIteration,
-        );
-    });
-    c.bench_function("tool_done_pending_redirect", |b| {
-        b.iter_batched(
-            || {
-                runtime.block_on(async {
-                    daemon.settle().await;
-                    daemon.handle(request(EventKind::TurnEnd, STOP)).await;
-                    daemon.handle(request(EventKind::Prompt, PROMPT)).await;
-                });
-                for _ in 0..18 {
-                    daemon.handle_tool_done(&failing);
-                }
-                runtime.block_on(daemon.settle());
-                blind.store(true, Ordering::Relaxed);
-                daemon.handle_tool_done(&failing);
-                blind.store(false, Ordering::Relaxed);
-            },
-            |()| black_box(daemon.handle_tool_done(black_box(&failing))),
-            BatchSize::PerIteration,
-        );
-    });
+    bench_gate_open(c, &runtime, &daemon, &failing);
+    bench_pending_redirect(c, &runtime, &daemon, &failing, &blind);
 }
 
 criterion_group!(benches, tool_done);
