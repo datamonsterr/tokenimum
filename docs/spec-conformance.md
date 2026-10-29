@@ -9,12 +9,14 @@ what was known at the date in SPEC, not current upstream guarantees.
 
 ## Status and category summary
 
-Refreshed 2026-10-29 against `da6a44d` on `epic/e10`, where CI is green. Counts cover all 556 rows.
+Refreshed 2026-10-30 for the SPEC 7.3 pruning changes on the `da6a44d` CI-green baseline.
+Counts cover all 556 rows. New Rust tests are committed for controller CI; no local Rust
+build, test, check, clippy or bench was run.
 
 | Status | Rows |
 |---|---|
-| met | 498 |
-| deferred | 47 |
+| met | 508 |
+| deferred | 37 |
 | not applicable | 11 |
 
 Every `deferred` row starts its evidence with one category tag:
@@ -23,26 +25,20 @@ Every `deferred` row starts its evidence with one category tag:
 |---|---|---|
 | (a) | Needs live or real-world data, or user action: real host sessions, live model spend, the replay benchmark sample run, secrets | 16 |
 | (b) | Intentionally out of scope or limited by an ADR (link in the row) | 14 |
-| (c) | Not implemented: code is missing | 17 |
+| (c) | Not implemented: code is missing | 7 |
 
 Rows fixed since the audit was written (priced ledger and pricing refresh, skill evidence, Pi steer,
 Codewhale `session_idle`, Cursor repeat, doctor fold-only fallback, `doctor --probe`, daily free-model
 scheduler, batched fact decisions, shadow window, config switches, monitor panes, golden, TE parity,
-fault matrix and fresh-install) are now `met` and cite their tests.
+fault matrix and fresh-install), plus four-host pruning, write deadlines, protection and the
+recent-delegation cap, are now `met` and cite their tests. The pruning verification record is
+[tool-pruning.md](verified/tool-pruning.md).
 
 ### (c) Not implemented
 
 Each item gives the exact SPEC text and the files involved. Tracked in [ADR 0050](../docs/adr/0050-conformance-gaps.md).
 
-- **S2.G-6**, SPEC 2 G6: “Every action visible, explainable from stored evidence in plain language, and reversible.” Open part: pruning is applied and reversed for Claude only. Files: [deny.rs](../crates/tkm-hosts/src/writer/deny.rs), [prune.rs](../crates/tkm-cli/src/cmd/prune.rs).
-- **S6.8-7, S7.3-6**, SPEC 6.8 and 7.3: “Cursor | `<repo>/.cursor/cli.json` `permissions.deny` | verified surface”. Files: [deny.rs](../crates/tkm-hosts/src/writer/deny.rs), [cursor install.rs](../crates/tkm-hosts/src/cursor/install.rs).
-- **S6.11-9, S7.3-7**, SPEC 6.11 and 7.3: “opencode | `<repo>/opencode.json` `permission.<tool> = "deny"` | verified surface; MCP keys `<server>_<tool>`”. Files: [deny.rs](../crates/tkm-hosts/src/writer/deny.rs), [opencode install.rs](../crates/tkm-hosts/src/opencode/install.rs).
-- **S6.11-9, S7.3-8**, SPEC 6.11 and 7.3: “Pi | project settings `defaultTools` with `-name` | verified surface”. Files: [deny.rs](../crates/tkm-hosts/src/writer/deny.rs), [pi install.rs](../crates/tkm-hosts/src/pi/install.rs).
-- **S12-7**, SPEC 11: “`tkm prune [apply|restore [tool]]` | deny-list proposal, evidence, apply, give back”. Apply and restore work for Claude only. Files: [prune.rs](../crates/tkm-cli/src/cmd/prune.rs), [deny.rs](../crates/tkm-hosts/src/writer/deny.rs).
 - **S6.12-2**, SPEC 6.12: “`tkmd` watches known session directories (inotify/FSEvents through the `notify` crate; a 60 s scan when watching is not possible). A session idle for 30 minutes is folded.” Open part: only Claude derives a session log path without a hook transcript path; other hosts are marked `skipped`. Files: [fold.rs](../crates/tkmd/src/fold.rs), the host `reader.rs` files under [tkm-hosts](../crates/tkm-hosts/src/).
-- **S7.3-3**, SPEC 7.3: “Write the deny list only after 60 idle minutes in that repository (the prompt cache has expired), or after 24 hours at the latest.” The 60-minute idle check exists; the 24-hour deadline is not computed because the store records no candidate-ready time. Files: [prune.rs](../crates/tkm-cli/src/cmd/prune.rs), [migrations.rs](../crates/tkm-store/src/migrations.rs).
-- **S7.3-11**, SPEC 7.3: “anything in `prune.protect`”. The key is not in the config registry. Files: [config.rs](../crates/tkm-config/src/config.rs), [prune.rs](../crates/tkm-cli/src/cmd/prune.rs).
-- **S7.3-12**, SPEC 7.3: “a repository that has had any delegated run in the last 30 days keeps pruning at `propose` at most.” The store keeps only a lifetime `delegated_runs` count. Files: [migrations.rs](../crates/tkm-store/src/migrations.rs), [queries.rs](../crates/tkm-store/src/queries.rs), [prune.rs](../crates/tkm-cli/src/cmd/prune.rs).
 - **S8.5-2, S12-11**, SPEC 8.5 and 11: “Facts are labelled by later confirmation or contradiction.” and “`tkm calibrate [--purpose loop|facts|relevance]` | fit thresholds from labelled decisions”. Only `loop` calibrates. Files: [calibrate.rs](../crates/tkm-cli/src/cmd/calibrate.rs), [calibrate.rs (decide)](../crates/tkm-decide/src/calibrate.rs).
 - **S15-16**, SPEC 15 M8: “Calibration loop; leave shadow mode per purpose when precision targets are met”. Per-purpose calibration for facts and relevance is missing (same files as above); stuck precision on real labelled turns also needs live data.
 - **S8.5-1, S10.4-14, S17-7**, SPEC 8.5: “Agreement mode (optional): ask two models in parallel (Mercury + Jev); act only when both pass threshold.” `decide_agreement` exists but no daemon path calls it, and `decide.agreement` is only read. Files: [client.rs](../crates/tkm-decide/src/client.rs), [decider.rs](../crates/tkmd/src/decider.rs), [settings.rs](../crates/tkmd/src/settings.rs), [live.rs](../crates/tkmd/src/live.rs).
@@ -99,7 +95,7 @@ Nothing pending. The E10.6 replay benchmark harness is merged; only its real-dat
 | S2.G-3 | G3: share neutral facts by repository identity | met | [repo_paths.rs](../crates/tkm-config/tests/repo_paths.rs) |
 | S2.G-4 | G4: Decisions only; spend &lt; 1% of savings | deferred | **(a)** [ADR 0050](../docs/adr/0050-conformance-gaps.md) item 3: needs live model spend measured against real agent savings. |
 | S2.G-5 | G5: failures leave the agent running | met | [integration.rs](../crates/tkm-hook/tests/integration.rs) |
-| S2.G-6 | G6: actions visible, explainable, reversible | deferred | **(c)** [ADR 0032](../docs/adr/0032-cli-prune-gaps.md): only Claude has a deny writer, so Cursor, opencode and Pi pruning is proposal-only; see [deny.rs](../crates/tkm-hosts/src/writer/deny.rs). |
+| S2.G-6 | G6: actions visible, explainable, reversible | met | [deny_hosts.rs](../crates/tkm-hosts/tests/deny_hosts.rs) `four_host_deny_roundtrip_preserves_foreign_bytes_and_backup`, `four_host_deny_refuses_tracked_and_escaping_targets`; [prune_ops.rs](../crates/tkm-cli/tests/prune_ops.rs) `prune_apply_one_and_restore_all_four_hosts`. |
 | S2.G-7 | G7: standalone, optional integrations | met | [matrix.rs](../crates/tkm-integrations/tests/matrix.rs) |
 | S2.G-8 | G8: no unsafe in own crates | met | [ci.yml](../.github/workflows/ci.yml) |
 
@@ -400,7 +396,7 @@ Nothing pending. The E10.6 replay benchmark harness is merged; only its real-dat
 | S6.8-4 | sessionStart content repeated on next postToolUse | met | [inject.rs](../crates/tkmd/tests/inject.rs) `cursor_repeats_session_start_context_on_next_tool_result` |
 | S6.8-5 | Probe Cursor session and switch missing events to idle-fold | met | [host_probe.rs](../crates/tkm-cli/tests/host_probe.rs) `fake_host_subset_records_arrivals_and_marks_missing_events_idle_fold`; [event_probe.rs](../crates/tkmd/tests/event_probe.rs) `event_policy_preserves_native_event_independence_and_recovers`; [ADR 0051](../docs/adr/0051-effective-host-probes-and-daily-models.md) |
 | S6.8-6 | Explicit hook timeout and trust instructions | met | [cursor_install.rs](../crates/tkm-hosts/tests/cursor_install.rs) |
-| S6.8-7 | Cursor deny path .cursor/cli.json permissions.deny | deferred | **(c)** [ADR 0032](../docs/adr/0032-cli-prune-gaps.md): no Cursor CLI deny writer; see [deny.rs](../crates/tkm-hosts/src/writer/deny.rs) and [cursor install.rs](../crates/tkm-hosts/src/cursor/install.rs). |
+| S6.8-7 | Cursor deny path .cursor/cli.json permissions.deny | met | [deny_hosts.rs](../crates/tkm-hosts/tests/deny_hosts.rs) `four_host_deny_roundtrip_preserves_foreign_bytes_and_backup`, `four_host_deny_refuses_tracked_and_escaping_targets`; [prune_ops.rs](../crates/tkm-cli/tests/prune_ops.rs) `prune_apply_one_and_restore_all_four_hosts`. |
 | S6.8-8 | Detect Claude hook duplicates and warn | met | [cursor_install.rs](../crates/tkm-hosts/tests/cursor_install.rs); [server.rs](../crates/tkmd/tests/server.rs) |
 | S6.8-2 | Transcript format remains forum-reported | deferred | **(a)** [e5b-hosts.md](../docs/verified/e5b-hosts.md): the Cursor transcript format stays forum-reported until a real session is observed. |
 
@@ -439,7 +435,7 @@ Nothing pending. The E10.6 replay benchmark harness is merged; only its real-dat
 | S6.11-6 | opencode session.created, chat.message, tool.execute.after, session.idle, session.deleted | met | [opencode_contract.rs](../crates/tkm-hosts/tests/opencode_contract.rs) |
 | S6.11-7 | Pi session_start, before_agent_start, tool_result, agent_end, session_shutdown | met | [pi_contract.rs](../crates/tkm-hosts/tests/pi_contract.rs) |
 | S6.11-2 | Pi async session_shutdown awaited by host | deferred | **(a)** [opencode-pi.md](../docs/verified/opencode-pi.md) documents the missing runtime probe; needs a live Pi session. |
-| S6.11-9 | opencode permission and Pi defaultTools deny targets | deferred | **(c)** [ADR 0032](../docs/adr/0032-cli-prune-gaps.md): no opencode `permission.<tool>` or Pi `defaultTools` writer; see [opencode install.rs](../crates/tkm-hosts/src/opencode/install.rs) and [pi install.rs](../crates/tkm-hosts/src/pi/install.rs). |
+| S6.11-9 | opencode permission and Pi defaultTools deny targets | met | [deny_hosts.rs](../crates/tkm-hosts/tests/deny_hosts.rs) `four_host_deny_roundtrip_preserves_foreign_bytes_and_backup`, `four_host_deny_refuses_tracked_and_escaping_targets`; [prune_ops.rs](../crates/tkm-cli/tests/prune_ops.rs) `prune_apply_one_and_restore_all_four_hosts`. Pi inheritance restored by `restore_removes_created_containers_and_preserves_later_foreign_changes`. |
 
 | S6.11-1 | Pi session shutdown forwards a best-effort session end | met | [Pi shim](../shims/pi.ts); [Pi contract](../crates/tkm-hosts/tests/pi_contract.rs). |
 
@@ -517,16 +513,16 @@ Nothing pending. The E10.6 replay benchmark harness is merged; only its real-dat
 |---|---|---|---|
 | S7.3-1 | Count per-repository and harness loaded/used by prompt and session | met | [prune_rules.rs](../crates/tkm-core/tests/prune_rules.rs) |
 | S7.3-2 | Candidate after 10 prompts across 2 sessions or 5 sessions | met | [prune_rules.rs](../crates/tkm-core/tests/prune_rules.rs) |
-| S7.3-3 | Write after 60 idle minutes or 24-hour latest deadline | deferred | **(c)** [ADR 0032](../docs/adr/0032-cli-prune-gaps.md): the store records no candidate-ready time, so the 24-hour cap is not computed; see [prune.rs](../crates/tkm-cli/src/cmd/prune.rs). |
+| S7.3-3 | Write after 60 idle minutes or 24-hour latest deadline | met | V009 persists first readiness; the CLI uses the latest stored repository, session and hook activity. [prune_clock.rs](../crates/tkm-cli/tests/prune_clock.rs) `mocked_clock_applies_at_idle_boundary_or_ready_deadline`; [prune_timing.rs](../crates/tkm-store/tests/prune_timing.rs) `readiness_starts_once_at_threshold_and_resets_on_use_or_threshold_change`; [migrations.rs](../crates/tkm-store/src/migrations.rs) `v008_upgrade_preserves_evidence_with_unknown_ready_time`. |
 | S7.3-4 | off, report, propose, apply modes | met | [mod.rs](../crates/tkm-core/src/prune/mod.rs) |
 | S7.3-5 | Claude .claude/settings.local.json permissions.deny | met | [deny.rs](../crates/tkm-hosts/src/writer/deny.rs) |
-| S7.3-6 | Cursor .cursor/cli.json permissions.deny | deferred | **(c)** [ADR 0032](../docs/adr/0032-cli-prune-gaps.md): Cursor deny writer missing; see [deny.rs](../crates/tkm-hosts/src/writer/deny.rs). |
-| S7.3-7 | opencode opencode.json permission.&lt;tool&gt; | deferred | **(c)** [ADR 0032](../docs/adr/0032-cli-prune-gaps.md): opencode permission writer missing; see [deny.rs](../crates/tkm-hosts/src/writer/deny.rs). |
-| S7.3-8 | Pi project defaultTools -name | deferred | **(c)** [ADR 0032](../docs/adr/0032-cli-prune-gaps.md): Pi defaultTools writer missing; see [deny.rs](../crates/tkm-hosts/src/writer/deny.rs). |
+| S7.3-6 | Cursor .cursor/cli.json permissions.deny | met | [deny_hosts.rs](../crates/tkm-hosts/tests/deny_hosts.rs) `four_host_deny_roundtrip_preserves_foreign_bytes_and_backup`, `four_host_deny_refuses_tracked_and_escaping_targets`; [prune_ops.rs](../crates/tkm-cli/tests/prune_ops.rs) `prune_apply_one_and_restore_all_four_hosts`. |
+| S7.3-7 | opencode opencode.json permission.&lt;tool&gt; | met | [deny_hosts.rs](../crates/tkm-hosts/tests/deny_hosts.rs) `four_host_deny_roundtrip_preserves_foreign_bytes_and_backup`, `four_host_deny_refuses_tracked_and_escaping_targets`; [prune_ops.rs](../crates/tkm-cli/tests/prune_ops.rs) `prune_apply_one_and_restore_all_four_hosts`. Normalized MCP names are encoded as `server_tool`; existing permission values are preserved by `opencode_never_overwrites_foreign_permission_values`. |
+| S7.3-8 | Pi project defaultTools -name | met | [deny_hosts.rs](../crates/tkm-hosts/tests/deny_hosts.rs) `four_host_deny_roundtrip_preserves_foreign_bytes_and_backup`, `four_host_deny_refuses_tracked_and_escaping_targets`; [prune_ops.rs](../crates/tkm-cli/tests/prune_ops.rs) `prune_apply_one_and_restore_all_four_hosts`. `restore_removes_created_containers_and_preserves_later_foreign_changes` and `restoring_a_new_settings_file_returns_to_absence` preserve inherited tools. |
 | S7.3-9 | Codex, agy, Kimi, Codewhale report-only pruning | met | [contracts.rs](../crates/tkm-hosts/tests/contracts.rs) |
 | S7.3-10 | Own entries only; preserve foreign rules, git exclude, refuse tracked and unsafe symlinks | met | [writer.rs](../crates/tkm-hosts/tests/writer.rs) |
-| S7.3-11 | Protect TE and host tools, headroom, prune.protect and conditional orchestrator tools | deferred | **(c)** [ADR 0032](../docs/adr/0032-cli-prune-gaps.md): `prune.protect` is not in the config registry; see [config.rs](../crates/tkm-config/src/config.rs) and [prune.rs](../crates/tkm-cli/src/cmd/prune.rs). |
-| S7.3-12 | Delegated run in last 30 days caps pruning at propose | deferred | **(c)** [ADR 0032](../docs/adr/0032-cli-prune-gaps.md): the store keeps only a lifetime `delegated_runs` count, not a last-run time; see [migrations.rs](../crates/tkm-store/src/migrations.rs). |
+| S7.3-11 | Protect TE and host tools, headroom, prune.protect and conditional orchestrator tools | met | [config.rs](../crates/tkm-config/tests/config.rs) `prune_protect_is_a_layered_string_list_and_rejects_wrong_types`; [e9_settings.rs](../crates/tkmd/tests/e9_settings.rs) `prune_protect_reaches_effective_settings`; [prune_protection.rs](../crates/tkm-core/tests/prune_protection.rs) `all_protection_sources_and_host_names_are_respected`; [prune_ops.rs](../crates/tkm-cli/tests/prune_ops.rs) `prune_honors_user_protection_and_disabled_orchestrator`. |
+| S7.3-12 | Delegated run in last 30 days caps pruning at propose | met | V010 timestamps delegated sessions through the retrying daemon outbox. [prune_delegation.rs](../crates/tkm-store/tests/prune_delegation.rs) `delegated_history_is_idempotent_scoped_and_queries_exact_thirty_day_window`; [prune_delegation.rs (daemon)](../crates/tkmd/tests/prune_delegation.rs) `delegated_session_is_recorded_once_with_daemon_clock`; [persist.rs](../crates/tkmd/src/persist.rs) `delegated_outbox_retries_without_double_counting`; [prune_ops.rs](../crates/tkm-cli/tests/prune_ops.rs) `prune_recent_delegation_caps_apply_only_when_adapter_enabled`. |
 | S7.3-13 | Per-repository skills loaded versus invoked, export ranking prior | met | [skills_wiring.rs](../crates/tkm-cli/tests/skills_wiring.rs) `skills_json_ranks_recorded_invocations_in_current_repository`; [sessions.rs](../crates/tkm-store/tests/sessions.rs) `skill_evidence_is_persistent_per_session_and_replaceable`; [ADR 0049](../docs/adr/0049-priced-ledger-and-skill-evidence.md) |
 | S7.3-14 | Never delete or hide a skill | met | [skills.rs](../crates/tkm-core/src/prune/skills.rs) |
 
@@ -825,7 +821,7 @@ Nothing pending. The E10.6 replay benchmark harness is merged; only its real-dat
 | S12-4 | tkm dashboard | met | [ui_commands.rs](../crates/tkm-cli/tests/ui_commands.rs) |
 | S12-5 | tkm why &lt;event/last&gt; [--session id] | met | [why_report.rs](../crates/tkm-cli/tests/why_report.rs) |
 | S12-6 | tkm facts [--all/--brief] and facts forget &lt;id&gt; | met | [facts_report.rs](../crates/tkm-cli/tests/facts_report.rs) |
-| S12-7 | tkm prune [apply/restore [tool]] | deferred | **(c)** [ADR 0032](../docs/adr/0032-cli-prune-gaps.md): `tkm prune apply/restore` writes Claude only; [prune_ops.rs](../crates/tkm-cli/tests/prune_ops.rs) `prune_unsupported_host_reports_proposal_only`. |
+| S12-7 | tkm prune [apply [tool]/restore [tool]] | met | [deny_hosts.rs](../crates/tkm-hosts/tests/deny_hosts.rs) `four_host_deny_roundtrip_preserves_foreign_bytes_and_backup`, `four_host_deny_refuses_tracked_and_escaping_targets`; [prune_ops.rs](../crates/tkm-cli/tests/prune_ops.rs) `prune_apply_one_and_restore_all_four_hosts`. |
 | S12-8 | tkm skills [--json] | met | [skills_wiring.rs](../crates/tkm-cli/tests/skills_wiring.rs) `skills_json_without_database_is_empty_ranking_prior`, `skills_text_prints_readable_evidence_table` |
 | S12-9 | tkm config ... | met | [config_ops.rs](../crates/tkm-cli/tests/config_ops.rs) |
 | S12-10 | tkm models [probe] | met | [models_ops.rs](../crates/tkm-cli/tests/models_ops.rs) |

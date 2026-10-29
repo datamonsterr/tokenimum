@@ -589,6 +589,12 @@ fn fold_inner(
             )?;
         }
         fold_prune(store, &session, Timestamp(job.ended_ms), &result.prune)?;
+        store.refresh_prune_readiness(
+            &session.repo_key,
+            session.host,
+            &job.settings.prune,
+            Timestamp(job.ended_ms),
+        )?;
     }
     store.set_session_fold_status(record.id, "folded")?;
     Ok(FoldReport {

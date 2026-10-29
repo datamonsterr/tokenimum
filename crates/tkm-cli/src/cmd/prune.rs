@@ -8,23 +8,53 @@ use crate::{
 use std::{
     collections::{BTreeMap, BTreeSet},
     process::ExitCode,
-    time::{SystemTime, UNIX_EPOCH},
 };
 use tkm_core::{
     model::{Host, Timestamp},
-    prune::{self, PruneConfig, ToolEvidence},
+    prune::{self, PruneConfig, PruneMode, ToolEvidence},
 };
-use tkm_hosts::{HostAdapter, claude::ClaudeAdapter, writer::deny::update_deny};
+use tkm_hosts::writer::deny::update_host_deny;
 
 /// Show, apply, or restore deny-list proposals.
 ///
 /// # Errors
 /// Returns an error when evidence, settings, or output cannot be accessed.
 pub fn run(ctx: &mut Ctx<'_>, args: &PruneArgs) -> Result<ExitCode, CliError> {
+    run_with_clock(ctx, args, &tkmd::clock::SystemClock)
+}
+
+/// Show or mutate pruning settings using an injected clock.
+///
+/// # Errors
+/// Returns an error for invalid evidence, unsafe settings, or failed I/O.
+pub fn run_with_clock(
+    ctx: &mut Ctx<'_>,
+    args: &PruneArgs,
+    clock: &dyn tkmd::clock::Clock,
+) -> Result<ExitCode, CliError> {
+    let current = Timestamp(
+        i64::try_from(clock.now_ms()).map_err(|_| CliError::Usage("clock out of range".into()))?,
+    );
+    if args.command.is_some() {
+        daemon::open_db_for_write(&ctx.paths)?;
+    }
     let db = daemon::open_db(&ctx.paths)?;
     let config = ctx.load_config()?;
     let mut prune = tkmd::settings::Settings::from_config(&config).prune;
-    prune.superorchestrator_adapter_enabled = true;
+    let probe = tkm_integrations::detect::Probe::new(
+        super::init::state::env(ctx, "PATH")
+            .unwrap_or_default()
+            .into(),
+        super::init::state::home(ctx)?,
+        ctx.cwd.clone(),
+        ctx.env.iter().cloned().collect(),
+    );
+    let mode = config
+        .get_str("integrations.superorchestrator")
+        .and_then(|value| value.parse().ok())
+        .unwrap_or_default();
+    prune.superorchestrator_adapter_enabled = probe.detect("superorchestrator", mode).state
+        == tkm_integrations::detect::AdapterState::Enabled;
     writeln!(ctx.stdout, "Readiness is based on unused counts only.")?;
     let mut statement = db.prepare("SELECT host, tool, prompts_unused, sessions_unused, last_used FROM tool_evidence WHERE repo_key = ?1 ORDER BY host, tool").map_err(db_error)?;
     let rows = statement
@@ -64,7 +94,14 @@ pub fn run(ctx: &mut Ctx<'_>, args: &PruneArgs) -> Result<ExitCode, CliError> {
     drop(statement);
     match &args.command {
         None => {}
-        Some(PruneCommand::Apply(_)) => apply(ctx, &db, &candidates, &prune)?,
+        Some(PruneCommand::Apply(args)) => {
+            if let Some(tool) = &args.tool {
+                for tools in candidates.values_mut() {
+                    tools.retain(|name| name == tool);
+                }
+            }
+            apply(ctx, &db, &candidates, &prune, current)?;
+        }
         Some(PruneCommand::Restore(args)) => restore(ctx, args.tool.as_deref())?,
     }
     Ok(ExitCode::SUCCESS)
@@ -88,74 +125,84 @@ fn db_error(e: rusqlite::Error) -> CliError {
 fn store_error(e: tkm_store::StoreError) -> CliError {
     CliError::Usage(format!("database operation failed: {e}"))
 }
-fn now() -> Result<Timestamp, CliError> {
-    let ms = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_err(|e| CliError::Usage(format!("clock error: {e}")))?
-        .as_millis();
-    Ok(Timestamp(i64::try_from(ms).map_err(|_| {
-        CliError::Usage("clock out of range".into())
-    })?))
-}
 fn apply(
     ctx: &mut Ctx<'_>,
     db: &rusqlite::Connection,
     candidates: &BTreeMap<String, BTreeSet<String>>,
     config: &PruneConfig,
+    current: Timestamp,
 ) -> Result<(), CliError> {
-    use rusqlite::OptionalExtension;
     let repo: Option<i64> = db
         .query_row(
-            "SELECT last_seen FROM repos WHERE repo_key = ?1",
+            "SELECT MAX(activity) FROM (SELECT last_seen AS activity FROM repos WHERE repo_key = ?1 UNION ALL SELECT started_at FROM sessions WHERE repo_key = ?1 UNION ALL SELECT ended_at FROM sessions WHERE repo_key = ?1 UNION ALL SELECT e.created_at FROM events e JOIN sessions s ON s.id = e.session_id WHERE s.repo_key = ?1)",
             [&ctx.repo.key.0],
             |row| row.get(0),
         )
-        .optional()
         .map_err(db_error)?;
-    let current = now()?;
     let Some(last_seen) = repo else {
         return Err(CliError::Usage(
             "repository activity is unknown; cannot apply pruning".into(),
         ));
     };
-    if i128::from(current.0) - i128::from(last_seen) < i128::from(config.quiet_minutes) * 60_000 {
-        return Err(CliError::Usage(
-            "repository has not been idle long enough to apply pruning".into(),
-        ));
-    }
     let store = daemon::open_db_for_write(&ctx.paths)?;
+    let last_delegated = store
+        .last_delegated_run_within(&ctx.repo.key, current)
+        .map_err(store_error)?;
+    let requested = PruneConfig {
+        mode: PruneMode::Apply,
+        ..config.clone()
+    };
+    if prune::effective_mode(Host::Claude, &requested, last_delegated, current)
+        == PruneMode::Propose
+    {
+        writeln!(
+            ctx.stdout,
+            "proposal only: delegated run in the last 30 days; no deny settings written"
+        )?;
+        return Ok(());
+    }
     let rows = store.list_denylist(&ctx.repo.root).map_err(store_error)?;
     for (host, desired) in candidates {
-        if host != "claude" {
+        let Some(kind @ (Host::Claude | Host::Cursor | Host::Opencode | Host::Pi)) =
+            host_kind(host)
+        else {
             writeln!(
                 ctx.stdout,
-                "{host}: apply not supported yet; proposal only (no file written)"
+                "{host}: proposal only (no verified deny target)"
             )?;
             continue;
+        };
+        store
+            .refresh_prune_readiness(&ctx.repo.key, kind, config, current)
+            .map_err(store_error)?;
+        let mut ready = BTreeSet::new();
+        for tool in desired {
+            let Some(since) = store
+                .prune_ready_since(&ctx.repo.key, kind, tool)
+                .map_err(store_error)?
+            else {
+                continue;
+            };
+            if prune::write_allowed(Timestamp(last_seen), since, current, config) {
+                ready.insert(tool.clone());
+            }
         }
-        if !matches!(
-            ClaudeAdapter::new().prune_target(),
-            tkm_hosts::PruneTarget::SettingsDenyList { .. }
-        ) {
-            writeln!(
-                ctx.stdout,
-                "{host}: apply not supported yet; proposal only (no file written)"
-            )?;
-            continue;
+        if ready.is_empty() && !desired.is_empty() {
+            return Err(CliError::Usage("repository has not been idle long enough to apply pruning; candidate deadline not reached".into()));
         }
         let owned: BTreeSet<_> = rows
             .iter()
-            .filter(|e| e.host == Host::Claude && !e.restored)
+            .filter(|e| e.host == kind && !e.restored)
             .map(|e| e.tool.clone())
             .collect();
-        let requested = owned.union(desired).cloned().collect();
-        let report = update_deny(&ctx.repo.root, &owned, &requested, false)
+        let requested = owned.union(&ready).cloned().collect();
+        let report = update_host_deny(&ctx.repo.root, kind, &owned, &requested, false)
             .map_err(|e| CliError::Usage(format!("cannot update deny list: {e}")))?;
         for tool in report.owned.difference(&owned) {
             store
                 .record_denylist_write(&tkm_store::DenylistEntry {
                     checkout_path: ctx.repo.root.clone(),
-                    host: Host::Claude,
+                    host: kind,
                     tool: tool.clone(),
                     written_at: current,
                     restored: false,
@@ -168,35 +215,28 @@ fn apply(
 fn restore(ctx: &mut Ctx<'_>, tool: Option<&str>) -> Result<(), CliError> {
     let store = daemon::open_db_for_write(&ctx.paths)?;
     let rows = store.list_denylist(&ctx.repo.root).map_err(store_error)?;
-    let owned: BTreeSet<_> = rows
-        .iter()
-        .filter(|e| e.host == Host::Claude && !e.restored)
-        .map(|e| e.tool.clone())
-        .collect();
-    let desired: BTreeSet<_> = owned
-        .iter()
-        .filter(|name| tool.is_some_and(|tool| tool != name.as_str()))
-        .cloned()
-        .collect();
-    if !owned.is_empty() {
-        let report = update_deny(&ctx.repo.root, &owned, &desired, false)
+    for kind in [Host::Claude, Host::Cursor, Host::Opencode, Host::Pi] {
+        let owned: BTreeSet<_> = rows
+            .iter()
+            .filter(|e| e.host == kind && !e.restored)
+            .map(|e| e.tool.clone())
+            .collect();
+        let desired = owned
+            .iter()
+            .filter(|name| tool.is_some_and(|tool| tool != name.as_str()))
+            .cloned()
+            .collect();
+        if owned.is_empty() {
+            continue;
+        }
+        let report = update_host_deny(&ctx.repo.root, kind, &owned, &desired, false)
             .map_err(|e| CliError::Usage(format!("cannot restore deny list: {e}")))?;
         for name in owned.difference(&report.owned) {
             store
-                .mark_denylist_restored(&ctx.repo.root, Host::Claude, name)
+                .mark_denylist_restored(&ctx.repo.root, kind, name)
                 .map_err(store_error)?;
-            writeln!(ctx.stdout, "restored {name}")?;
+            writeln!(ctx.stdout, "{}: restored {name}", kind.as_str())?;
         }
-    }
-    for row in rows
-        .iter()
-        .filter(|e| e.host != Host::Claude && !e.restored && tool.is_none_or(|t| t == e.tool))
-    {
-        writeln!(
-            ctx.stdout,
-            "{}: restore not supported yet; no file written",
-            row.host.as_str()
-        )?;
     }
     Ok(())
 }
