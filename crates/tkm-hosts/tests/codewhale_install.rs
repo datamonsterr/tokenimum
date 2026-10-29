@@ -303,3 +303,21 @@ fn comment_added_after_install_survives_uninstall() {
     assert!(after.contains("security-auditor --strict"));
     assert!(!after.contains("tkm-hook"));
 }
+
+#[test]
+fn install_registers_session_idle_with_its_native_event() {
+    let temp = Scratch::new();
+    CodewhaleAdapter::new().install(&temp.context()).unwrap();
+    let text = fs::read_to_string(temp.config_path()).unwrap();
+    let doc: toml_edit::DocumentMut = text.parse().unwrap();
+    let hooks = doc["hooks"]["hooks"].as_array_of_tables().unwrap();
+    let idle = hooks
+        .iter()
+        .find(|hook| hook["event"].as_str() == Some("session_idle"))
+        .unwrap();
+    assert_eq!(
+        idle["command"].as_str(),
+        Some("tkm-hook --host deepseek --event turn_end --host-event session_idle")
+    );
+    assert_eq!(idle["continue_on_error"].as_bool(), Some(true));
+}
