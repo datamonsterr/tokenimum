@@ -61,7 +61,10 @@ pub fn is_good_turn(turn: &Turn, escalated: bool) -> bool {
     let mut failed_after_edit = false;
     for call in &turn.calls {
         let shell = verification::is_shell(call);
-        if !call.edits.is_empty() || (shell && !shell_edit_targets(&call.args_digest).is_empty()) {
+        if verification::writes_allowed(call)
+            && (!call.edits.is_empty()
+                || (shell && !shell_edit_targets(&call.args_digest).is_empty()))
+        {
             failed_after_edit = false;
         }
         // A compound edit-and-test counts as verifying that edit, as in TE.

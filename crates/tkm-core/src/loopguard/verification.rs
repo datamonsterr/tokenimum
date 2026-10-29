@@ -18,6 +18,12 @@ pub(super) fn is_shell(call: &Call) -> bool {
     )
 }
 
+// A failed write attempt is not evidence that a file changed. Unknown status
+// retains TE's heuristic, while either explicit failure signal rules it out.
+pub(super) fn writes_allowed(call: &Call) -> bool {
+    !call.is_error && call.exit_code.is_none_or(|code| code == 0)
+}
+
 pub(super) fn has_error(text: &str) -> bool {
     error_pattern().is_some_and(|re| re.is_match(text))
 }

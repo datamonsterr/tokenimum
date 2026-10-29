@@ -3,7 +3,9 @@
 //! Turn fold, asynchronous verdict correlation, and the redirect/escalation ladder.
 use super::{JudgeScores, JudgeThresholds, JudgeVerdict, LoopConfig, RedirectKind, SpiralState};
 use super::{
-    RedirectParams, combine_verdict, gate_for_judge, is_stuck, redirect::sanitize, verification,
+    RedirectParams, combine_verdict, gate_for_judge, is_stuck,
+    redirect::{command_evidence, error_evidence},
+    verification,
 };
 use crate::model::Call;
 use serde::{Deserialize, Serialize};
@@ -77,6 +79,7 @@ pub struct TurnGuard {
     /// Whether an escalation has already been emitted.
     pub escalated: bool,
     mode: EscalationMode,
+    // Outstanding job identity survives segment resets until its completion/release.
     pending: Option<JudgeRequest>,
     last_judge_call: Option<u32>,
     ready: Option<ReadyRedirect>,
@@ -111,8 +114,10 @@ impl TurnGuard {
         self.whole.update(call);
         if self.whole.error_outputs > errors_before {
             self.last_failure = FailureEvidence {
-                command: sanitize(&call.args_digest),
-                error: sanitize(verification::error_line(&call.output_digest).unwrap_or_default()),
+                command: command_evidence(&call.args_digest),
+                error: error_evidence(
+                    verification::error_line(&call.output_digest).unwrap_or_default(),
+                ),
             };
         }
         let Some(envelope) = envelope.filter(|n| n.is_finite() && *n > 0.0) else {
@@ -153,7 +158,8 @@ impl TurnGuard {
         }
         Vec::new()
     }
-    /// Accept one matching judge response; Stuck queues delivery at the next `tool_done`.
+    /// Release a matching outstanding job; a current-segment Stuck result queues a redirect.
+    /// Older-segment results release the job but never affect the current segment.
     pub fn on_judge_verdict(
         &mut self,
         request: JudgeRequest,
@@ -161,10 +167,13 @@ impl TurnGuard {
         thresholds: JudgeThresholds,
         kind: RedirectKind,
     ) -> JudgeVerdict {
-        if self.pending != Some(request) || request.segment != self.segment_id || self.escalated {
+        if self.pending != Some(request) {
             return JudgeVerdict::Wait;
         }
         self.pending = None;
+        if request.segment != self.segment_id || self.escalated {
+            return JudgeVerdict::Wait;
+        }
         let verdict = combine_verdict(scores, thresholds);
         if verdict == JudgeVerdict::Stuck {
             self.ready = Some(ReadyRedirect {
@@ -175,6 +184,7 @@ impl TurnGuard {
         verdict
     }
     /// Release a failed or timed-out judge request; all clocks and I/O belong to the caller.
+    /// The caller must confirm the job no longer runs before releasing a timeout.
     pub fn on_judge_unavailable(&mut self, request: JudgeRequest) {
         if self.pending == Some(request) {
             self.pending = None;
@@ -187,7 +197,6 @@ impl TurnGuard {
         evidence: &FailureEvidence,
         cfg: &LoopConfig,
     ) -> LoopAction {
-        self.pending = None;
         self.ready = None;
         if self.redirects_done >= cfg.redirects_per_turn {
             self.escalated = true;

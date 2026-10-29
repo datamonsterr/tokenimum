@@ -5,65 +5,19 @@
 /// Unresolved script and patch targets use `(script)` and `(patch)`.
 #[must_use]
 pub fn shell_edit_targets(command: &str) -> Vec<String> {
-    let command = shell_script(command);
-    let (shell, bodies) = split_heredocs(&command);
-    let (commands, writes) = commands(&shell);
-    let patch_files = pattern!(r"(?m)^\*\*\* (?:Update|Add|Delete) File:\s*(.+?)\s*$");
-    let mut found: Vec<String> = writes.into_iter().filter(|s| source_file(s)).collect();
-    for mut words in commands {
-        while words.first().is_some_and(|s| prefix(s)) {
-            words.remove(0);
-        }
-        let Some(head) = words.first().map(|s| basename(s)) else {
-            continue;
-        };
-        match head {
-            "sed" | "perl" => found.extend(inplace_files(&words, head == "perl")),
-            "tee" => found.extend(
-                words
-                    .iter()
-                    .skip(1)
-                    .filter(|s| !s.starts_with('-') && source_file(s))
-                    .cloned(),
-            ),
-            "apply_patch" => {
-                let patch = format!("{}\n{}", bodies.join("\n"), words[1..].join(" "));
-                let targets: Vec<String> = patch_files
-                    .into_iter()
-                    .flat_map(|re| re.captures_iter(&patch))
-                    .filter_map(|c| c.get(1).map(|m| m.as_str().to_owned()))
-                    .collect();
-                if targets.is_empty() {
-                    found.push("(patch)".into());
-                } else {
-                    found.extend(targets);
-                }
-            }
-            "patch" => found.push("(patch)".into()),
-            "git" => match words.get(1).map(String::as_str) {
-                Some("apply") => found.push("(patch)".into()),
-                Some("checkout" | "restore") => {
-                    let start = words
-                        .iter()
-                        .position(|s| s == "--")
-                        .map(|i| i + 1)
-                        .or_else(|| (words[1] == "restore").then_some(2));
-                    if let Some(start) = start {
-                        found.extend(
-                            words[start..]
-                                .iter()
-                                .filter(|s| !s.starts_with('-'))
-                                .cloned(),
-                        );
-                    }
-                }
-                _ => {}
-            },
-            _ => {}
-        }
+    detect(command, 0)
+}
+
+fn detect(command: &str, depth: u8) -> Vec<String> {
+    // Bound interpretation of recursively nested shell wrappers.
+    if depth >= 16 {
+        return Vec::new();
     }
-    if pattern!(r"(?:^|[\s/;&|(])python\d?(?:\.\d+)?\b").is_some_and(|re| re.is_match(&shell)) {
-        found.extend(py_writes(&format!("{shell}\n{}", bodies.join("\n"))));
+    let (shell, bodies) = split_heredocs(command);
+    let (commands, writes) = commands(&shell, &bodies);
+    let mut found: Vec<String> = writes.into_iter().filter(|s| source_file(s)).collect();
+    for command in commands {
+        found.extend(command_targets(command, depth));
     }
     let mut names = Vec::new();
     for path in found {
@@ -84,6 +38,83 @@ pub fn shell_edit_targets(command: &str) -> Vec<String> {
         }
     }
     names
+}
+
+#[derive(Default)]
+struct SimpleCommand {
+    words: Vec<String>,
+    bodies: Vec<String>,
+}
+
+fn command_targets(mut command: SimpleCommand, depth: u8) -> Vec<String> {
+    let words = &mut command.words;
+    while words.first().is_some_and(|s| prefix(s)) {
+        words.remove(0);
+    }
+    let Some(head) = words.first().map(|s| basename(s)) else {
+        return Vec::new();
+    };
+    match head {
+        "sed" | "perl" => inplace_files(words, head == "perl"),
+        "tee" => words
+            .iter()
+            .skip(1)
+            .filter(|s| !s.starts_with('-') && source_file(s))
+            .cloned()
+            .collect(),
+        "apply_patch" => {
+            let patch = format!("{}\n{}", command.bodies.join("\n"), words[1..].join(" "));
+            let targets: Vec<String> =
+                pattern!(r"(?m)^\*\*\* (?:Update|Add|Delete) File:\s*(.+?)\s*$")
+                    .into_iter()
+                    .flat_map(|re| re.captures_iter(&patch))
+                    .filter_map(|c| c.get(1).map(|m| m.as_str().to_owned()))
+                    .collect();
+            if targets.is_empty() {
+                vec!["(patch)".into()]
+            } else {
+                targets
+            }
+        }
+        "patch" => vec!["(patch)".into()],
+        "git" => match words.get(1).map(String::as_str) {
+            Some("apply") => vec!["(patch)".into()],
+            Some("checkout" | "restore") => {
+                let start = words
+                    .iter()
+                    .position(|s| s == "--")
+                    .map(|i| i + 1)
+                    .or_else(|| (words[1] == "restore").then_some(2));
+                start.map_or_else(Vec::new, |start| {
+                    words[start..]
+                        .iter()
+                        .filter(|s| !s.starts_with('-'))
+                        .cloned()
+                        .collect()
+                })
+            }
+            _ => Vec::new(),
+        },
+        "sh" | "bash" | "zsh" | "dash" | "ksh" => {
+            if words.len() >= 3 && words[1].starts_with('-') && words[1].contains('c') {
+                detect(&words[2], depth + 1)
+            } else {
+                Vec::new()
+            }
+        }
+        _ if pattern!(r"\Apython\d?(?:\.\d+)?\z").is_some_and(|re| re.is_match(head)) => {
+            if let Some(index) = words.iter().position(|s| s == "-c") {
+                words
+                    .get(index + 1)
+                    .map_or_else(Vec::new, |script| py_writes(script))
+            } else if !words.iter().skip(1).any(|s| !s.starts_with('-')) {
+                py_writes(&command.bodies.join("\n"))
+            } else {
+                Vec::new()
+            }
+        }
+        _ => Vec::new(),
+    }
 }
 
 pub(super) fn basename(path: &str) -> &str {
@@ -144,7 +175,6 @@ fn inplace_files(words: &[String], perl: bool) -> Vec<String> {
 fn split_heredocs(command: &str) -> (String, Vec<String>) {
     let (mut shell, mut bodies, mut body) = (Vec::new(), Vec::new(), Vec::new());
     let mut tag: Option<String> = None;
-    let heredoc_start = pattern!(r#"<<-?\s*['"]?([A-Za-z_]\w*)['"]?"#);
     for line in command.split('\n') {
         if let Some(end) = &tag {
             if line.trim() == end {
@@ -157,9 +187,12 @@ fn split_heredocs(command: &str) -> (String, Vec<String>) {
             continue;
         }
         shell.push(line);
-        tag = heredoc_start
-            .and_then(|re| re.captures(line))
-            .and_then(|c| c.get(1).map(|m| m.as_str().to_owned()));
+        tag = tokens(line).and_then(|parts| {
+            parts
+                .windows(2)
+                .find(|pair| pair[0].operator && pair[0].text == "<<" && !pair[1].operator)
+                .map(|pair| pair[1].text.trim_start_matches('-').to_owned())
+        });
     }
     if tag.is_some() {
         bodies.push(body.join("\n"));
@@ -283,16 +316,17 @@ pub(super) fn shell_script(command: &str) -> String {
     command.to_owned()
 }
 
-fn commands(shell: &str) -> (Vec<Vec<String>>, Vec<String>) {
+fn commands(shell: &str, bodies: &[String]) -> (Vec<SimpleCommand>, Vec<String>) {
     let streams =
         tokens(shell).map_or_else(|| shell.lines().filter_map(tokens).collect(), |t| vec![t]);
     let (mut cmds, mut writes) = (Vec::new(), Vec::new());
+    let mut bodies = bodies.iter();
     for stream in streams {
-        let mut current: Vec<String> = Vec::new();
+        let mut current = SimpleCommand::default();
         let mut items = stream.into_iter();
         while let Some(t) = items.next() {
             if !t.operator {
-                current.push(t.text);
+                current.words.push(t.text);
                 continue;
             }
             if matches!(
@@ -300,22 +334,28 @@ fn commands(shell: &str) -> (Vec<Vec<String>>, Vec<String>) {
                 ">" | ">>" | ">|" | "&>" | "&>>" | "<" | "<<" | "<<<" | "<&" | ">&" | "<>"
             ) {
                 if current
+                    .words
                     .last()
                     .is_some_and(|s| !s.is_empty() && s.chars().all(|c| c.is_ascii_digit()))
                 {
-                    current.pop();
+                    current.words.pop();
                 }
                 if let Some(operand) = items.next()
                     && !operand.operator
-                    && matches!(t.text.as_str(), ">" | ">>" | ">|" | "&>" | "&>>")
                 {
-                    writes.push(operand.text);
+                    if matches!(t.text.as_str(), ">" | ">>" | ">|" | "&>" | "&>>") {
+                        writes.push(operand.text);
+                    } else if t.text == "<<"
+                        && let Some(body) = bodies.next()
+                    {
+                        current.bodies.push(body.clone());
+                    }
                 }
-            } else if !current.is_empty() {
+            } else if !current.words.is_empty() {
                 cmds.push(std::mem::take(&mut current));
             }
         }
-        if !current.is_empty() {
+        if !current.words.is_empty() {
             cmds.push(current);
         }
     }

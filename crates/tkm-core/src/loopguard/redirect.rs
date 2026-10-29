@@ -37,11 +37,12 @@ impl RedirectKind {
             Self::AskUser => "ask_user",
         }
     }
-    /// Render only a code template, sanitizing every string parameter.
+    /// Render a code template with a validated command form and error class only.
+    /// Invalid evidence uses fixed placeholders; output prose is never copied.
     #[must_use]
     pub fn render(self, params: &RedirectParams<'_>) -> String {
-        let command = sanitize(params.failing_command);
-        let error = sanitize(params.error_line);
+        let command = command_evidence(params.failing_command);
+        let error = error_evidence(params.error_line);
         let instruction = match self {
             Self::RereadError => {
                 "Re-read the error and the failing expectation before editing again."
@@ -99,9 +100,9 @@ impl FromStr for RedirectKind {
 pub struct RedirectParams<'a> {
     /// Calls in the stuck segment.
     pub calls: u32,
-    /// Last failing command, capped to 160 characters during rendering.
+    /// Last command; only ASCII command-form characters within 160 bytes are accepted.
     pub failing_command: &'a str,
-    /// First error line, capped to 160 characters during rendering.
+    /// First error line; only its leading error-class identifier is rendered.
     pub error_line: &'a str,
 }
 /// Interactive stop key, for a notice only; never sent as a keypress.
@@ -114,16 +115,30 @@ pub const fn stop_key(_host: Host) -> &'static str {
     "Esc"
 }
 
-pub(super) fn sanitize(text: &str) -> String {
-    text.chars()
-        .filter(|c| *c != '`' && !matches!(*c, '\u{200b}'..='\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2060}'..='\u{206f}'))
-        .filter_map(|c| {
-            if c.is_whitespace() { Some(' ') }
-            else if c.is_control() { None }
-            else { Some(c) }
-        })
-        .take(160)
-        .collect::<String>()
-        .trim()
-        .to_owned()
+pub(super) fn command_evidence(text: &str) -> String {
+    let valid = !text.is_empty()
+        && text.len() <= 160
+        && text
+            .bytes()
+            .all(|c| c.is_ascii_alphanumeric() || b"_./:@%+=, -".contains(&c));
+    if valid
+        && text
+            .trim()
+            .bytes()
+            .next()
+            .is_some_and(|c| c.is_ascii_alphanumeric() || b"_./".contains(&c))
+    {
+        text.trim().to_owned()
+    } else {
+        "the previous command".into()
+    }
+}
+
+pub(super) fn error_evidence(text: &str) -> String {
+    // Keep an identifier, never the message after ':'. Stripping delimiters from
+    // prose would still preserve instructions an attacker placed in that prose.
+    pattern!(r"\A((?:[A-Za-z][A-Za-z0-9_]{0,53})?(?:Error|Exception))(?::|\z)")
+        .and_then(|re| re.captures(text))
+        .and_then(|c| c.get(1).map(|m| m.as_str().to_owned()))
+        .unwrap_or_else(|| "the same error".into())
 }

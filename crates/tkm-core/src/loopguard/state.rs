@@ -34,6 +34,7 @@ impl SpiralState {
         let mut names: Vec<String> = call
             .edits
             .iter()
+            .filter(|_| verification::writes_allowed(call))
             .filter_map(|edit| edit.path.to_str())
             .map(basename)
             .filter(|s| !s.is_empty())
@@ -45,7 +46,8 @@ impl SpiralState {
                 shell_edit_targets(&call.args_digest)
                     .into_iter()
                     .filter(|name| {
-                        !known_paths || !matches!(name.as_str(), "(patch)" | "(script)")
+                        verification::writes_allowed(call)
+                            && (!known_paths || !matches!(name.as_str(), "(patch)" | "(script)"))
                     }),
             );
             if verification::counts_test_run(&call.args_digest) {
