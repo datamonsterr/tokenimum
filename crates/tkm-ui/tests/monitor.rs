@@ -291,7 +291,10 @@ fn feed_receives_frames_then_disconnects() {
     let feed = feed::connect(&paths);
     assert_eq!(feed.mode, Mode::Live);
     assert_eq!(
-        feed.receiver.recv_timeout(Duration::from_secs(2)).unwrap(),
+        feed.receiver
+            .recv_timeout(Duration::from_secs(2))
+            .unwrap()
+            .1,
         decision(3)
     );
     server.join().unwrap();

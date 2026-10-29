@@ -386,10 +386,11 @@ fn subscribe_then_snapshot<F, S, E>(
     Ok((feed, state))
 }
 fn resync_snapshot<E>(
-    _feed: &feed::Feed,
+    feed: &feed::Feed,
     load: impl FnOnce() -> Result<MonitorState, E>,
-) -> Result<MonitorState, E> {
-    load()
+) -> Result<(MonitorState, u64), E> {
+    let watermark = feed.sequence.load(std::sync::atomic::Ordering::Acquire);
+    Ok((load()?, watermark))
 }
 /// Run the terminal monitor against one initial snapshot and the live stream.
 ///
@@ -411,15 +412,17 @@ pub fn run(paths: &Paths) -> Result<(), Error> {
         mode: feed.mode,
         ..ViewState::default()
     };
+    let mut watermark = 0;
     let mut terminal = ratatui::init();
     let result = (|| -> Result<(), Error> {
         loop {
             if feed.resync.swap(false, std::sync::atomic::Ordering::AcqRel) {
-                state = resync_snapshot(&feed, || model::load_snapshot(&conn))?;
+                (state, watermark) = resync_snapshot(&feed, || model::load_snapshot(&conn))?;
             }
             loop {
                 match feed.receiver.try_recv() {
-                    Ok(message) => {
+                    Ok((seq, _)) if seq <= watermark => {}
+                    Ok((_, message)) => {
                         state.apply_with_loader(message, || {
                             let snapshot = model::load_snapshot(&conn)?;
                             Ok::<_, Error>((snapshot.savings, snapshot.spend_days))
@@ -468,11 +471,16 @@ mod ordering_tests {
     use std::{cell::RefCell, rc::Rc};
     #[test]
     fn overflow_does_not_replay_session_before_snapshot() -> Result<(), ()> {
-        use std::sync::{Arc, atomic::AtomicBool, mpsc};
+        use std::sync::{
+            Arc,
+            atomic::{AtomicBool, AtomicU64},
+            mpsc,
+        };
         let (sender, receiver) = mpsc::channel();
         sender
-            .send(tkm_proto::monitor::MonitorMessage::Session(
-                tkm_proto::monitor::SessionUpdate {
+            .send((
+                1,
+                tkm_proto::monitor::MonitorMessage::Session(tkm_proto::monitor::SessionUpdate {
                     host: tkm_proto::Host::Claude,
                     session_id: "ended".into(),
                     repo: None,
@@ -480,17 +488,21 @@ mod ordering_tests {
                     turn_calls: 1,
                     envelope: None,
                     loop_state: "off".into(),
-                },
+                }),
             ))
             .map_err(|_| ())?;
         let feed = feed::Feed {
             mode: Mode::Live,
             receiver,
             resync: Arc::new(AtomicBool::new(true)),
+            sequence: Arc::new(AtomicU64::new(1)),
         };
-        let mut state = resync_snapshot(&feed, || Ok::<_, ()>(MonitorState::default()))?;
-        while let Ok(message) = feed.receiver.try_recv() {
-            state.apply(message);
+        let (mut state, watermark) =
+            resync_snapshot(&feed, || Ok::<_, ()>(MonitorState::default()))?;
+        while let Ok((seq, message)) = feed.receiver.try_recv() {
+            if seq > watermark {
+                state.apply(message);
+            }
         }
         assert!(state.sessions.is_empty());
         Ok(())

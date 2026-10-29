@@ -1,7 +1,7 @@
 //! Background reader for the daemon's monitor socket.
 use std::sync::{
     Arc,
-    atomic::{AtomicBool, Ordering},
+    atomic::{AtomicBool, AtomicU64, Ordering},
     mpsc::{self, Receiver, TrySendError},
 };
 use tkm_config::paths::Paths;
@@ -23,7 +23,9 @@ pub struct Feed {
     /// Initial mode.
     pub mode: Mode,
     /// Received messages.
-    pub receiver: Receiver<MonitorMessage>,
+    pub receiver: Receiver<(u64, MonitorMessage)>,
+    /// Sequence of the most recently received message.
+    pub sequence: Arc<AtomicU64>,
     /// Set when messages were dropped and the snapshot needs reloading.
     pub resync: Arc<AtomicBool>,
 }
@@ -32,6 +34,7 @@ pub struct Feed {
 pub fn connect(paths: &Paths) -> Feed {
     let (sender, receiver) = mpsc::sync_channel(1024);
     let resync = Arc::new(AtomicBool::new(false));
+    let sequence = Arc::new(AtomicU64::new(0));
     #[cfg(unix)]
     {
         use std::{os::unix::net::UnixStream, time::Duration};
@@ -43,9 +46,11 @@ pub fn connect(paths: &Paths) -> Feed {
             {
                 let _ = stream.set_read_timeout(None);
                 let overflow = Arc::clone(&resync);
+                let counter = Arc::clone(&sequence);
                 std::thread::spawn(move || {
                     while let Ok(message) = tkm_proto::read_frame(&mut stream, MONITOR_MAX_FRAME) {
-                        match sender.try_send(message) {
+                        let seq = counter.fetch_add(1, Ordering::AcqRel) + 1;
+                        match sender.try_send((seq, message)) {
                             Ok(()) => {}
                             Err(TrySendError::Full(_)) => overflow.store(true, Ordering::Release),
                             Err(TrySendError::Disconnected(_)) => break,
@@ -56,6 +61,7 @@ pub fn connect(paths: &Paths) -> Feed {
                     mode: Mode::Live,
                     receiver,
                     resync,
+                    sequence,
                 };
             }
         }
@@ -66,5 +72,6 @@ pub fn connect(paths: &Paths) -> Feed {
         mode: Mode::ReadOnly,
         receiver,
         resync,
+        sequence,
     }
 }
