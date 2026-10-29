@@ -280,6 +280,7 @@ impl Daemon {
                     session_id: job.session_id.clone(),
                     repo: job.repo.clone(),
                     turn_calls: job.turn_calls,
+                    ..EscalationEvent::default()
                 });
                 return Ok(());
             }
