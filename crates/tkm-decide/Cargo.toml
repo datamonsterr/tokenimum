@@ -11,9 +11,15 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
+tkm-core = { workspace = true }
 reqwest = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-tokio = { workspace = true }
+tokio = { workspace = true, features = ["time", "macros"] }
 thiserror = { workspace = true }
 tracing = { workspace = true }
+regex = { workspace = true }
+toml_edit = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["time", "macros", "rt", "test-util"] }

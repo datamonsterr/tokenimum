@@ -1,0 +1,22 @@
+[
+  {
+    "args": "write .env opaque-inline-dotenv-value",
+    "output": "opaque-dotenv-output",
+    "edit": null
+  },
+  {
+    "args": "write config/.env.local opaque-inline-dotenv-value",
+    "output": "opaque-dotenv-output",
+    "edit": null
+  },
+  {
+    "args": "write service.ENV opaque-inline-dotenv-value",
+    "output": "opaque-dotenv-output",
+    "edit": null
+  },
+  {
+    "args": "replace opaque-inline-dotenv-value",
+    "output": "opaque-dotenv-output",
+    "edit": "/repo/.env"
+  }
+]

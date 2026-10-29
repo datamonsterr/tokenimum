@@ -2,6 +2,8 @@
 #![deny(missing_docs)]
 //! Pure tokenimum mechanisms.
 
-/// Ledger and savings accounting.
+pub mod explain;
+pub mod inject;
 pub mod ledger;
 pub mod model;
+pub mod prune;
