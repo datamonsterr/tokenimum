@@ -1,7 +1,7 @@
 //! The installed Claude hooks reach the live shadow judge using only a fake HOME and local IPC.
 #![forbid(unsafe_code)]
 #![cfg(target_os = "linux")] // Match the init fixture's Linux XDG semantics.
-#![allow(clippy::unwrap_used, clippy::expect_used)]
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::pedantic)]
 #![allow(clippy::too_many_lines)] // Keep the installed session lifecycle in one test.
 
 mod support_init;

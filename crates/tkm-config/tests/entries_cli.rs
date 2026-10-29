@@ -1,5 +1,5 @@
 #![forbid(unsafe_code)]
-#![allow(clippy::unwrap_used, clippy::expect_used)]
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::pedantic)]
 use tkm_config::config::{Layer, LoadInputs, load};
 #[test]
 fn entries_exposes_values_and_sources_in_key_order() {

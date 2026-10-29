@@ -1,5 +1,5 @@
 #![forbid(unsafe_code)]
-#![allow(clippy::unwrap_used, clippy::expect_used)]
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::pedantic)]
 use tkm_core::model::{Host, RepoKey, Timestamp};
 use tkm_store::{
     FactRecord, FactState, NewDecision, NewEvent, NewSession, Repo, SessionKey, Store,

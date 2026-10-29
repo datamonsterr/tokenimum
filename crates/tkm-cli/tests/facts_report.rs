@@ -1,5 +1,5 @@
 #![forbid(unsafe_code)]
-#![allow(clippy::unwrap_used, clippy::expect_used)]
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::pedantic)]
 mod support_report;
 use support_report::Fixture;
 use tkm_store::{FactRecord, FactState};
