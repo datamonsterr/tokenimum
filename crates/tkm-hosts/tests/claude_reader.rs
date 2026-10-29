@@ -162,3 +162,50 @@ fn reader_ignores_meta_commands_matches_ids_and_marks_interrupts() {
     assert_eq!(s.started, Timestamp(125));
     fs::remove_file(path).unwrap();
 }
+
+#[test]
+fn fixture_call_digests_equal_live_hooks_for_all_tools_and_failure() {
+    let session = ClaudeAdapter::new()
+        .read_session(&source(
+            concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../fixtures/claude/sessions/e928a2cf-e31b-4154-805b-919991d042ea.jsonl"
+            )
+            .into(),
+        ))
+        .unwrap();
+    for (fixture, turn, call) in [
+        ("PostToolUse-bash", 0, 0),
+        ("PostToolUseFailure-bash", 0, 1),
+        ("PostToolUse-write", 1, 0),
+        ("PostToolUse-read", 1, 1),
+        ("PostToolUse-edit", 1, 2),
+    ] {
+        let payload = serde_json::from_str(
+            &fs::read_to_string(format!(
+                "{}/../../fixtures/claude/hooks/{fixture}.json",
+                env!("CARGO_MANIFEST_DIR")
+            ))
+            .unwrap(),
+        )
+        .unwrap();
+        let request = tkm_proto::Request {
+            version: tkm_proto::PROTOCOL_VERSION,
+            host: tkm_proto::Host::Claude,
+            event: tkm_proto::EventKind::ToolDone,
+            host_event: None,
+            payload,
+            env: std::collections::BTreeMap::new(),
+            cwd: None,
+        };
+        let live = ClaudeAdapter::new()
+            .map_event(&request)
+            .unwrap()
+            .unwrap()
+            .call
+            .unwrap();
+        let read = &session.turns[turn].calls[call];
+        assert_eq!(read.args_digest, live.args_digest, "{fixture} args");
+        assert_eq!(read.output_digest, live.output_digest, "{fixture} output");
+    }
+}

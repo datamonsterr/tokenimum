@@ -89,3 +89,43 @@ pub(super) fn parse(text: &str) -> Option<Timestamp> {
         ((days * 24 + hour) * 60 * 60 + minute * 60 + second - offset) * 1000 + milliseconds,
     ))
 }
+
+#[cfg(test)]
+mod timestamp_review_tests {
+    #[test]
+    fn timestamps_reject_overflow_and_out_of_range_fields() {
+        for text in [
+            "2026-02-29T00:00:00Z",
+            "2026-04-31T00:00:00Z",
+            "2026-10-29T24:00:00Z",
+            "2026-10-29T00:60:00Z",
+            "2026-10-29T00:00:60Z",
+            "2026-10-29T00:00:00+24:00",
+            "2026-10-29T00:00:00+01:60",
+            "2026-10-29T00:00:00+9223372036854775807:00",
+            "9223372036854775807-10-29T00:00:00Z",
+            "2026-10-29T00:00:00.Z",
+        ] {
+            assert_eq!(super::parse(text), None, "{text}");
+        }
+    }
+
+    #[test]
+    fn timestamps_accept_leap_days_offsets_and_fractional_boundaries() {
+        use tkm_core::model::Timestamp;
+        assert_eq!(
+            super::parse("1970-01-01T01:00:00.125+01:00"),
+            Some(Timestamp(125))
+        );
+        assert_eq!(
+            super::parse("1969-12-31T23:59:59.9999Z"),
+            Some(Timestamp(-1))
+        );
+        assert_eq!(
+            super::parse("2000-02-29T00:00:00Z"),
+            Some(Timestamp(951_782_400_000))
+        );
+        assert!(super::parse("0000-01-01T00:00:00Z").is_some());
+        assert!(super::parse("9999-12-31T23:59:59.999Z").is_some());
+    }
+}

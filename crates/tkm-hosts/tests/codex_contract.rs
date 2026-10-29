@@ -116,10 +116,7 @@ fn maps_apply_patch_add_file_to_create_edit() {
             via: EditVia::Tool,
         }]
     );
-    assert!(
-        call.args_digest
-            .starts_with("{\"command\":\"*** Begin Patch")
-    );
+    assert_eq!(call.args_digest, r#"[["add","c.txt","x\n"]]"#);
     assert_eq!(call.output_digest, "A ~/dev/example/c.txt");
 }
 
@@ -419,4 +416,35 @@ fn replies_are_capped_at_10000_chars_on_a_char_boundary() {
     let exact = "é".repeat(10_000);
     let out = render(EventKind::TurnEnd, None, &notice(&exact));
     assert!(out.contains(&exact));
+}
+
+#[test]
+fn conflicting_native_events_fail_mapping_and_render_nothing() {
+    let adapter = CodexAdapter::new();
+    for (native, host_event) in [
+        ("SessionStart", "Stop"),
+        ("Stop", "SessionStart"),
+        ("SessionEnd", "SessionStart"),
+    ] {
+        let mut req = request(
+            EventKind::TurnEnd,
+            None,
+            json!({"session_id":"s", "hook_event_name":native}),
+        );
+        req.host_event = Some(host_event.into());
+        assert!(matches!(
+            adapter.map_event(&req),
+            Err(AdapterError::InvalidPayload { .. })
+        ));
+        assert_eq!(
+            adapter.render_reply(
+                &req,
+                &ReplyAction::InjectAndNotice {
+                    inject: "context".into(),
+                    notice: "notice".into()
+                }
+            ),
+            ""
+        );
+    }
 }

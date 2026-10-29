@@ -388,3 +388,58 @@ fn parse_usage(value: &Value) -> Usage {
             .unwrap_or(0),
     }
 }
+
+#[cfg(test)]
+mod review_tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+    use super::*;
+    use serde_json::json;
+    use std::io::Cursor;
+
+    fn source() -> SessionSource {
+        SessionSource {
+            path: "unused".into(),
+            agent_home: "/synthetic".into(),
+            session_id: "s".into(),
+            repo_key: tkm_core::model::RepoKey("repo".into()),
+            cwd: "/repo".into(),
+        }
+    }
+
+    #[test]
+    fn oversized_record_is_skipped_in_chunks_and_next_record_is_read() {
+        let text = format!("{}\n{{\"type\":\"system\"}}\n", "x".repeat(4096));
+        let mut input = std::io::BufReader::with_capacity(8, Cursor::new(text.as_bytes()));
+        let mut line = Vec::new();
+        let (bytes, oversized) = bounded_line(&mut input, &mut line, 32).unwrap();
+        assert_eq!(bytes, 4097);
+        assert!(oversized);
+        assert!(line.len() <= 32);
+        let session = read_from(&source(), Cursor::new(text), 32, 8192).unwrap();
+        assert_eq!((session.total_records, session.skipped_records), (2, 1));
+    }
+
+    #[test]
+    fn transcript_total_size_limit_is_enforced() {
+        let text = "{\"type\":\"system\"}\n".repeat(10);
+        assert!(matches!(
+            read_from(&source(), Cursor::new(text), 32, 50),
+            Err(AdapterError::Io(_))
+        ));
+    }
+
+    #[test]
+    fn completed_calls_release_pending_inputs_and_keep_id_deduplication() {
+        let mut reader = Reader::new(&source());
+        assert!(reader.record(&json!({"type":"user","message":{"content":"prompt"}})));
+        let assistant = json!({"type":"assistant","message":{"content":[{"type":"tool_use","id":"c","name":"Write","input":{"file_path":"a.txt","content":"x".repeat(8192)}}]}});
+        assert!(reader.record(&assistant));
+        let result = json!({"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"c","content":"done"}]}});
+        assert!(reader.record(&result));
+        assert_eq!(reader.pending.len(), 0);
+        assert!(reader.record(&assistant));
+        assert!(reader.record(&result));
+        assert_eq!(reader.session.turns[0].calls.len(), 1);
+        assert_eq!(reader.pending.len(), 0);
+    }
+}

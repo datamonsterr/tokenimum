@@ -565,3 +565,43 @@ pub fn uninstall_hooks(
     }
     Ok(report)
 }
+
+#[cfg(test)]
+mod review_tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+    use super::*;
+
+    #[test]
+    fn compare_and_retry_recomputes_once_from_new_contents() {
+        let mut snapshots = Vec::new();
+        let result = retry_update(Some("first".into()), |snapshot| {
+            snapshots.push(snapshot.clone());
+            if snapshots.len() == 1 {
+                Ok(Update::Retry(Some("foreign edit".into())))
+            } else {
+                Ok(Update::Done(snapshot.clone()))
+            }
+        })
+        .unwrap();
+        assert_eq!(result.as_deref(), Some("foreign edit"));
+        assert_eq!(
+            snapshots,
+            vec![Some("first".into()), Some("foreign edit".into())]
+        );
+    }
+
+    #[test]
+    fn compare_and_retry_refuses_second_change_without_publishing() {
+        let mut attempts = 0;
+        let result: Result<(), AdapterError> = retry_update(Some("first".into()), |_| {
+            attempts += 1;
+            Ok(Update::Retry(Some(format!("foreign edit {attempts}"))))
+        });
+        assert_eq!(attempts, 2);
+        let Err(AdapterError::Io(error)) = result else {
+            panic!("expected conflict I/O error");
+        };
+        assert_eq!(error.kind(), io::ErrorKind::WouldBlock);
+        assert!(error.to_string().contains("changed"));
+    }
+}

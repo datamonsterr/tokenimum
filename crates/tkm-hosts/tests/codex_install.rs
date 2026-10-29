@@ -183,7 +183,7 @@ fn uninstall_deletes_a_hooks_file_tokenimum_created() {
     let adapter = CodexAdapter::new();
     adapter.install(&temp.context()).unwrap();
     assert!(temp.hooks().exists());
-    assert!(!temp.backup().exists());
+    assert_eq!(fs::read(temp.backup()).unwrap().len(), 0);
     adapter.uninstall(&temp.context()).unwrap();
     assert!(!temp.hooks().exists());
     assert!(!temp.0.join("config.toml").exists());
@@ -209,7 +209,7 @@ fn dry_run_writes_nothing_but_reports_changes_and_trust_step() {
     context.dry_run = true;
     let removal = CodexAdapter::new().uninstall(&context).unwrap();
     assert!(removal.dry_run);
-    assert!(!removal.changed_files.is_empty());
+    assert_ne!(removal.changed_files.len(), 0);
     assert_eq!(fs::read(temp.hooks()).unwrap(), installed);
 }
 
@@ -225,7 +225,10 @@ fn project_scope_targets_dot_codex_hooks_json() {
     let adapter = CodexAdapter::new();
     let report = adapter.install(&context).unwrap();
     let path = repo.0.join(".codex/hooks.json");
-    assert_eq!(report.changed_files, vec![path.clone()]);
+    assert_eq!(
+        report.changed_files,
+        vec![path.clone(), repo.0.join(".codex/hooks.json.tkm-bak")]
+    );
     assert!(path.exists());
     assert!(!home.hooks().exists());
     assert!(
