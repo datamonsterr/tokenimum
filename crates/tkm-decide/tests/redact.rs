@@ -33,3 +33,38 @@ fn secret_corpus_and_paths_are_redacted() {
     );
     assert!(is_dotenv_path(Path::new("config/.env.local")));
 }
+
+#[test]
+fn fixture_covers_secret_patterns() {
+    let redactor = Redactor::new(RedactContext {
+        repo_root: PathBuf::from("/repo"),
+        home: PathBuf::from("/home/test"),
+        env: vec![("MY_TOKEN".into(), "fakeenvvalue123".into())],
+    });
+    let result = redactor.redact(include_str!("fixtures/redact-corpus.txt"));
+    for secret in [
+        "fakeawssecret0123456789",
+        "fakemoonshotabcdef",
+        "fakedeepseekabcdef",
+        "fakecursorabcdef",
+        "FAKEPRIVATEKEYDATA",
+        "/home/test/private",
+    ] {
+        assert!(!result.contains(secret));
+    }
+    for marker in [
+        "[redacted:aws]",
+        "[redacted:aws-secret]",
+        "[redacted:github]",
+        "[redacted:openrouter]",
+        "[redacted:anthropic]",
+        "[redacted:openai]",
+        "[redacted:cursor]",
+        "[redacted:jwt]",
+        "[redacted:private-key]",
+        "[env:MY_TOKEN]",
+        "[outside-repo]",
+    ] {
+        assert!(result.contains(marker), "missing {marker}");
+    }
+}

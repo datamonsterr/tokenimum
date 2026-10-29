@@ -44,10 +44,19 @@ pub struct InMemoryCalibration {
     values: Mutex<HashMap<CalibrationKey, Thresholds>>,
 }
 impl CalibrationStore for InMemoryCalibration {
-    fn get(&self, _key: &CalibrationKey) -> Option<Thresholds> {
-        None
+    fn get(&self, key: &CalibrationKey) -> Option<Thresholds> {
+        self.values
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get(key)
+            .copied()
     }
-    fn put(&self, _key: CalibrationKey, _t: Thresholds) {}
+    fn put(&self, key: CalibrationKey, t: Thresholds) {
+        self.values
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .insert(key, t);
+    }
 }
 /// Decision authorization.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -59,8 +68,8 @@ pub enum Action {
 }
 /// Returns the action allowed for this key.
 #[must_use]
-pub fn action_for(_store: &impl CalibrationStore, _key: &CalibrationKey) -> Action {
-    Action::LogOnly
+pub fn action_for(store: &impl CalibrationStore, key: &CalibrationKey) -> Action {
+    store.get(key).map_or(Action::LogOnly, Action::Act)
 }
 /// Fit policy.
 #[derive(Debug, Clone, Copy)]
@@ -97,18 +106,61 @@ impl FitResult {
 }
 /// Fits an upper cut point.
 #[must_use]
-pub fn fit_upper(_samples: &[(f64, bool)], _cfg: &FitConfig) -> Option<FitResult> {
-    None
+pub fn fit_upper(samples: &[(f64, bool)], cfg: &FitConfig) -> Option<FitResult> {
+    fit(samples, cfg, true)
 }
 /// Fits a lower cut point.
 #[must_use]
-pub fn fit_lower(_samples: &[(f64, bool)], _cfg: &FitConfig) -> Option<FitResult> {
-    None
+pub fn fit_lower(samples: &[(f64, bool)], cfg: &FitConfig) -> Option<FitResult> {
+    fit(samples, cfg, false)
+}
+#[allow(clippy::cast_precision_loss)] // Sample counts are bounded by addressable memory.
+fn fit(samples: &[(f64, bool)], cfg: &FitConfig, upper: bool) -> Option<FitResult> {
+    let positives = samples
+        .iter()
+        .filter(|(p, label)| p.is_finite() && *label)
+        .count();
+    if positives == 0 || !cfg.min_recall.is_finite() {
+        return None;
+    }
+    let mut best: Option<FitResult> = None;
+    for &(threshold, _) in samples.iter().filter(|(p, _)| p.is_finite()) {
+        let mut predicted = 0usize;
+        let mut true_positive = 0usize;
+        for &(probability, label) in samples {
+            if probability.is_finite()
+                && if upper {
+                    probability >= threshold
+                } else {
+                    probability <= threshold
+                }
+            {
+                predicted += 1;
+                true_positive += usize::from(label);
+            }
+        }
+        let precision = true_positive as f64 / predicted as f64;
+        let recall = true_positive as f64 / positives as f64;
+        if recall >= cfg.min_recall
+            && best.is_none_or(|b| {
+                precision > b.precision
+                    || (precision.total_cmp(&b.precision).is_eq() && recall > b.recall)
+            })
+        {
+            best = Some(FitResult {
+                threshold,
+                precision,
+                recall,
+            });
+        }
+    }
+    best
 }
 /// Checks agreement of two probabilities.
 #[must_use]
-pub fn agree(_a: Option<f64>, _b: Option<f64>, _threshold: f64) -> bool {
-    false
+pub fn agree(a: Option<f64>, b: Option<f64>, threshold: f64) -> bool {
+    a.zip(b)
+        .is_some_and(|(a, b)| a >= threshold && b >= threshold)
 }
 /// Shadow-mode observation window.
 pub struct ShadowWindow {
@@ -120,7 +172,7 @@ pub struct ShadowWindow {
 impl ShadowWindow {
     /// True until both requirements are satisfied.
     #[must_use]
-    pub fn is_shadow(&self, _now_ms: i64) -> bool {
-        true
+    pub fn is_shadow(&self, now_ms: i64) -> bool {
+        now_ms.saturating_sub(self.started_ms) < 14 * 86_400_000 || self.judged_turns < 200
     }
 }
