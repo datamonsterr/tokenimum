@@ -1293,6 +1293,13 @@ mod tests {
             assert_eq!(found, file, "{host:?}");
         }
         assert!(derived_log_path(Host::Codex, &root.join(".codex"), &cwd, "missing").is_none());
+        let newer = root.join(".codex/sessions/2026/01/03/rollout-2026-s.jsonl");
+        std::fs::create_dir_all(newer.parent().unwrap()).unwrap();
+        std::fs::write(&newer, "newer").unwrap();
+        assert_eq!(
+            derived_log_path(Host::Codex, &root.join(".codex"), &cwd, "s"),
+            Some(newer)
+        );
     }
 }
 
