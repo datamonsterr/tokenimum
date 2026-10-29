@@ -9,7 +9,7 @@ pub fn run_top(paths: &Paths) -> Result<(), crate::Error> {
 }
 
 /// Options for opening the local dashboard.
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct DashboardArgs {
     /// Print the URL without opening a browser.
     pub no_open: bool,
@@ -19,6 +19,12 @@ trait DashboardProcess {
     fn socket_live(&self, socket: &std::path::Path) -> bool;
     fn spawn_daemon(&self) -> std::io::Result<()>;
     fn open_browser(&self, url: &str) -> std::io::Result<()>;
+}
+
+#[derive(serde::Deserialize)]
+struct Discovery {
+    url: String,
+    token: String,
 }
 
 struct SystemProcess;
@@ -98,17 +104,12 @@ fn run_dashboard_with(
         }
         std::thread::sleep(remaining.min(std::time::Duration::from_millis(50)));
     };
-    #[derive(serde::Deserialize)]
-    struct Discovery {
-        url: String,
-        token: String,
-    }
     let discovery: Discovery = serde_json::from_slice(&contents)?;
     let url = format!("{}#token={}", discovery.url, discovery.token);
-    if !args.no_open {
-        if let Err(error) = process.open_browser(&url) {
-            eprintln!("warning: could not open dashboard browser: {error}");
-        }
+    if !args.no_open
+        && let Err(error) = process.open_browser(&url)
+    {
+        eprintln!("warning: could not open dashboard browser: {error}");
     }
     Ok(url)
 }
@@ -143,13 +144,13 @@ mod dashboard_tests {
         paths
     }
     #[test]
-    fn discovery_file_returns_fragment_url_and_opens_browser() {
-        let dir = tempfile::tempdir().unwrap();
+    fn discovery_file_returns_fragment_url_and_opens_browser()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let dir = tempfile::tempdir()?;
         std::fs::write(
             dir.path().join("tkmd-web.json"),
             r#"{"url":"http://127.0.0.1:1234/","token":"abc"}"#,
-        )
-        .unwrap();
+        )?;
         let fake = Fake {
             live: true,
             ..Fake::default()
@@ -159,36 +160,37 @@ mod dashboard_tests {
             &DashboardArgs { no_open: false },
             &fake,
             Duration::ZERO,
-        )
-        .unwrap();
+        )?;
         assert_eq!(url, "http://127.0.0.1:1234/#token=abc");
         assert!(fake.opened.get());
         assert!(!fake.spawned.get());
+        Ok(())
     }
     #[test]
-    fn missing_discovery_file_has_enable_hint() {
-        let dir = tempfile::tempdir().unwrap();
+    fn missing_discovery_file_has_enable_hint() -> Result<(), Box<dyn std::error::Error>> {
+        let dir = tempfile::tempdir()?;
         let fake = Fake::default();
-        let error = run_dashboard_with(
+        let Err(error) = run_dashboard_with(
             &paths(dir.path()),
             &DashboardArgs { no_open: true },
             &fake,
             Duration::ZERO,
-        )
-        .unwrap_err()
-        .to_string();
+        ) else {
+            panic!("missing dashboard should fail")
+        };
+        let error = error.to_string();
         assert!(error.contains("tkm config set ui.web.enabled true"));
         assert!(error.contains("web"));
         assert!(fake.spawned.get());
+        Ok(())
     }
     #[test]
-    fn no_open_skips_browser() {
-        let dir = tempfile::tempdir().unwrap();
+    fn no_open_skips_browser() -> Result<(), Box<dyn std::error::Error>> {
+        let dir = tempfile::tempdir()?;
         std::fs::write(
             dir.path().join("tkmd-web.json"),
             r#"{"url":"http://127.0.0.1:1234/","token":"abc"}"#,
-        )
-        .unwrap();
+        )?;
         let fake = Fake {
             live: true,
             ..Fake::default()
@@ -198,8 +200,8 @@ mod dashboard_tests {
             &DashboardArgs { no_open: true },
             &fake,
             Duration::ZERO,
-        )
-        .unwrap();
+        )?;
         assert!(!fake.opened.get());
+        Ok(())
     }
 }

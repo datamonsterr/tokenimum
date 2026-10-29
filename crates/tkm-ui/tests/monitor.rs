@@ -1,6 +1,12 @@
 #![forbid(unsafe_code)]
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use ratatui::{Terminal, backend::TestBackend};
+use ratatui::{
+    Terminal,
+    backend::TestBackend,
+    buffer::Buffer,
+    layout::Rect,
+    style::{Modifier, Style},
+};
 use tkm_proto::{
     Host,
     monitor::{
@@ -12,6 +18,15 @@ use tkm_ui::{
     model::{HISTORY_LIMIT, MonitorState},
     tui::{self, Action, Pane, ViewState},
 };
+
+fn assert_snapshot<const N: usize>(backend: &TestBackend, lines: [String; N], tab: (u16, u16)) {
+    let mut expected = Buffer::with_lines(lines);
+    expected.set_style(
+        Rect::new(tab.0, 0, tab.1, 1),
+        Style::default().add_modifier(Modifier::REVERSED),
+    );
+    backend.assert_buffer(&expected);
+}
 
 fn decision(n: usize) -> MonitorMessage {
     MonitorMessage::Decision(DecisionNotice {
@@ -153,7 +168,14 @@ fn populated_panes_match_whole_buffer_snapshots() {
         "repo  f  active  score -  confirmations -",
         "claude  s  redirect  acted  try again",
     ];
-    for ((pane, title), row) in Pane::ALL.into_iter().zip(names).zip(content) {
+    for (((pane, title), row), tab) in Pane::ALL.into_iter().zip(names).zip(content).zip([
+        (1, 8),
+        (12, 9),
+        (24, 5),
+        (32, 7),
+        (42, 5),
+        (50, 9),
+    ]) {
         view.pane = pane;
         let mut terminal = Terminal::new(TestBackend::new(120, 5)).unwrap();
         terminal
@@ -170,9 +192,11 @@ fn populated_panes_match_whole_buffer_snapshots() {
             "{:<120}",
             "daemon down: read-only, no live feed | last: - | ? help"
         );
-        terminal
-            .backend()
-            .assert_buffer_lines([tabs, top, selected, bottom, status]);
+        assert_snapshot(
+            terminal.backend(),
+            [tabs, top, selected, bottom, status],
+            tab,
+        );
     }
 }
 
@@ -197,31 +221,39 @@ fn help_and_why_match_whole_buffer_snapshots() {
     terminal
         .draw(|frame| tui::render(&state, &view, frame))
         .unwrap();
-    terminal.backend().assert_buffer_lines([
-        tabs.clone(),
-        format!("┌Help{}┐", "─".repeat(74)),
-        line("Tab / Shift-Tab or 1-6: pane"),
-        line("j/k or arrows: select"),
-        line("Enter: why  Esc: close"),
-        line("r: reload  ?: help  q / Ctrl-C: quit"),
-        bottom.clone(),
-        status.clone(),
-    ]);
+    assert_snapshot(
+        terminal.backend(),
+        [
+            tabs.clone(),
+            format!("┌Help{}┐", "─".repeat(74)),
+            line("Tab / Shift-Tab or 1-6: pane"),
+            line("j/k or arrows: select"),
+            line("Enter: why  Esc: close"),
+            line("r: reload  ?: help  q / Ctrl-C: quit"),
+            bottom.clone(),
+            status.clone(),
+        ],
+        (1, 8),
+    );
     view.help = false;
     view.overlay = Some("No stored event".into());
     terminal
         .draw(|frame| tui::render(&state, &view, frame))
         .unwrap();
-    terminal.backend().assert_buffer_lines([
-        tabs,
-        format!("┌Why{}┐", "─".repeat(75)),
-        line("No stored event"),
-        line(""),
-        line(""),
-        line(""),
-        bottom,
-        status,
-    ]);
+    assert_snapshot(
+        terminal.backend(),
+        [
+            tabs,
+            format!("┌Why{}┐", "─".repeat(75)),
+            line("No stored event"),
+            line(""),
+            line(""),
+            line(""),
+            bottom,
+            status,
+        ],
+        (1, 8),
+    );
 }
 
 #[test]

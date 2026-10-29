@@ -147,7 +147,7 @@ pub fn handle_key(view: &mut ViewState, key: KeyEvent, state: &MonitorState) -> 
     match key.code {
         KeyCode::BackTab => view.pane = Pane::ALL[(view.pane.index() + 5) % 6],
         KeyCode::Tab if key.modifiers.contains(KeyModifiers::SHIFT) => {
-            view.pane = Pane::ALL[(view.pane.index() + 5) % 6]
+            view.pane = Pane::ALL[(view.pane.index() + 5) % 6];
         }
         KeyCode::Tab => view.pane = Pane::ALL[(view.pane.index() + 1) % 6],
         KeyCode::Char(c @ '1'..='6') => {
@@ -211,39 +211,7 @@ fn rows(state: &MonitorState, pane: Pane) -> Vec<String> {
                 )
             },
         )],
-        Pane::Savings => {
-            let mut groups =
-                std::collections::BTreeMap::<(&str, &str), (Vec<f64>, Vec<f64>)>::new();
-            for sample in &state.savings {
-                let group = groups.entry((&sample.repo, &sample.host)).or_default();
-                if sample.shadow {
-                    group.1.push(sample.cost);
-                } else {
-                    group.0.push(sample.cost);
-                }
-            }
-            groups
-                .into_iter()
-                .map(|((repo, host), (observed, baseline))| {
-                    let trend = observed
-                        .iter()
-                        .rev()
-                        .take(5)
-                        .rev()
-                        .map(|v| format!("{v:.2}"))
-                        .collect::<Vec<_>>()
-                        .join(",");
-                    let base = baseline
-                        .last()
-                        .map_or_else(|| "-".to_owned(), |v| format!("{v:.2}"));
-                    format!(
-                        "{repo}  {host}  recent [{trend}] n={}  baseline {base} n={}",
-                        observed.len(),
-                        baseline.len()
-                    )
-                })
-                .collect()
-        }
+        Pane::Savings => savings_rows(state),
         Pane::Facts => state
             .facts
             .iter()
@@ -274,6 +242,38 @@ fn rows(state: &MonitorState, pane: Pane) -> Vec<String> {
             })
             .collect(),
     }
+}
+fn savings_rows(state: &MonitorState) -> Vec<String> {
+    let mut groups = std::collections::BTreeMap::<(&str, &str), (Vec<f64>, Vec<f64>)>::new();
+    for sample in &state.savings {
+        let group = groups.entry((&sample.repo, &sample.host)).or_default();
+        if sample.shadow {
+            group.1.push(sample.cost);
+        } else {
+            group.0.push(sample.cost);
+        }
+    }
+    groups
+        .into_iter()
+        .map(|((repo, host), (observed, baseline))| {
+            let trend = observed
+                .iter()
+                .rev()
+                .take(5)
+                .rev()
+                .map(|v| format!("{v:.2}"))
+                .collect::<Vec<_>>()
+                .join(",");
+            let base = baseline
+                .last()
+                .map_or_else(|| "-".to_owned(), |v| format!("{v:.2}"));
+            format!(
+                "{repo}  {host}  recent [{trend}] n={}  baseline {base} n={}",
+                observed.len(),
+                baseline.len()
+            )
+        })
+        .collect()
 }
 /// Render the entire screen without side effects or access to a clock.
 pub fn render(state: &MonitorState, view: &ViewState, frame: &mut Frame<'_>) {
@@ -415,7 +415,7 @@ pub fn run(paths: &Paths) -> Result<(), Error> {
                             &state,
                             view.pane,
                             view.selection[view.pane.index()],
-                        )?)
+                        )?);
                     }
                     Action::None => {}
                 }

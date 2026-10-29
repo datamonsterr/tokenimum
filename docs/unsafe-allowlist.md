@@ -25,6 +25,7 @@ observed count per crate name, without adding the same crate repeatedly.
 | anstyle-query | Terminal capability detection. | 2026-10-29 |
 | atomic-waker | Asynchronous wakeup synchronization. | 2026-10-29 |
 | aws-lc-rs | TLS cryptography provider bindings. | 2026-10-29 |
+| axum | Web dashboard routing; Geiger reports unscanned dependency files. | 2026-10-29 |
 | aws-lc-sys | Bundled cryptographic C library bindings. | 2026-10-29 |
 | base64 | Base64 encoding. | 2026-10-29 |
 | bit-set | Bit set storage. | 2026-10-29 |
@@ -84,6 +85,7 @@ observed count per crate name, without adding the same crate repeatedly.
 | lock_api | Low-level lock interfaces. | 2026-10-29 |
 | log | Logging interfaces. | 2026-10-29 |
 | lru | Least recently used cache. | 2026-10-29 |
+| matchit | Route matching for axum. | 2026-10-29 |
 | memchr | Optimized byte searching. | 2026-10-29 |
 | mio | Operating system event polling. | 2026-10-29 |
 | notify | Filesystem watching. | 2026-10-29 |

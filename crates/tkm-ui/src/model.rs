@@ -209,6 +209,11 @@ pub fn load_snapshot(conn: &Connection) -> Result<MonitorState, crate::Error> {
             })
         })?
         .collect::<rusqlite::Result<_>>()?;
+    load_redirects(conn, &mut state)?;
+    Ok(state)
+}
+
+fn load_redirects(conn: &Connection, state: &mut MonitorState) -> Result<(), crate::Error> {
     let mut query = conn.prepare("SELECT e.id,s.host,s.session_id,e.kind,e.params,e.inputs FROM (SELECT * FROM events WHERE kind IN ('loop.redirect','loop.escalation') ORDER BY id DESC LIMIT 1000) e JOIN sessions s ON s.id=e.session_id ORDER BY e.id")?;
     for row in query.query_map([], |row| {
         Ok((
@@ -234,5 +239,5 @@ pub fn load_snapshot(conn: &Connection) -> Result<MonitorState, crate::Error> {
             state.redirect_event_ids.push_back(Some(id));
         }
     }
-    Ok(state)
+    Ok(())
 }

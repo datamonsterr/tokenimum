@@ -52,9 +52,9 @@ pub fn validate_bind(input: &str) -> Result<SocketAddr, WebError> {
 /// # Errors
 /// Returns an error if the operating system random source cannot be read.
 pub fn generate_token() -> io::Result<String> {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
     let mut bytes = [0_u8; 32];
     std::fs::File::open("/dev/urandom")?.read_exact(&mut bytes)?;
-    const HEX: &[u8; 16] = b"0123456789abcdef";
     let mut result = String::with_capacity(64);
     for byte in bytes {
         result.push(char::from(HEX[usize::from(byte >> 4)]));
@@ -202,11 +202,12 @@ fn query(
             let mut obj = serde_json::Map::new();
             for (i, name) in names.iter().enumerate() {
                 let value = match row.get_ref(i)? {
-                    rusqlite::types::ValueRef::Null => Value::Null,
+                    rusqlite::types::ValueRef::Null | rusqlite::types::ValueRef::Blob(_) => {
+                        Value::Null
+                    }
                     rusqlite::types::ValueRef::Integer(n) => json!(n),
                     rusqlite::types::ValueRef::Real(n) => json!(n),
                     rusqlite::types::ValueRef::Text(s) => json!(String::from_utf8_lossy(s)),
-                    rusqlite::types::ValueRef::Blob(_) => Value::Null,
                 };
                 obj.insert(name.clone(), value);
             }
@@ -242,8 +243,8 @@ async fn prune(State(s): State<WebState>) -> Result<Json<Value>, StatusCode> {
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     Ok(Json(json!({"evidence": evidence, "applied": applied})))
 }
-fn nonempty(s: &Option<String>) -> Option<&str> {
-    s.as_deref().filter(|s| !s.trim().is_empty())
+fn nonempty(s: Option<&str>) -> Option<&str> {
+    s.filter(|s| !s.trim().is_empty())
 }
 async fn prepare(
     State(s): State<WebState>,
@@ -253,30 +254,30 @@ async fn prepare(
     let summary = match kind.as_str() {
         "forget_fact" => format!(
             "Forget fact {} in {}",
-            nonempty(&input.fact_id).ok_or(StatusCode::BAD_REQUEST)?,
-            nonempty(&input.repo).ok_or(StatusCode::BAD_REQUEST)?
+            nonempty(input.fact_id.as_deref()).ok_or(StatusCode::BAD_REQUEST)?,
+            nonempty(input.repo.as_deref()).ok_or(StatusCode::BAD_REQUEST)?
         ),
         "restore_tool" => {
-            let host = nonempty(&input.host).ok_or(StatusCode::BAD_REQUEST)?;
+            let host = nonempty(input.host.as_deref()).ok_or(StatusCode::BAD_REQUEST)?;
             host.parse::<tkm_core::model::Host>()
                 .map_err(|_| StatusCode::BAD_REQUEST)?;
-            let checkout = nonempty(&input.checkout).ok_or(StatusCode::BAD_REQUEST)?;
+            let checkout = nonempty(input.checkout.as_deref()).ok_or(StatusCode::BAD_REQUEST)?;
             if !std::path::Path::new(checkout).is_absolute() {
                 return Err(StatusCode::BAD_REQUEST);
             }
             format!(
                 "Restore tool {} for {host} in {checkout}",
-                nonempty(&input.tool).ok_or(StatusCode::BAD_REQUEST)?
+                nonempty(input.tool.as_deref()).ok_or(StatusCode::BAD_REQUEST)?
             )
         }
         "switch_preset" => {
-            let preset = nonempty(&input.preset).ok_or(StatusCode::BAD_REQUEST)?;
+            let preset = nonempty(input.preset.as_deref()).ok_or(StatusCode::BAD_REQUEST)?;
             if !["observe", "balanced", "aggressive", "offline"].contains(&preset) {
                 return Err(StatusCode::BAD_REQUEST);
             }
             format!(
                 "Switch {} to preset {preset}",
-                nonempty(&input.repo).ok_or(StatusCode::BAD_REQUEST)?
+                nonempty(input.repo.as_deref()).ok_or(StatusCode::BAD_REQUEST)?
             )
         }
         _ => return Err(StatusCode::NOT_FOUND),
@@ -332,7 +333,6 @@ async fn confirm(
     Ok(Json(json!({"summary":result})))
 }
 /// Construct the dashboard router.
-#[must_use]
 pub fn router(state: WebState) -> Router {
     Router::new()
         .route("/", get(index))
