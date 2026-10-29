@@ -203,3 +203,20 @@ fn skill_evidence_is_persistent_per_session_and_replaceable() {
             .is_empty()
     );
 }
+
+#[test]
+fn unknown_session_cost_round_trips_as_null() {
+    let (store, session) = setup();
+    let id = store.upsert_session(&session).unwrap();
+    let ledger = LedgerRecord {
+        session_id: id,
+        usage: Usage::default(),
+        priced_cost: None,
+        overhead_tokens: 0,
+        overhead_cost: 0.0,
+    };
+    store.upsert_ledger(&ledger).unwrap();
+    let stored = store.get_ledger(id).unwrap().unwrap();
+    assert_eq!(stored.priced_cost, None);
+    assert!(serde_json::to_value(stored).unwrap()["priced_cost"].is_null());
+}
