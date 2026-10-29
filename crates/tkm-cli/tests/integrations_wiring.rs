@@ -228,3 +228,88 @@ fn malformed_adapter_status_falls_back_without_failure() {
         "adapter unavailable; configured auto"
     );
 }
+
+#[test]
+fn init_skips_disabled_unsupported_and_duplicate_account_homes() {
+    let f = Fixture::new();
+    let (config, home) = orchestrator(&f);
+    let account = fs::read_to_string(config.join("accounts/fixture.toml")).unwrap();
+    fs::write(
+        config.join("accounts/duplicate.toml"),
+        account.replace("'fixture'", "'duplicate'"),
+    )
+    .unwrap();
+    fs::write(
+        config.join("accounts/disabled.toml"),
+        account
+            .replace("enabled = true", "enabled = false")
+            .replace(".claude-account", ".disabled"),
+    )
+    .unwrap();
+    fs::write(
+        config.join("accounts/unsupported.toml"),
+        account
+            .replace("harness = 'claude'", "harness = 'unsupported'")
+            .replace(".claude-account", ".unsupported"),
+    )
+    .unwrap();
+    let out = f
+        .command(&["init", "--yes", "--only", "claude", "--superorchestrator"])
+        .env("SUPERORCHESTRATOR_CONFIG_DIR", config)
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{out:?}");
+    assert_eq!(
+        f.installs()
+            .iter()
+            .filter(|row| row.agent_home == home)
+            .count(),
+        1
+    );
+    assert!(!f.home.join(".disabled").exists());
+    assert!(!f.home.join(".unsupported").exists());
+}
+
+#[test]
+fn doctor_reads_otherskill_key_only_with_prior_consent() {
+    let f = Fixture::new();
+    let key = f.home.join(".config/otherskill/credentials.json");
+    fs::create_dir_all(key.parent().unwrap()).unwrap();
+    fs::write(&key, r#"{"openrouter":"fixture-otherskill-secret"}"#).unwrap();
+    fs::set_permissions(&key, fs::Permissions::from_mode(0o600)).unwrap();
+    let out = f.run(&["doctor"]);
+    assert!(stdout(&out).contains("key: offline (no key)"), "{out:?}");
+    let out = f.run(&["config", "set", "integrations.otherskill_key_reuse", "true"]);
+    assert!(out.status.success(), "{out:?}");
+    let out = f.run(&["doctor"]);
+    assert!(
+        stdout(&out).contains("key: present (value hidden)"),
+        "{out:?}"
+    );
+    assert!(!stdout(&out).contains("fixture-otherskill-secret"));
+    assert!(!String::from_utf8_lossy(&out.stderr).contains("fixture-otherskill-secret"));
+    // Consent cannot bypass a broken or insecure tokenimum key file.
+    let own_key = tkm_decide::key::default_key_file(&f.home);
+    fs::create_dir_all(own_key.parent().unwrap()).unwrap();
+    fs::write(&own_key, "OPENROUTER_API_KEY=fixture-own\n").unwrap();
+    fs::set_permissions(own_key, fs::Permissions::from_mode(0o644)).unwrap();
+    let out = f.run(&["doctor"]);
+    assert!(stdout(&out).contains("fail key:"), "{out:?}");
+}
+
+#[test]
+fn configuration_off_overrides_enabled_runtime_adapter_status() {
+    let f = Fixture::new();
+    tkm_store::Store::open(&f.paths.db).unwrap();
+    statuses(
+        &f,
+        r#"[{"name":"otherskill","mode":"auto","state":"enabled","reason":null}]"#,
+    );
+    let out = f.run(&["config", "set", "integrations.otherskill", "off"]);
+    assert!(out.status.success(), "{out:?}");
+    let out = f.run(&["status", "--json"]);
+    assert!(out.status.success(), "{out:?}");
+    let json: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(json["adapters"][1]["enabled"], false);
+    assert_eq!(json["adapters"][1]["reason"], "disabled in configuration");
+}

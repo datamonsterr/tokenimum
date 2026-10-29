@@ -82,6 +82,7 @@ fn skills_json_ranks_recorded_invocations_in_current_repository() {
         Some(RepoKey("fixture-other-repository".into())),
         &["foreign"],
     );
+    let before = fs::read(&f.paths.db).unwrap();
     let out = f.run(&["skills", "--json"]);
     assert!(out.status.success(), "{out:?}");
     let json: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
@@ -90,12 +91,7 @@ fn skills_json_ranks_recorded_invocations_in_current_repository() {
         serde_json::json!({"version":1,"source":"tokenimum","skills":[{"name":"alpha","loaded":0,"used":3},{"name":"zeta","loaded":0,"used":1}]})
     );
     assert!(out.stderr.is_empty(), "{out:?}");
-    let db = tkm_store::open_read_only(&f.paths.db).unwrap();
-    assert_eq!(
-        db.pragma_query_value(None, "query_only", |row| row.get::<_, i64>(0))
-            .unwrap(),
-        1
-    );
+    assert_eq!(fs::read(&f.paths.db).unwrap(), before);
 }
 
 #[test]
