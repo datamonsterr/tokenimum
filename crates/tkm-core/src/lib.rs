@@ -3,3 +3,5 @@
 //! Pure tokenimum mechanisms.
 
 pub mod model;
+
+pub mod inject;
