@@ -196,7 +196,13 @@ fn tool_done(c: &mut Criterion) {
     }
     drop(store);
     let mut options = DaemonOptions::new(paths);
-    options.settings = Arc::new(FixedSettings::new(Settings::default()));
+    // Steady state: the initial shadow window has elapsed, so a stuck verdict acts.
+    let settings = Settings {
+        shadow_days: 0,
+        shadow_turns: 0,
+        ..Settings::default()
+    };
+    options.settings = Arc::new(FixedSettings::new(settings));
     options.decider = Arc::new(StuckDecider);
     let daemon: Arc<Daemon> = Daemon::new(options);
     let blind = Arc::new(AtomicBool::new(false));
