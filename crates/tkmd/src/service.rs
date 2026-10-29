@@ -10,7 +10,7 @@ use tkm_config::paths::Paths;
 
 /// Same text as `packaging/systemd/tkmd.service.in` (a test keeps them equal). Kept as a constant
 /// because `cargo geiger` rejects `include_str!` of non-Rust files.
-const SYSTEMD: &str = r#"[Unit]
+const SYSTEMD: &str = r"[Unit]
 Description=tokenimum daemon (tkmd)
 Documentation=https://github.com/datamonsterr/tokenimum
 
@@ -24,7 +24,7 @@ StandardError=append:{{ERRORS_LOG}}
 
 [Install]
 WantedBy=default.target
-"#;
+";
 /// Same text as `packaging/launchd/com.tokenimum.tkmd.plist.in`.
 const LAUNCHD: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">

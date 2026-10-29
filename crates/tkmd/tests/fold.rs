@@ -167,7 +167,15 @@ async fn unfinished_earlier_session_in_the_same_repo_folds_at_the_next_session_s
         .handle(request(EventKind::SessionStart, payload))
         .await;
     daemon.settle().await;
-    assert_eq!(fold_status(&env).as_deref(), Some("folded"));
+    let store = tkm_store::open_read_only(&env.paths.db).unwrap();
+    let status: String = store
+        .query_row(
+            "SELECT fold_status FROM sessions WHERE session_id = 'e928a2cf-e31b-4154-805b-919991d042ea'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(status, "folded");
     let _ = Host::Claude;
 }
 

@@ -206,7 +206,11 @@ impl Settings {
         if let Some(v) = config.get_float("decide.budget_session_usd") {
             out.decide.session_cap_usd = v;
         }
-        if let Some(list) = config.get_list("decide.chain").filter(|l| !l.is_empty()) {
+        // The registry default names undated slugs that the client rejects; only an explicit chain
+        // replaces the client's own pinned default.
+        if explicit(config, "decide.chain")
+            && let Some(list) = config.get_list("decide.chain").filter(|l| !l.is_empty())
+        {
             out.decide.chain = list
                 .iter()
                 .map(|slug| ChainModel {
