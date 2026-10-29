@@ -136,7 +136,8 @@ proptest! {
         let mut state=PruneEvidence::default();
         for name in names { for flag in &used { fold(&mut state,&session(&name, 2,*flag)); } for _ in 0..5 { fold(&mut state,&session(&name,2,false)); } }
         let d=decide(&state,Host::Claude,&c,None,Timestamp(0));
-        for name in d.candidates { prop_assert!(!is_protected(&name,Host::Claude,&c)); }
+        let inventory = ["bash","view","grep","glob","edit","create","str_replace","read_bash","stop_bash","list_bash","read_file","shell","apply_patch","Bash","Edit","Write","Read","Grep","Glob","MultiEdit","LS","NotebookRead","BashOutput","KillShell","KillBash","AskUserQuestion","EnterPlanMode","ExitPlanMode","TodoWrite","TaskCreate","TaskUpdate","TaskGet","TaskList","TaskOutput","TaskStop","Agent","Task","Skill","ToolSearch","SlashCommand","Monitor","WebFetch","WebSearch"];
+        for name in d.candidates { prop_assert!(!inventory.contains(&name.as_str()) && !name.starts_with("mcp__headroom__") && !name.starts_with("mcp__superorchestrator__") && !name.starts_with("custom__")); }
         prop_assert!(is_protected("Bash",Host::Claude,&c));
     }
 }
@@ -213,4 +214,137 @@ fn protected_sets_cover_reference_and_host_equivalents() {
     for name in ["read", "bash", "edit", "write"] {
         assert!(is_protected(name, Host::Pi, &cfg));
     }
+}
+
+#[test]
+fn used_is_permanently_excluded_and_session_use_resets_streak() {
+    for index in 0..3 {
+        let mut state = PruneEvidence::default();
+        fold(&mut state, &session("mcp__x", 4, false));
+        let mut s = session("mcp__x", 3, false);
+        s.turns[index].calls.push(Call {
+            tool: "mcp__x".into(),
+            ..Call::default()
+        });
+        fold(&mut state, &s);
+        assert_eq!(
+            (
+                state.tools["mcp__x"].prompts,
+                state.tools["mcp__x"].sessions
+            ),
+            (0, 0)
+        );
+        for _ in 0..10 {
+            fold(&mut state, &session("mcp__x", 3, false));
+        }
+        assert!(
+            !decide(
+                &state,
+                Host::Claude,
+                &PruneConfig::default(),
+                None,
+                Timestamp(0)
+            )
+            .candidates
+            .contains(&"mcp__x".into())
+        );
+    }
+}
+#[test]
+fn no_prompts_no_evidence() {
+    let mut state = PruneEvidence::default();
+    for _ in 0..6 {
+        fold(&mut state, &session("mcp__x", 0, false));
+    }
+    assert!(state.tools.is_empty());
+}
+#[test]
+fn report_only_mode_matrix() {
+    for host in [
+        Host::Claude,
+        Host::Cursor,
+        Host::Opencode,
+        Host::Pi,
+        Host::Codex,
+        Host::Agy,
+        Host::Kimi,
+        Host::Deepseek,
+    ] {
+        for mode in [
+            PruneMode::Off,
+            PruneMode::Report,
+            PruneMode::Propose,
+            PruneMode::Apply,
+        ] {
+            let c = PruneConfig {
+                mode,
+                ..PruneConfig::default()
+            };
+            let expected = if matches!(host, Host::Codex | Host::Agy | Host::Kimi | Host::Deepseek)
+                && matches!(mode, PruneMode::Propose | PruneMode::Apply)
+            {
+                PruneMode::Report
+            } else {
+                mode
+            };
+            assert_eq!(effective_mode(host, &c, None, Timestamp(0)), expected);
+        }
+    }
+}
+#[test]
+fn skill_target_is_value_not_argument_key() {
+    use tkm_core::prune::skills::{SkillReport, fold_skills};
+    let mut s = session("x", 1, false);
+    for name in ["skill", "target-skill"] {
+        s.tool_catalog.push(ToolDef {
+            name: name.into(),
+            kind: ToolKind::Skill,
+            ..ToolDef::default()
+        });
+    }
+    s.turns[0].calls.push(Call {
+        tool: "Skill".into(),
+        args_digest: r#"{"skill":"target-skill"}"#.into(),
+        ..Call::default()
+    });
+    let mut report = SkillReport::default();
+    fold_skills(&mut report, &s);
+    assert_eq!(report.skills["skill"].invocations, 0);
+    assert_eq!(report.skills["target-skill"].invocations, 1);
+}
+#[test]
+fn deny_ownership_keep_and_checkout_isolation() {
+    use std::collections::BTreeSet;
+    use tkm_core::prune::denylist::{DenyState, apply, restore, set_kept};
+    let set = |xs: &[&str]| -> BTreeSet<String> { xs.iter().map(|s| (*s).to_owned()).collect() };
+    let mut state = DenyState::default();
+    let current = set(&["foreign"]);
+    let requested = set(&["foreign", "owned"]);
+    let delta = apply(&mut state, "one", &current, &requested);
+    assert_eq!(delta.add, set(&["owned"]));
+    let current = set(&["foreign", "owned"]);
+    assert!(
+        apply(&mut state, "one", &current, &requested)
+            .add
+            .is_empty()
+    );
+    assert!(
+        restore(&mut state, "two", &current, &requested)
+            .remove
+            .is_empty()
+    );
+    assert_eq!(
+        restore(&mut state, "one", &current, &requested).remove,
+        set(&["owned"])
+    );
+    assert!(
+        apply(&mut state, "one", &set(&["foreign"]), &requested)
+            .add
+            .is_empty()
+    );
+    set_kept(&mut state, "one", &set(&[]), &set(&["owned"]));
+    assert_eq!(
+        apply(&mut state, "one", &set(&["foreign"]), &requested).add,
+        set(&["owned"])
+    );
 }

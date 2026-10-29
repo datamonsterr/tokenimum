@@ -5,6 +5,7 @@
 // Portions ported from microsoft/TokenEconomizer (tokeneconomizer/plugin/adapter.py),
 // Copyright (c) Microsoft Corporation, licensed under the Apache License, Version 2.0.
 //! Pure tool pruning and skill usage evidence.
+pub mod denylist;
 pub mod skills;
 
 use crate::model::{Host, RepoKey, Session, Timestamp, ToolKind};
