@@ -111,17 +111,9 @@ pub struct Explanation {
     /// Typed template parameters.
     pub params: ActionParams,
 }
-// Limit each supplied field to one line and 512 Unicode characters. Treat all
-// controls and whitespace as separators, so parameters cannot forge sections.
+// Cap supplied fields before applying the shared single-line sanitizer.
 fn clean(value: &str) -> String {
-    value
-        .chars()
-        .take(512)
-        .map(|c| if c.is_control() { ' ' } else { c })
-        .collect::<String>()
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ")
+    super::sanitize_line(&value.chars().take(512).collect::<String>())
 }
 fn wrap(prefix: &str, text: &str) -> String {
     let mut result = prefix.to_owned();
@@ -141,7 +133,8 @@ fn wrap(prefix: &str, text: &str) -> String {
     result
 }
 /// Render the five SPEC 11.5 sections from a code-owned action template.
-/// Parameter fields are collapsed to one line and capped at 512 characters.
+/// Parameter fields are capped at 512 characters, then Unicode control and
+/// format characters are replaced and whitespace collapsed to one line.
 /// A mismatched template ID and parameter kind renders an empty string.
 #[must_use]
 pub fn render(explanation: &Explanation) -> String {

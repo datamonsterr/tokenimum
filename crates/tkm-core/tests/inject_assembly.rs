@@ -222,7 +222,7 @@ fn scored_facts_obey_count_and_token_caps() {
         max_facts: 5,
         ..Config::default()
     };
-    assert_eq!(inject::select(&items, Some(&scores), config).len(), 5);
+    assert_eq!(inject::select(&items, Some(&scores), config).len(), 4);
     let config = Config {
         max_facts: 5,
         max_fact_tokens: 149,
@@ -234,7 +234,7 @@ fn scored_facts_obey_count_and_token_caps() {
         max_fact_tokens: 120,
         ..Config::default()
     };
-    assert_eq!(inject::select(&items, Some(&scores), config).len(), 4);
+    assert_eq!(inject::select(&items, Some(&scores), config).len(), 3);
     let config = Config {
         max_facts: 5,
         max_fact_tokens: 119,
@@ -365,9 +365,25 @@ fn fact_budget_includes_all_fact_line_separators() {
     ]);
     for scores in [None, Some(&scores)] {
         let selected = inject::select(&items, scores, Config::default());
-        let fact_lines: String = selected.iter().map(|x| format!("{}\n", x.text)).collect();
+        let fact_lines: String = selected.iter().fold(String::new(), |mut text, x| {
+            text.push_str(&x.text);
+            text.push('\n');
+            text
+        });
         assert!(inject::estimate_tokens(&fact_lines) <= 150);
         assert_eq!(selected.len(), 3);
+        let at_limit = [("a", 148), ("b", 148), ("c", 148), ("d", 152)]
+            .into_iter()
+            .map(|(id, length)| item(id, &id.repeat(length), Source::Facts, length / 4, false))
+            .collect::<Vec<_>>();
+        let exact = inject::select(&at_limit, scores, Config::default());
+        let fact_lines: String = exact.iter().fold(String::new(), |mut text, x| {
+            text.push_str(&x.text);
+            text.push('\n');
+            text
+        });
+        assert_eq!(exact.len(), 4);
+        assert_eq!(inject::estimate_tokens(&fact_lines), 150);
     }
 }
 #[test]
@@ -415,5 +431,5 @@ fn render_strips_unicode_format_characters() {
     for c in dangerous.chars().filter(|c| !c.is_ascii()) {
         assert!(!result.contains(c), "format character {c:?}");
     }
-    assert!(result.contains("X") && result.contains("L"));
+    assert!(result.contains('X') && result.contains('L'));
 }

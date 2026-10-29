@@ -110,9 +110,17 @@ pub fn dedupe(items: &[InjectCandidate]) -> Vec<InjectCandidate> {
     }
     result
 }
-// Control characters and Unicode directional formatting must never reach a host.
-fn clean_line(text: &str) -> String {
-    text.chars().map(|c| if c.is_control() || matches!(c, '\u{061c}' | '\u{200e}' | '\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}') { ' ' } else { c }).collect::<String>().split_whitespace().collect::<Vec<_>>().join(" ")
+// Replace Unicode general categories Cc and Cf, including directional and
+// zero-width formatting. A regex compilation failure fails closed.
+pub(crate) fn sanitize_line(text: &str) -> String {
+    let Ok(pattern) = regex::Regex::new(r"[\p{Cc}\p{Cf}]") else {
+        return String::new();
+    };
+    pattern
+        .replace_all(text, " ")
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 const HEADER: &str = "# Context\n";
 /// Select after filtering disabled sources and deduplication. Facts obey SPEC 4.3
@@ -161,10 +169,13 @@ pub fn select(
     let mut text_tokens = 0_usize;
     let mut selected = Vec::new();
     for item in items {
-        let tokens = item.tokens.max(estimate_tokens(&clean_line(&item.text)));
+        let tokens = item.tokens.max(estimate_tokens(&sanitize_line(&item.text)));
         if item.source == Source::Facts
             && (facts >= config.max_facts
-                || tokens > config.max_fact_tokens.saturating_sub(fact_tokens))
+                || fact_tokens
+                    .saturating_add(tokens)
+                    .saturating_add(facts.saturating_add(1).div_ceil(4))
+                    > config.max_fact_tokens)
         {
             continue;
         }
@@ -188,7 +199,7 @@ pub fn select(
     selected
 }
 /// Render a single header followed by sanitized candidate text, or empty when
-/// none exist. Controls and Unicode directional formatting are replaced by spaces.
+/// none exist. Unicode controls and format characters are replaced by spaces.
 #[must_use]
 pub fn render(items: &[InjectCandidate]) -> String {
     if items.is_empty() {
@@ -196,7 +207,7 @@ pub fn render(items: &[InjectCandidate]) -> String {
     }
     let mut result = String::from(HEADER);
     for item in items {
-        result.push_str(&clean_line(&item.text));
+        result.push_str(&sanitize_line(&item.text));
         result.push('\n');
     }
     result
@@ -206,14 +217,23 @@ pub fn render(items: &[InjectCandidate]) -> String {
 pub struct CacheKey {
     /// Prompt hash.
     pub prompt: u64,
-    /// Candidate-set hash.
+    /// Hash of the ordered candidates and selection configuration.
     pub candidates: u64,
 }
 /// Construct a deterministic FNV-1a key over the prompt and ordered candidates.
-/// All selection-relevant fields participate in the candidate hash.
+/// All selection-relevant fields, limits, flags and fixed thresholds participate
+/// in the candidate/configuration hash.
 #[must_use]
-pub fn cache_key(prompt: &str, items: &[InjectCandidate], _config: Config) -> CacheKey {
+pub fn cache_key(prompt: &str, items: &[InjectCandidate], config: Config) -> CacheKey {
     let mut bytes = Vec::new();
+    for limit in [config.max_tokens, config.max_facts, config.max_fact_tokens] {
+        bytes.extend_from_slice(&(limit as u64).to_le_bytes());
+    }
+    bytes.push(u8::from(config.memory));
+    // Fixed relevance thresholds are part of the key's selection policy.
+    for threshold in [1.5_f64, 1.0_f64] {
+        bytes.extend_from_slice(&threshold.to_bits().to_le_bytes());
+    }
     for item in items {
         for field in [&item.id, &item.text] {
             bytes.extend_from_slice(&(field.len() as u64).to_le_bytes());
