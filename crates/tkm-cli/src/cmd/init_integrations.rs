@@ -7,7 +7,7 @@ use crate::ctx::Ctx;
 pub struct IntegrationsPlan {
     /// Superorchestrator detection and enablement summary.
     pub superorchestrator: String,
-    /// OtherSkill detection and enablement summary.
+    /// `otherskill` detection and enablement summary.
     pub otherskill: String,
 }
 
