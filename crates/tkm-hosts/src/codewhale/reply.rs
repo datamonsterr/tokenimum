@@ -16,9 +16,8 @@ pub(super) fn render_reply(request: &Request, action: &ReplyAction) -> String {
         return String::new();
     };
     let capped = crate::digest::truncate(text, 2_000);
-    let serialized = match serde_json::to_string(&capped) {
-        Ok(s) => s,
-        Err(_) => return String::new(),
+    let Ok(serialized) = serde_json::to_string(&capped) else {
+        return String::new();
     };
     format!("{{\"decision\":\"allow\",\"additionalContext\":{serialized}}}")
 }

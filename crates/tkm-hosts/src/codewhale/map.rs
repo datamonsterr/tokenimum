@@ -6,6 +6,7 @@ use tkm_proto::{EventKind, Host, Request};
 
 use crate::AdapterError;
 
+#[expect(clippy::too_many_lines, reason = "one flat match over native events")]
 pub(super) fn map_event(request: &Request) -> Result<Option<HookEvent>, AdapterError> {
     let native = super::native_event(request)?;
 
@@ -83,10 +84,11 @@ pub(super) fn map_event(request: &Request) -> Result<Option<HookEvent>, AdapterE
                 .and_then(|m| m.get("execution_receipt"))
                 .filter(|v| v.is_object());
 
-            if let Some(rec) = receipt {
-                if rec.get("command").is_some() && is_shell_tool(&tool) {
-                    args_digest = crate::digest::args_digest("bash", rec);
-                }
+            if let Some(rec) = receipt
+                && rec.get("command").is_some()
+                && is_shell_tool(&tool)
+            {
+                args_digest = crate::digest::args_digest("bash", rec);
             }
 
             let exit_code = receipt

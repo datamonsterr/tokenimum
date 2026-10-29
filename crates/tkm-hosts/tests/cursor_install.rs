@@ -131,7 +131,10 @@ fn foreign_handler_in_same_event_and_foreign_keys_kept_byte_for_byte() {
 
     // Uninstall restores exact original bytes
     let uninstall_report = adapter.uninstall(&context).unwrap();
-    assert_eq!(uninstall_report.changed_files, vec![hooks_path.clone()]);
+    assert_eq!(
+        uninstall_report.changed_files,
+        vec![hooks_path.clone(), backup_path.clone()]
+    );
     assert_eq!(fs::read(&hooks_path).unwrap(), original);
     assert!(!backup_path.exists());
 

@@ -64,12 +64,11 @@ pub(super) fn install(context: &InstallContext) -> Result<InstallReport, Adapter
     let path = context.agent_home.join("config.toml");
 
     let edit = |original: Option<&str>| -> Result<String, AdapterError> {
-        if let Some(orig_text) = original {
-            if let Ok(doc) = orig_text.parse::<DocumentMut>() {
-                if already_matches(&doc) {
-                    return Ok(orig_text.to_owned());
-                }
-            }
+        if let Some(orig_text) = original
+            && let Ok(doc) = orig_text.parse::<DocumentMut>()
+            && already_matches(&doc)
+        {
+            return Ok(orig_text.to_owned());
         }
 
         let mut doc: DocumentMut = match original {
@@ -121,14 +120,13 @@ pub(super) fn install(context: &InstallContext) -> Result<InstallReport, Adapter
 
     let config_text = fs::read_to_string(&path).ok();
     let doc_opt: Option<DocumentMut> = config_text.as_deref().and_then(|s| s.parse().ok());
-    if let Some(doc) = doc_opt {
-        if let Some(hooks_table) = doc.get("hooks").and_then(Item::as_table) {
-            if hooks_table.get("enabled").and_then(Item::as_bool) == Some(false) {
-                report.instructions.push(
-                    "Codewhale hooks are disabled in config ([hooks] enabled = false); enable hooks for tokenimum to receive events.".to_owned(),
-                );
-            }
-        }
+    if let Some(doc) = doc_opt
+        && let Some(hooks_table) = doc.get("hooks").and_then(Item::as_table)
+        && hooks_table.get("enabled").and_then(Item::as_bool) == Some(false)
+    {
+        report.instructions.push(
+            "Codewhale hooks are disabled in config ([hooks] enabled = false); enable hooks for tokenimum to receive events.".to_owned(),
+        );
     }
     report.instructions.push(
         "Note that [hooks] default_timeout_secs, when set, overrides tokenimum timeouts."

@@ -23,15 +23,15 @@ fn read_from(
     record_limit: usize,
     file_limit: usize,
 ) -> Result<Session, AdapterError> {
-    let session_id = if !source.session_id.is_empty() {
-        source.session_id.clone()
-    } else {
+    let session_id = if source.session_id.is_empty() {
         source
             .path
             .file_stem()
             .and_then(|s| s.to_str())
             .unwrap_or_default()
             .to_owned()
+    } else {
+        source.session_id.clone()
     };
 
     let mut session = Session {

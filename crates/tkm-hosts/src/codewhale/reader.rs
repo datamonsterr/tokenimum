@@ -11,6 +11,7 @@ use crate::{AdapterError, SessionSource};
 // only aggregate metadata.total_tokens. Per-turn token usage comes strictly from
 // live turn_end hook events. The session and turn usages here remain zeroed.
 
+#[expect(clippy::too_many_lines, reason = "single pass over the session log")]
 pub(super) fn read_session(source: &SessionSource) -> Result<Session, AdapterError> {
     let file_path = if source.path.as_os_str().is_empty() {
         source
@@ -41,8 +42,7 @@ pub(super) fn read_session(source: &SessionSource) -> Result<Session, AdapterErr
     let cwd = metadata
         .and_then(|m| m.get("workspace"))
         .and_then(Value::as_str)
-        .map(PathBuf::from)
-        .unwrap_or_else(|| source.cwd.clone());
+        .map_or_else(|| source.cwd.clone(), PathBuf::from);
 
     let started = metadata
         .and_then(|m| m.get("created_at"))
@@ -114,9 +114,6 @@ pub(super) fn read_session(source: &SessionSource) -> Result<Session, AdapterErr
     for item in items_to_process {
         if let Some(kind) = item.get("kind").and_then(Value::as_str) {
             match kind {
-                "compaction" | "branch_summary" | "system" => {
-                    total_records = total_records.saturating_add(1);
-                }
                 "user" => {
                     total_records = total_records.saturating_add(1);
                     let prompt = item
@@ -131,7 +128,7 @@ pub(super) fn read_session(source: &SessionSource) -> Result<Session, AdapterErr
                         ..Turn::default()
                     });
                 }
-                "assistant" => {
+                "compaction" | "branch_summary" | "system" | "assistant" => {
                     total_records = total_records.saturating_add(1);
                 }
                 "message" => {
@@ -139,7 +136,7 @@ pub(super) fn read_session(source: &SessionSource) -> Result<Session, AdapterErr
                     if let Some(msg) = item.get("message") {
                         process_message(
                             msg,
-                            &model,
+                            model.as_deref(),
                             &mut turns,
                             &mut pending_calls,
                             &mut total_records,
@@ -156,7 +153,7 @@ pub(super) fn read_session(source: &SessionSource) -> Result<Session, AdapterErr
             total_records = total_records.saturating_add(1);
             process_message(
                 item,
-                &model,
+                model.as_deref(),
                 &mut turns,
                 &mut pending_calls,
                 &mut total_records,
@@ -171,7 +168,7 @@ pub(super) fn read_session(source: &SessionSource) -> Result<Session, AdapterErr
     let partial = total_records > 0 && skipped_records.saturating_mul(5) > total_records;
 
     let mut session = Session::new(Host::Deepseek);
-    session.agent_home = source.agent_home.clone();
+    session.agent_home.clone_from(&source.agent_home);
     session.session_id = session_id;
     session.repo_key = source.repo_key.clone();
     session.cwd = cwd;
@@ -186,9 +183,13 @@ pub(super) fn read_session(source: &SessionSource) -> Result<Session, AdapterErr
     Ok(session)
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "one flat match over message block kinds"
+)]
 fn process_message(
     message: &Value,
-    model: &Option<String>,
+    model: Option<&str>,
     turns: &mut Vec<Turn>,
     pending_calls: &mut BTreeMap<String, (usize, usize)>,
     total_records: &mut u64,
@@ -211,7 +212,7 @@ fn process_message(
         if role == "user" {
             turns.push(Turn {
                 prompt: text.to_owned(),
-                model: model.clone(),
+                model: model.map(str::to_owned),
                 stopped_by: StopReason::Unknown,
                 ..Turn::default()
             });
@@ -282,7 +283,7 @@ fn process_message(
             let prompt = user_texts.join("\n");
             turns.push(Turn {
                 prompt,
-                model: model.clone(),
+                model: model.map(str::to_owned),
                 stopped_by: StopReason::Unknown,
                 ..Turn::default()
             });
@@ -326,7 +327,7 @@ fn process_message(
 
                     if turns.is_empty() {
                         turns.push(Turn {
-                            model: model.clone(),
+                            model: model.map(str::to_owned),
                             stopped_by: StopReason::Unknown,
                             ..Turn::default()
                         });

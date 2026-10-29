@@ -107,10 +107,10 @@ pub(super) fn map_event(request: &Request) -> Result<Option<HookEvent>, AdapterE
 }
 
 pub(super) fn call_args_digest(tool: &str, args: &Value) -> String {
-    if tool == "run_command" {
-        if let Some(cmd) = args.get("CommandLine").and_then(Value::as_str) {
-            return digest::truncate(cmd, 512);
-        }
+    if tool == "run_command"
+        && let Some(cmd) = args.get("CommandLine").and_then(Value::as_str)
+    {
+        return digest::truncate(cmd, 512);
     }
     digest::args_digest(tool, args)
 }

@@ -144,12 +144,12 @@ pub(crate) fn native_event(request: &Request) -> Result<&str, AdapterError> {
 
     match (payload_event, request.host_event.as_deref()) {
         (Some(p_ev), Some(h_ev)) => {
-            if p_ev != h_ev {
+            if p_ev == h_ev {
+                Ok(p_ev)
+            } else {
                 Err(AdapterError::InvalidPayload {
                     message: "payload event conflicts with host_event".to_owned(),
                 })
-            } else {
-                Ok(p_ev)
             }
         }
         (Some(p_ev), None) => Ok(p_ev),

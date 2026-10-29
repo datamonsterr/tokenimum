@@ -83,12 +83,11 @@ pub(super) fn install(context: &InstallContext) -> Result<InstallReport, Adapter
     let path = context.agent_home.join("config.toml");
 
     let edit = |original: Option<&str>| -> Result<String, AdapterError> {
-        if let Some(orig_text) = original {
-            if let Ok(doc) = orig_text.parse::<DocumentMut>() {
-                if already_matches(&doc) {
-                    return Ok(orig_text.to_owned());
-                }
-            }
+        if let Some(orig_text) = original
+            && let Ok(doc) = orig_text.parse::<DocumentMut>()
+            && already_matches(&doc)
+        {
+            return Ok(orig_text.to_owned());
         }
 
         let mut doc: DocumentMut = match original {
@@ -98,12 +97,12 @@ pub(super) fn install(context: &InstallContext) -> Result<InstallReport, Adapter
             None => DocumentMut::new(),
         };
 
-        if let Some(item) = doc.get("hooks") {
-            if !item.is_array_of_tables() {
-                return Err(AdapterError::InvalidPayload {
-                    message: "hooks must be an array of tables".into(),
-                });
-            }
+        if let Some(item) = doc.get("hooks")
+            && !item.is_array_of_tables()
+        {
+            return Err(AdapterError::InvalidPayload {
+                message: "hooks must be an array of tables".into(),
+            });
         }
 
         if !doc.contains_key("hooks") {

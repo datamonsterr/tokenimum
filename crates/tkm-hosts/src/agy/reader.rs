@@ -26,10 +26,10 @@ fn extract_session_id_from_path(path: &Path) -> Option<String> {
 
 fn resolve_path(source: &SessionSource) -> (PathBuf, String) {
     let path = &source.path;
-    let resolved_id = if !source.session_id.is_empty() {
-        source.session_id.clone()
-    } else {
+    let resolved_id = if source.session_id.is_empty() {
         extract_session_id_from_path(path).unwrap_or_default()
+    } else {
+        source.session_id.clone()
     };
 
     if path.is_file() && path.extension().is_some_and(|ext| ext == "jsonl") {

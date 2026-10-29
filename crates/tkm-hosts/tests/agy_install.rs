@@ -111,7 +111,10 @@ fn fixture_install_preserves_foreign_bytes_idempotence_and_restore() {
 
     // 3. Uninstall
     let uninstall_report = adapter.uninstall(&context).unwrap();
-    assert_eq!(uninstall_report.changed_files, vec![path.clone()]);
+    assert_eq!(
+        uninstall_report.changed_files,
+        vec![path.clone(), backup.clone()]
+    );
     assert_eq!(fs::read(&path).unwrap(), original);
     assert!(!backup.exists());
 

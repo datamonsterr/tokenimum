@@ -121,7 +121,7 @@ pub fn md5_hex(data: &[u8]) -> String {
     message.resize(data.len().saturating_add(pad_len), 0);
     message.extend_from_slice(&bit_len.to_le_bytes());
 
-    for chunk in message.chunks_exact(64) {
+    for chunk in message.as_chunks::<64>().0 {
         let mut m = [0_u32; 16];
         for (idx, word) in m.iter_mut().enumerate() {
             let start = idx.wrapping_mul(4);

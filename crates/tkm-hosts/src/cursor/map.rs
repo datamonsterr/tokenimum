@@ -9,6 +9,7 @@ use tkm_proto::{EventKind, Host, Request};
 use crate::writer::invalid;
 use crate::{AdapterError, digest};
 
+#[expect(clippy::too_many_lines, reason = "one flat match over native events")]
 pub(super) fn map_event(request: &Request) -> Result<Option<HookEvent>, AdapterError> {
     let native = super::native_event(request)?;
     let kind = match native {
@@ -134,8 +135,9 @@ fn parse_duration(value: Option<&Value>) -> Result<Option<u64>, AdapterError> {
             if let Some(val) = n.as_u64() {
                 Ok(Some(val))
             } else if let Some(val) = n.as_f64() {
+                // 2^64 as f64 is exact; values below it fit in u64 after truncation.
                 #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
-                if val >= 0.0 && val < u64::MAX as f64 {
+                if (0.0..18_446_744_073_709_551_616.0).contains(&val) {
                     Ok(Some(val as u64))
                 } else {
                     Ok(None)

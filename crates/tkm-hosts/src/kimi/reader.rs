@@ -16,9 +16,12 @@ fn float_seconds_to_timestamp(seconds: f64) -> Option<Timestamp> {
         return None;
     }
     let millis = (seconds * 1000.0).round();
-    if millis < (i64::MIN as f64) || millis > (i64::MAX as f64) {
+    // +/-2^63 are exactly representable as f64; anything outside is out of i64 range.
+    const LIMIT: f64 = 9_223_372_036_854_775_808.0;
+    if !(-LIMIT..LIMIT).contains(&millis) {
         return None;
     }
+    #[allow(clippy::cast_possible_truncation)] // range checked above
     Some(Timestamp(millis as i64))
 }
 
@@ -72,6 +75,7 @@ pub(super) fn read_session(source: &SessionSource) -> Result<Session, AdapterErr
     Ok(session)
 }
 
+#[expect(clippy::too_many_lines, reason = "single pass over the context log")]
 fn read_context(
     path: &Path,
     session: &mut Session,
@@ -174,14 +178,13 @@ fn read_context(
                 let is_error = text.contains("<system>ERROR:");
                 let out_digest = output_digest(&Value::String(text));
 
-                if let Some(&(t_idx, c_idx)) = pending_calls.get(tool_call_id) {
-                    if let Some(turn) = session.turns.get_mut(t_idx) {
-                        if let Some(call) = turn.calls.get_mut(c_idx) {
-                            call.output_digest = out_digest;
-                            if is_error {
-                                call.is_error = true;
-                            }
-                        }
+                if let Some(&(t_idx, c_idx)) = pending_calls.get(tool_call_id)
+                    && let Some(turn) = session.turns.get_mut(t_idx)
+                    && let Some(call) = turn.calls.get_mut(c_idx)
+                {
+                    call.output_digest = out_digest;
+                    if is_error {
+                        call.is_error = true;
                     }
                 }
             }
@@ -293,11 +296,9 @@ fn read_wire(path: &Path, session: &mut Session) -> Result<(), AdapterError> {
                     }
                 }
             }
-            Some("TurnEnd") => {
-                // Recorded in last_msg_type.
-            }
             Some(_) => {
-                // Known wire event variants (e.g. StepBegin, StepRetry, etc.).
+                // TurnEnd is recorded in last_msg_type; other known wire event
+                // variants (StepBegin, StepRetry, ...) carry nothing we use.
             }
             None => {
                 session.skipped_records = session.skipped_records.saturating_add(1);
