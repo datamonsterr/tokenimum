@@ -421,3 +421,41 @@ fn live_fact_insertions_are_bounded() {
     assert_eq!(state.facts.len(), 2_000);
     assert_eq!(state.facts[0].fact_id, "fact-1");
 }
+
+#[cfg(unix)]
+#[test]
+fn feed_overflow_requests_resynchronization() {
+    use std::{
+        io::Write,
+        os::unix::net::UnixListener,
+        sync::atomic::Ordering,
+        time::{Duration, Instant},
+    };
+    use tkm_proto::monitor::{MONITOR_MAX_FRAME, MONITOR_SOCKET_NAME};
+    let dir = tempfile::tempdir().unwrap();
+    let paths = tkm_config::paths::Paths::from_dirs(dir.path(), None, None, None);
+    std::fs::create_dir_all(paths.socket.parent().unwrap()).unwrap();
+    let listener = UnixListener::bind(paths.socket.with_file_name(MONITOR_SOCKET_NAME)).unwrap();
+    let server = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let hello = tkm_proto::encode_frame(
+            &MonitorMessage::Hello {
+                version: tkm_proto::PROTOCOL_VERSION,
+            },
+            MONITOR_MAX_FRAME,
+        )
+        .unwrap();
+        stream.write_all(&hello).unwrap();
+        let frame = tkm_proto::encode_frame(&decision(1), MONITOR_MAX_FRAME).unwrap();
+        for _ in 0..1100 {
+            stream.write_all(&frame).unwrap();
+        }
+    });
+    let feed = feed::connect(&paths);
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !feed.resync.load(Ordering::Acquire) && Instant::now() < deadline {
+        std::thread::yield_now();
+    }
+    assert!(feed.resync.load(Ordering::Acquire));
+    server.join().unwrap();
+}
