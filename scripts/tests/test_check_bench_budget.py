@@ -25,6 +25,9 @@ class BenchBudgetTests(unittest.TestCase):
         _, _, ok = module.check(OUTPUT, "tool_done_claude_posttooluse", 13_000)
         self.assertFalse(ok)
 
+    def test_limit_is_strict(self):
+        self.assertFalse(module.check(OUTPUT, "tool_done_claude_posttooluse", 13545)[2])
+
     def test_missing_benchmark_is_an_error(self):
         with self.assertRaises(ValueError):
             module.check(OUTPUT, "nope", 1)
