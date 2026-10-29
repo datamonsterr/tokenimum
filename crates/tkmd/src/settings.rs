@@ -338,6 +338,28 @@ mod tests {
     }
 
     #[test]
+    fn per_host_switches_and_levels_are_loaded() {
+        let dir = std::env::temp_dir().join("tkmd-settings-hosts-test-nonexistent");
+        let paths = Paths::from_dirs(&dir, Some(&dir), Some(&dir), Some(&dir));
+        let settings = Settings::load(
+            &paths,
+            None,
+            vec![
+                ("TKM_HOSTS_CLAUDE_ENABLED".into(), "false".into()),
+                ("TKM_HOSTS_CLAUDE_LEVEL".into(), "fold-only".into()),
+                ("TKM_HOSTS_PI_LEVEL".into(), "shim".into()),
+            ],
+        );
+        assert!(!settings.host(tkm_proto::Host::Claude).enabled);
+        assert_eq!(
+            settings.host(tkm_proto::Host::Claude).level,
+            HostLevel::FoldOnly
+        );
+        assert_eq!(settings.host(tkm_proto::Host::Pi).level, HostLevel::Shim);
+        assert_eq!(settings.host(tkm_proto::Host::Codex).level, HostLevel::Auto);
+    }
+
+    #[test]
     fn environment_overrides_loop_mode_and_decide_switch() {
         let dir = std::env::temp_dir().join("tkmd-settings-test-nonexistent");
         let paths = Paths::from_dirs(&dir, Some(&dir), Some(&dir), Some(&dir));
