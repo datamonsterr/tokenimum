@@ -2,7 +2,7 @@
 
 Status: refreshed 2026-10-29 against `da6a44d` on `epic/e10` (CI green). This record documents
 observed gaps; it does not change SPEC.md or assert that unfinished work satisfies the spec.
-The row-level status is in [spec-conformance.md](../spec-conformance.md): 503 met, 42 deferred,
+The row-level status is in [spec-conformance.md](../spec-conformance.md): 506 met, 39 deferred,
 11 not applicable. Each deferred row carries one category: (a) needs live or real-world data or
 user action, (b) intentionally out of scope or limited per an ADR, (c) not implemented.
 
@@ -42,7 +42,6 @@ fixed and now `met` in the conformance table, with tests named there:
 - Superorchestrator spend ingestion (SPEC 4.2, 9.2, 9.3, 15 M7, 17 Q5): ADR 0040 item 5. tokenimum
   writes the JSONL sink; ingestion needs an upstream change.
 - Connect timeout 10 ms instead of 2 ms: ADR 0014.
-- Legacy opencode `storage/` tree and export fallback: ADR 0025.
 - Kimi user-scope-only installer: ADR 0020.
 - otherskill selection limited to four host names: ADR 0040 item 7.
 
@@ -61,5 +60,3 @@ C5. Fact and relevance label contracts and `tkm calibrate --purpose facts|releva
 C6. Agreement mode: `decide_agreement` is never called and `decide.agreement` is only read (SPEC
     8.5, 10.4, 17 Q7). See `crates/tkm-decide/src/client.rs`, `crates/tkmd/src/decider.rs` and
     `crates/tkmd/src/settings.rs`.
-C7. Session log discovery without a hook transcript path for hosts other than Claude (SPEC 6.12).
-    See `crates/tkmd/src/fold.rs` and ADR 0018 item 5.

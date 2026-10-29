@@ -13,8 +13,8 @@ Refreshed 2026-10-29 against `da6a44d` on `epic/e10`, where CI is green. Counts 
 
 | Status | Rows |
 |---|---|
-| met | 503 |
-| deferred | 42 |
+| met | 506 |
+| deferred | 39 |
 | not applicable | 11 |
 
 Every `deferred` row starts its evidence with one category tag:
@@ -22,8 +22,8 @@ Every `deferred` row starts its evidence with one category tag:
 | Category | Meaning | Rows |
 |---|---|---|
 | (a) | Needs live or real-world data, or user action: real host sessions, live model spend, the replay benchmark sample run, secrets | 16 |
-| (b) | Intentionally out of scope or limited by an ADR (link in the row) | 9 |
-| (c) | Not implemented: code is missing | 17 |
+| (b) | Intentionally out of scope or limited by an ADR (link in the row) | 7 |
+| (c) | Not implemented: code is missing | 16 |
 
 Rows fixed since the audit was written (priced ledger and pricing refresh, skill evidence, Pi steer,
 Codewhale `session_idle`, Cursor repeat, doctor fold-only fallback, `doctor --probe`, daily free-model
@@ -39,7 +39,6 @@ Each item gives the exact SPEC text and the files involved. Tracked in [ADR 0050
 - **S6.11-9, S7.3-7**, SPEC 6.11 and 7.3: “opencode | `<repo>/opencode.json` `permission.<tool> = "deny"` | verified surface; MCP keys `<server>_<tool>`”. Files: [deny.rs](../crates/tkm-hosts/src/writer/deny.rs), [opencode install.rs](../crates/tkm-hosts/src/opencode/install.rs).
 - **S6.11-9, S7.3-8**, SPEC 6.11 and 7.3: “Pi | project settings `defaultTools` with `-name` | verified surface”. Files: [deny.rs](../crates/tkm-hosts/src/writer/deny.rs), [pi install.rs](../crates/tkm-hosts/src/pi/install.rs).
 - **S12-7**, SPEC 11: “`tkm prune [apply|restore [tool]]` | deny-list proposal, evidence, apply, give back”. Apply and restore work for Claude only. Files: [prune.rs](../crates/tkm-cli/src/cmd/prune.rs), [deny.rs](../crates/tkm-hosts/src/writer/deny.rs).
-- **S6.12-2**, SPEC 6.12: “`tkmd` watches known session directories (inotify/FSEvents through the `notify` crate; a 60 s scan when watching is not possible). A session idle for 30 minutes is folded.” Open part: only Claude derives a session log path without a hook transcript path; other hosts are marked `skipped`. Files: [fold.rs](../crates/tkmd/src/fold.rs), the host `reader.rs` files under [tkm-hosts](../crates/tkm-hosts/src/).
 - **S7.3-3**, SPEC 7.3: “Write the deny list only after 60 idle minutes in that repository (the prompt cache has expired), or after 24 hours at the latest.” The 60-minute idle check exists; the 24-hour deadline is not computed because the store records no candidate-ready time. Files: [prune.rs](../crates/tkm-cli/src/cmd/prune.rs), [migrations.rs](../crates/tkm-store/src/migrations.rs).
 - **S7.3-11**, SPEC 7.3: “anything in `prune.protect`”. The key is not in the config registry. Files: [config.rs](../crates/tkm-config/src/config.rs), [prune.rs](../crates/tkm-cli/src/cmd/prune.rs).
 - **S7.3-12**, SPEC 7.3: “a repository that has had any delegated run in the last 30 days keeps pruning at `propose` at most.” The store keeps only a lifetime `delegated_runs` count. Files: [migrations.rs](../crates/tkm-store/src/migrations.rs), [queries.rs](../crates/tkm-store/src/queries.rs), [prune.rs](../crates/tkm-cli/src/cmd/prune.rs).
@@ -64,7 +63,6 @@ Each item gives the exact SPEC text and the files involved. Tracked in [ADR 0050
 
 - S4.2-7, S9.2-3, S9.3-1, S15-2, S17-5: superorchestrator spend ingestion, [ADR 0040](../docs/adr/0040-e9-integrations.md) item 5.
 - S5.1-2: 10 ms connect timeout, [ADR 0014](../docs/adr/0014-hook-client.md).
-- S6.4-1, S6.4-18: legacy opencode `storage/`, [ADR 0025](../docs/adr/0025-shim-protocol.md).
 - S9.4-1: four otherskill host names, [ADR 0040](../docs/adr/0040-e9-integrations.md) item 7.
 
 ## Pending
@@ -344,7 +342,7 @@ Nothing pending. The E10.6 replay benchmark harness is merged; only its real-dat
 | S6.4-6 | codewhale log path and normalized reader | met | [codewhale_reader.rs](../crates/tkm-hosts/tests/codewhale_reader.rs) |
 | S6.4-7 | opencode log path and normalized reader | met | [opencode_reader.rs](../crates/tkm-hosts/tests/opencode_reader.rs) |
 | S6.4-8 | pi log path and normalized reader | met | [pi_reader.rs](../crates/tkm-hosts/tests/pi_reader.rs) |
-| S6.4-1 | Legacy opencode storage and export fallback | deferred | **(b)** [ADR 0025](../docs/adr/0025-shim-protocol.md): the legacy `storage/` tree and export are not read; [reader.rs](../crates/tkm-hosts/src/opencode/reader.rs) returns Unsupported and the caller falls back to fold-only. |
+| S6.4-1 | Legacy opencode storage and export fallback | met | [opencode_reader.rs](../crates/tkm-hosts/tests/opencode_reader.rs) tests the legacy tree and a fake export binary. |
 | S6.4-10 | Foreign SQLite opened read only | met | [reader.rs](../crates/tkm-hosts/src/opencode/reader.rs) |
 | S6.4-11 | Unknown records counted; &gt;20% skipped yields partial ledger-only fold | met | [fold.rs](../crates/tkmd/tests/fold.rs) |
 | S6.4-12 | Claude Code reader source: `<home>/projects/<cwd-slug>/<session>.jsonl` | met | [claude_reader.rs](../crates/tkm-hosts/tests/claude_reader.rs) |
@@ -353,7 +351,7 @@ Nothing pending. The E10.6 replay benchmark harness is merged; only its real-dat
 | S6.4-15 | Cursor reader source: `transcript_path` in hook payload (also env `CURSOR_TRANSCRIPT_PATH`) | deferred | **(a)** [cursor_reader.rs](../crates/tkm-hosts/tests/cursor_reader.rs) passes on fixtures; [e5b-hosts.md](../docs/verified/e5b-hosts.md) records the transcript format as forum-reported until a real Cursor session is read. |
 | S6.4-16 | Kimi Code reader source: `~/.kimi/sessions/<md5(workdir)>/<session-id>/{context.jsonl,wire.jsonl,state.json}` | met | [kimi_reader.rs](../crates/tkm-hosts/tests/kimi_reader.rs) |
 | S6.4-17 | DeepSeek harness (Codewhale) reader source: `$CODEWHALE_HOME/sessions/<uuid>.json` | met | [codewhale_reader.rs](../crates/tkm-hosts/tests/codewhale_reader.rs) |
-| S6.4-18 | opencode reader source: SQLite `~/.local/share/opencode/opencode.db` (tables `session`, `message`, `part`, ...; path from `opencode db path`); legacy `~/.local/share/opencode/storage/` | deferred | **(b)** [opencode_reader.rs](../crates/tkm-hosts/tests/opencode_reader.rs) covers `opencode.db`; the legacy `storage/` tree is out of scope per [ADR 0025](../docs/adr/0025-shim-protocol.md). |
+| S6.4-18 | opencode reader source: SQLite `~/.local/share/opencode/opencode.db` (tables `session`, `message`, `part`, ...; path from `opencode db path`); legacy `~/.local/share/opencode/storage/` | met | [opencode_reader.rs](../crates/tkm-hosts/tests/opencode_reader.rs) covers SQLite and the legacy tree; [ADR 0025](../docs/adr/0025-shim-protocol.md) records export fallback. |
 | S6.4-19 | Pi reader source: `~/.pi/agent/sessions/--<cwd-encoded>--/<timestamp>_<session-id>.jsonl`, header `{type:"session",version:3,...}` | met | [pi_reader.rs](../crates/tkm-hosts/tests/pi_reader.rs) |
 
 ### 6.5 Claude Code
@@ -451,7 +449,7 @@ Nothing pending. The E10.6 replay benchmark harness is merged; only its real-dat
 | S6.12-4 | Generated tokenimum skill for each harness | met | [fold_only_skill.rs](../crates/tkm-hosts/tests/fold_only_skill.rs) tests paths and installation for each host; [ADR 0026](../docs/adr/0026-fold-only-mode.md) records host locations. |
 | S6.12-5 | tkm run passes session/host env and folds at exit | met | [run_wrapper.rs](../crates/tkm-cli/tests/run_wrapper.rs) |
 | S6.12-6 | No live loop guard in fold-only | met | [fold_only_mode.rs](../crates/tkm-hosts/tests/fold_only_mode.rs) |
-| S6.12-2 | Discover stored sessions across hosts without transcript path | deferred | **(c)** [ADR 0018](../docs/adr/0018-fold-workers-and-idle-fold.md) item 5: only Claude derives a log path from the cwd; other hosts are marked `skipped`; see [fold.rs](../crates/tkmd/src/fold.rs). |
+| S6.12-2 | Discover stored sessions across hosts without transcript path | met | [fold.rs](../crates/tkmd/src/fold.rs) tests fixture-home discovery and folds every supported host without a hook path; [ADR 0018](../docs/adr/0018-fold-workers-and-idle-fold.md) records the lookup. |
 
 ### 6.13 Settings writers and install steps per harness
 

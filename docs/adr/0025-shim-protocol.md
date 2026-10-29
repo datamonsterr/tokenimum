@@ -119,10 +119,10 @@ its reply. This ADR fixes the wire contract between shim, `tkm-hook` (epic E4) a
     types added later are valid and kept; the reader interprets text and tool parts and ignores the
     rest. More than 20% skipped marks the session partial. The tool catalog lists tools in first-use order (built-ins; a non-built-in name with an
     underscore is `Mcp` with no server, since `<server>_<tool>` cannot be split reliably).
-13. **Deferred: legacy `storage/` JSON tree and `opencode export <id>` fallback.** A source
-    directory without `opencode.db` is `AdapterError::Unsupported`. v1.18.35 (the verified
-    version) uses the database; supporting the older layout needs fixtures from an older install
-    that are not available. Fold-only mode (run B) reports the gap and the user keeps live shims.
+13. **Legacy opencode storage and export.** The reader accepts the older session, message and
+    part JSON tree; when a database or legacy session cannot be read, it invokes `opencode export`
+    and parses the same message and part shapes. The export has a bounded output and deadline.
+    Synthetic fixture homes and a fake binary exercise both paths.
 14. **Pi reader.** Parses session JSONL v2/v3 (a missing header is `InvalidPayload`; version 1 is
     `Unsupported`). Entries form a tree; the active branch is the path from the last entry that has
     an `id` back to the root through `parentId`; every record with an `id` joins the tree, so a

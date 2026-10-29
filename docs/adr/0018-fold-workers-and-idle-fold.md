@@ -15,8 +15,9 @@ Date: 2026-10-29. Status: accepted (epic E4.5).
 4. **Errors.** Every fold error is one `errors.log` line and status `error`; a panic inside the
    blocking task becomes a `JoinError`, also logged. Nothing propagates to the daemon.
 5. **Log location.** The hook payload names it (`transcript_path`, `rollout_path`, `session_path`).
-   For sessions found only in the database, Claude's path is derived from the cwd slug; other hosts
-   are marked `skipped` until their readers add discovery.
+   When the payload lacks a path, the fold resolves the session in the host store described in
+   SPEC 6.4. Codex and Pi look up session filenames, Kimi derives its workdir hash, opencode
+   uses the shared database or export, and other hosts resolve their session-specific files.
 6. **Idle fold.** A session idle for 30 minutes (hook events or, via `notify` 8.2, writes to its
    log directory) is folded. The watcher task wakes every 60 s while sessions exist and sleeps on a
    `Notify` otherwise, so idle CPU is zero with no sessions. This replaces per-session deadlines
