@@ -129,16 +129,63 @@ fn modes_hosts_and_delegation() {
         PruneMode::Apply
     );
 }
+const TE_PROTECTED: &[&str] = &[
+    "bash",
+    "view",
+    "grep",
+    "glob",
+    "edit",
+    "create",
+    "str_replace",
+    "read_bash",
+    "stop_bash",
+    "list_bash",
+    "read_file",
+    "shell",
+    "apply_patch",
+    "Bash",
+    "Edit",
+    "Write",
+    "Read",
+    "Grep",
+    "Glob",
+    "MultiEdit",
+    "LS",
+    "NotebookRead",
+    "BashOutput",
+    "KillShell",
+    "KillBash",
+    "AskUserQuestion",
+    "EnterPlanMode",
+    "ExitPlanMode",
+    "TodoWrite",
+    "TaskCreate",
+    "TaskUpdate",
+    "TaskGet",
+    "TaskList",
+    "TaskOutput",
+    "TaskStop",
+    "Agent",
+    "Task",
+    "Skill",
+    "ToolSearch",
+    "SlashCommand",
+    "Monitor",
+    "WebFetch",
+    "WebSearch",
+];
 proptest! {
     #[test]
-    fn no_protected_tool_in_candidates(names in proptest::collection::vec(prop_oneof![Just("Bash".to_string()),Just("Skill".to_string()),Just("mcp__headroom__x".to_string()),Just("mcp__superorchestrator__y".to_string()),Just("custom__x".to_string()),"[a-z]{1,12}"], 1..30), used in proptest::collection::vec(any::<bool>(), 0..20)) {
-        let c=PruneConfig { protect: vec!["custom__*".into()],superorchestrator_adapter_enabled:true,..PruneConfig::default() };
+    fn no_protected_tool_in_candidates(names in proptest::collection::vec(prop_oneof![proptest::sample::select(TE_PROTECTED).prop_map(str::to_owned),Just("skill".to_string()),Just("task".to_string()),Just("read".to_string()),Just("write".to_string()),Just("mcp__headroom__x".to_string()),Just("mcp__superorchestrator__y".to_string()),Just("custom__x".to_string()),Just("exact".to_string()),"[a-z]{1,12}"], 1..30), used in proptest::collection::vec(any::<bool>(), 0..20), host_index in 0usize..3) {
+        let host = [Host::Claude, Host::Opencode, Host::Pi][host_index];
+        let c=PruneConfig { protect: vec!["custom__*".into(),"exact".into()],superorchestrator_adapter_enabled:true,..PruneConfig::default() };
         let mut state=PruneEvidence::default();
-        for name in names { for flag in &used { fold(&mut state,&session(&name, 2,*flag)); } for _ in 0..5 { fold(&mut state,&session(&name,2,false)); } }
-        let d=decide(&state,Host::Claude,&c,None,Timestamp(0));
-        let inventory = ["bash","view","grep","glob","edit","create","str_replace","read_bash","stop_bash","list_bash","read_file","shell","apply_patch","Bash","Edit","Write","Read","Grep","Glob","MultiEdit","LS","NotebookRead","BashOutput","KillShell","KillBash","AskUserQuestion","EnterPlanMode","ExitPlanMode","TodoWrite","TaskCreate","TaskUpdate","TaskGet","TaskList","TaskOutput","TaskStop","Agent","Task","Skill","ToolSearch","SlashCommand","Monitor","WebFetch","WebSearch"];
-        for name in d.candidates { prop_assert!(!inventory.contains(&name.as_str()) && !name.starts_with("mcp__headroom__") && !name.starts_with("mcp__superorchestrator__") && !name.starts_with("custom__")); }
-        prop_assert!(is_protected("Bash",Host::Claude,&c));
+        for name in names { for flag in &used { let mut s = session(&name, 2,*flag); s.host = host; fold(&mut state,&s); } for _ in 0..5 { let mut s = session(&name,2,false); s.host = host; fold(&mut state,&s); } }
+        let d=decide(&state,host,&c,None,Timestamp(0));
+        for name in d.candidates {
+            let host_protected = match host { Host::Opencode => ["skill","task"].contains(&name.as_str()), Host::Pi => ["read","bash","edit","write"].contains(&name.as_str()), _ => false };
+            prop_assert!(!TE_PROTECTED.contains(&name.as_str()) && !host_protected && !name.starts_with("mcp__headroom__") && !name.starts_with("mcp__superorchestrator__") && !name.starts_with("custom__") && name != "exact");
+        }
     }
 }
 
