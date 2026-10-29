@@ -24,7 +24,7 @@ impl Scratch {
         fs::create_dir_all(&path).unwrap();
         Self(path)
     }
-    /// Loads the redacted SQL dump into a fresh SQLite file.
+    /// Loads the redacted SQL dump into a fresh database file.
     fn database(&self) -> PathBuf {
         let sql = fs::read_to_string(concat!(
             env!("CARGO_MANIFEST_DIR"),
