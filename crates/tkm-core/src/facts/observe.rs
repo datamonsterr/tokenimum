@@ -950,6 +950,10 @@ fn probe_hit(probe: Probe, output: &str) -> bool {
         }
     })
 }
+#[expect(
+    clippy::case_sensitive_file_extension_comparisons,
+    reason = "Git reference names reserve the case-sensitive .lock suffix"
+)]
 fn git_ref_name(name: &str) -> bool {
     // git-check-ref-format rules, allowing one component for remote/tag names.
     !name.is_empty()
