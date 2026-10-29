@@ -401,15 +401,13 @@ impl Daemon {
         let Some(event) = adapter.map_event(request)? else {
             return Ok(noop_reply(request.host));
         };
-        let observed = (event.host, event.session_id.clone(), event.kind);
-        let recorded = self.record_hook_seen(
-            observed.0,
-            &observed.1,
-            observed.2,
-            request.host_event.as_deref(),
-        );
+        if event.kind == EventKind::ToolDone {
+            return self.tool_done(request, adapter.as_ref(), event);
+        }
+        let tag = (event.host, event.session_id.clone());
+        let kind = event.kind;
+        let recorded = self.observe_hook(&tag, kind, request.host_event.as_deref());
         let result = match event.kind {
-            EventKind::ToolDone => self.tool_done(request, adapter.as_ref(), event),
             EventKind::ToolBefore => Ok(self.deliver_pending(request, adapter.as_ref(), &event)),
             EventKind::SessionStart => self.session_start(request, adapter.as_ref(), event).await,
             EventKind::Prompt => self.prompt(request, adapter.as_ref(), event).await,
@@ -418,12 +416,7 @@ impl Daemon {
             _ => Ok(noop_reply(request.host)),
         };
         if !recorded {
-            self.record_hook_seen(
-                observed.0,
-                &observed.1,
-                observed.2,
-                request.host_event.as_deref(),
-            );
+            self.observe_hook(&tag, kind, request.host_event.as_deref());
         }
         result
     }
@@ -438,15 +431,7 @@ impl Daemon {
         let adapter = self.adapters.get(host);
         let result = match adapter.map_event(request) {
             Ok(Some(event)) if event.kind == EventKind::ToolDone => {
-                let observed = (event.host, event.session_id.clone(), event.kind);
-                let result = self.tool_done(request, adapter.as_ref(), event);
-                self.record_hook_seen(
-                    observed.0,
-                    &observed.1,
-                    observed.2,
-                    request.host_event.as_deref(),
-                );
-                result
+                self.tool_done(request, adapter.as_ref(), event)
             }
             Ok(_) => Ok(noop_reply(host)),
             Err(error) => Err(error.into()),
@@ -579,6 +564,7 @@ impl Daemon {
             envelope: None,
             loop_state: "watching",
             loop_evidence: None,
+            observed_hooks: std::collections::BTreeSet::new(),
         }
     }
 
@@ -686,6 +672,11 @@ impl Daemon {
     ) -> HResult<Reply> {
         let host = request.host;
         let Some(call) = event.call.take() else {
+            self.observe_hook(
+                &(event.host, event.session_id),
+                event.kind,
+                request.host_event.as_deref(),
+            );
             return Ok(noop_reply(host));
         };
         let now = self.clock.now_ms();
@@ -713,6 +704,12 @@ impl Daemon {
                 return Ok(noop_reply(host));
             };
             session.last_activity_ms = now;
+            self.record_hook_seen(
+                session,
+                event.kind,
+                request.host_event.as_deref(),
+                Some(now),
+            );
             if session.turn.is_none() {
                 *turn_seq += 1;
                 self.begin_turn(session, *turn_seq, String::new());
@@ -906,32 +903,38 @@ impl Daemon {
         }
     }
 
+    fn observe_hook(&self, tag: &Tag, kind: EventKind, native: Option<&str>) -> bool {
+        let mut state = lock(&self.state);
+        let Some(session) = state.sessions.get_mut(tag) else {
+            return false;
+        };
+        self.record_hook_seen(session, kind, native, None);
+        true
+    }
+
     fn record_hook_seen(
         &self,
-        host: Host,
-        session_id: &str,
+        session: &mut SessionState,
         kind: EventKind,
         native: Option<&str>,
-    ) -> bool {
-        let key = lock(&self.state)
-            .sessions
-            .get(&(host, session_id.to_owned()))
-            .map(|s| s.key.clone());
-        if let Some(key) = key {
-            lock(&self.outbox).events.push_back(EventInsert {
-                key,
-                kind: "hook.seen".into(),
-                inputs: serde_json::json!({"event":kind.as_str(),"native":native}),
-                template: "observation".into(),
-                params: serde_json::json!({}),
-                created_at: timestamp(self.clock.now_ms()),
-                evidence_ids: Vec::new(),
-                decision_id: None,
-            });
-            true
-        } else {
-            false
+        now: Option<u64>,
+    ) {
+        let name = native.unwrap_or(kind.as_str());
+        // Repeated hooks borrow the name: no allocation, timestamp or outbox lock.
+        if session.observed_hooks.contains(name) {
+            return;
         }
+        session.observed_hooks.insert(name.to_owned());
+        lock(&self.outbox).events.push_back(EventInsert {
+            key: session.key.clone(),
+            kind: "hook.seen".into(),
+            inputs: serde_json::json!({"event":kind.as_str(),"native":native}),
+            template: "observation".into(),
+            params: serde_json::json!({}),
+            created_at: timestamp(now.unwrap_or_else(|| self.clock.now_ms())),
+            evidence_ids: Vec::new(),
+            decision_id: None,
+        });
     }
 
     /// Queues a `loop.*` event row and publishes the redirect notice.

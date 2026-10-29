@@ -206,12 +206,17 @@ pub fn run_at(ctx: &mut Ctx<'_>, args: &StatusArgs, now_ms: i64) -> Result<ExitC
         } else {
             (ctx.load_config()?, None)
         };
-        let mut report = repo_report(&store, repo, &repo_config, &events, now_ms, today)
-            .map_err(|e| report::store_error(ctx, e))?;
+        let mut report = repo_report(
+            &store,
+            repo,
+            &repo_config,
+            &events,
+            now_ms,
+            today,
+            &redactor,
+        )
+        .map_err(|e| report::store_error(ctx, e))?;
         report.config_source = source;
-        for action in &mut report.last_actions {
-            action.explanation = redactor.redact(&action.explanation);
-        }
         repositories.push(report);
     }
     let report = StatusReport {
@@ -263,6 +268,7 @@ fn repo_report(
     events: &[EventRecord],
     now: i64,
     today: f64,
+    redactor: &tkm_decide::redact::Redactor,
 ) -> Result<RepoReport, StoreError> {
     let sessions = store.list_sessions_by_repo(repo, -1)?;
     let ids: BTreeSet<_> = sessions.iter().map(|s| s.id).collect();
@@ -409,14 +415,14 @@ fn repo_report(
         .take(5)
     {
         if let Some(session) = sessions.iter().find(|s| s.id == event.session_id)
-            && let Some(explanation) = why::explanation(store, event, session)?
+            && let Some(explanation) = why::explanation(store, event, session, redactor)?
         {
             let rendered = tkm_core::explain::render(&explanation);
             let summary = rendered
                 .split("What happened: ")
                 .nth(1)
                 .and_then(|s| s.split("\n\nWhy:").next())
-                .unwrap_or(&event.kind);
+                .unwrap_or_default();
             actions.push(ActionReport {
                 event_id: event.id,
                 time: report::time(event.created_at),

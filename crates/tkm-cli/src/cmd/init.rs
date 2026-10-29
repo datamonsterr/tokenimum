@@ -367,7 +367,7 @@ fn apply(
             record.shim_hashes.clear();
             record
                 .files_written
-                .retain(|path| !path.extension().is_some_and(|extension| extension == "ts"));
+                .retain(|path| path.extension().is_none_or(|extension| extension != "ts"));
         }
         if let Some(repo) = &target.repo {
             instructions::apply(

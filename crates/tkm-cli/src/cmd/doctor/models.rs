@@ -72,12 +72,9 @@ pub(super) fn probe(
             }
             Ok::<_, CliError>((outcomes, ledger.rows()))
         })?;
-    let (outcomes, attempts) = match worker.join() {
-        Ok(Ok(result)) => result,
-        _ => {
-            line(ctx, "fail", "model probes", "probe worker failed")?;
-            return Ok(false);
-        }
+    let Ok(Ok((outcomes, attempts))) = worker.join() else {
+        line(ctx, "fail", "model probes", "probe worker failed")?;
+        return Ok(false);
     };
     let store = daemon::open_db_for_write(&ctx.paths)?;
     let questions = serde_json::to_value(questions).map_err(state::failure)?;

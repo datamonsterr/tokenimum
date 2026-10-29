@@ -43,9 +43,26 @@ fn join(items: &[String]) -> String {
 /// Renders a validated family claim, or nothing when parameters are unsafe/incomplete.
 #[must_use]
 pub fn claim(candidate: &Candidate) -> String {
+    claim_redacted(candidate, str::to_owned)
+}
+/// Renders a fact with caller-provided redaction of its untrusted parameter values.
+///
+/// The original parameters are validated before redaction, so replacement markers do not
+/// bypass the parameter grammar. Only parameter values reach `redact`; code-owned template
+/// text is preserved. The resulting claim must still pass the completion-advice lint.
+#[must_use]
+pub fn claim_redacted(candidate: &Candidate, redact: impl Fn(&str) -> String) -> String {
     if !lint::validate(candidate) {
         return String::new();
     }
+    let usage = |form: &str, args: &str| {
+        let redacted = redact(form);
+        if extract::moves_shell(form) {
+            format!("`({redacted}{args})`")
+        } else {
+            format!("`{redacted}{args}`")
+        }
+    };
     let p = &candidate.params;
     let text=match candidate.family {
         Family::FormRepair=>{
@@ -54,7 +71,7 @@ pub fn claim(candidate: &Candidate) -> String {
         },
         Family::Boundary=>{
             let mut hosts:Vec<_>=p.hosts.iter().collect();hosts.sort_by(|a,b|b.1.cmp(a.1).then_with(||a.0.cmp(b.0)));
-            let hosts:Vec<_>=hosts.into_iter().take(3).map(|(h,_)|h.clone()).collect();
+            let hosts:Vec<_>=hosts.into_iter().take(3).map(|(h,_)|redact(h)).collect();
             format!("Outbound connections to {} are refused here; nothing can be fetched from them.",join(&hosts))
         },
         Family::EmptyProbe=>"This checkout has no git remote and no branches, tags or unreachable objects beyond HEAD; its history ends at the checked-out commit.".into(),
@@ -62,14 +79,15 @@ pub fn claim(candidate: &Candidate) -> String {
             if p.rule==Some(LabelRule::Separator){format!("{} takes dotted test labels (`module.Class.test`, not `module::Class::test`).",usage(&p.form,""))}
             else if let Some(LabelRule::Strip(prefix))=&p.rule{
                 let Some((bad,good))=p.examples.iter().min_by_key(|(bad,_)|bad.len()) else {return String::new();};
-                format!("{} takes test labels without the `{prefix}` prefix (`{good}`, not `{bad}`).",usage(&p.form,""))
+                format!("{} takes test labels without the `{}` prefix (`{}`, not `{}`).",usage(&p.form,""),redact(prefix),redact(good),redact(bad))
             }else{return String::new();}
         },
         Family::EnvValue=>{
             let Some(good)=extract::best(&p.good) else {return String::new();};
             let bad=p.bad.keys().find(|bad|bad.as_str()!=good);
-            let ending=bad.map_or_else(||".".into(),|bad|format!(", `{bad}` does not."));
-            format!("Code that imports the project needs `{}` set here: `{}={good}` works{ending}",p.variable,p.variable)
+            let ending=bad.map_or_else(||".".into(),|bad|format!(", `{}` does not.",redact(bad)));
+            let variable=redact(&p.variable);
+            format!("Code that imports the project needs `{variable}` set here: `{variable}={}` works{ending}",redact(good))
         },
     };
     if lint::lint_ok(&text) {

@@ -9,6 +9,7 @@ use crate::{
 use std::process::ExitCode;
 use tkm_core::facts::{Candidate, Family, Params, Scope};
 use tkm_core::model::Timestamp;
+use tkm_decide::redact::Redactor;
 use tkm_store::{FactRecord, FactState};
 
 /// Execute `tkm facts` or retire a repository fact.
@@ -67,17 +68,12 @@ pub fn run(ctx: &mut Ctx<'_>, args: &FactsArgs) -> Result<ExitCode, CliError> {
     }
     let redactor = report::redactor(ctx);
     for fact in facts {
-        let claim = claim(&fact);
+        let claim = claim(&fact, &redactor);
+        let id = report::line(&redactor.redact(&fact.fact_id));
         if args.brief {
-            let rendered = redactor.redact(&format!("{}: {claim}", report::line(&fact.fact_id)));
-            writeln!(ctx.stdout, "{rendered}")?;
+            writeln!(ctx.stdout, "{id}: {claim}")?;
         } else {
-            let rendered = redactor.redact(&format!(
-                "{} [{}]: {claim}",
-                report::line(&fact.fact_id),
-                fact.state.as_str()
-            ));
-            writeln!(ctx.stdout, "{rendered}")?;
+            writeln!(ctx.stdout, "{id} [{}]: {claim}", fact.state.as_str())?;
             writeln!(
                 ctx.stdout,
                 "  Evidence: {} confirmations, {} contradictions; fired {}/{} sessions; state changed {}",
@@ -93,7 +89,7 @@ pub fn run(ctx: &mut Ctx<'_>, args: &FactsArgs) -> Result<ExitCode, CliError> {
 }
 
 #[must_use]
-pub(crate) fn claim(fact: &FactRecord) -> String {
+pub(crate) fn claim(fact: &FactRecord, redactor: &Redactor) -> String {
     let family = serde_json::from_value::<Family>(serde_json::Value::String(fact.family.clone()));
     let params = fact
         .text_params
@@ -111,13 +107,14 @@ pub(crate) fn claim(fact: &FactRecord) -> String {
             scope,
             evidence: Vec::new(),
         };
-        let rendered = tkm_core::facts::render::claim(&candidate);
+        let rendered =
+            tkm_core::facts::render::claim_redacted(&candidate, |value| redactor.redact(value));
         if !rendered.is_empty() {
             return rendered;
         }
     }
     format!(
         "{} (stored evidence; claim unavailable)",
-        report::line(&fact.family)
+        report::line(&redactor.redact(&fact.family))
     )
 }
