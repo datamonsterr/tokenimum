@@ -278,10 +278,10 @@ pub(super) fn save_backup(
             Err(error) => Err(error.into()),
         }
     })();
-    let cleanup = fs::remove_file(&temporary);
-    let created = result?;
-    cleanup?;
-    Ok(created)
+    // Best-effort cleanup: losing `created` here would leave a fresh backup
+    // that the caller could no longer remove on a conflict.
+    let _ = fs::remove_file(&temporary);
+    result
 }
 
 /// Publishes `replacement` after saving the first-write backup when requested.

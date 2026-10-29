@@ -49,6 +49,10 @@ indentation detected at the insertion point.
   safe `std` does not offer; such a process can already edit the settings file itself.
 - Install creating a file that did not exist writes an empty `<file>.tkm-bak` meaning "did not
   exist"; uninstall deletes the file only with that marker and only when an empty object remains.
+- Accepted residual risks: a crash between writing the marker and the rename leaves a stale marker
+  (a later uninstall may then delete a settings file that holds only `{}`), and two installers
+  racing on the same file can remove the backup one of them relied on (no person data is lost;
+  uninstall then leaves `{}` instead of deleting, or cannot restore exact original bytes).
 - Idempotence: a second install computes no change and reports no changed files.
 
 ### Prune writer (Claude Code `permissions.deny`)
@@ -77,4 +81,4 @@ string; otherwise compact JSON of the input with object keys sorted. Output dige
 first line starting with an error marker (`error`, `Error`, `Exit code`, `fatal`, `panicked`) if
 any, else the last non-empty line. Both are truncated to 512 characters. Live events and log
 readers use the same functions (`tkm_hosts::digest`), so E2 sees equal digests for the same call.
-Digests are not redacted; E3 redacts before any external call. Codex `apply_patch` updates digest by path (and move destination) only, because live patch hunks and rollout unified diffs are not comparable.
+Digests are not redacted; E3 redacts before any external call. Codex `apply_patch` updates digest by path (and move destination) only, because live patch hunks and rollout unified diffs are not comparable. Two different updates of one file therefore share a digest; consumers that count repeats (E2 loop guard, E3 digests) must not treat equal `apply_patch` digests alone as a stuck loop.
