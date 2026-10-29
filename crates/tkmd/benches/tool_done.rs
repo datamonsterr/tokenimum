@@ -6,6 +6,7 @@
 use std::collections::BTreeMap;
 use std::hint::black_box;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use criterion::{BatchSize, Criterion, criterion_group, criterion_main};
 use tkm_config::paths::Paths;
@@ -27,6 +28,51 @@ const STOP: &str = include_str!("../../../fixtures/claude/hooks/Stop.json");
 const MODEL: &str = "benchmark/model-20260101";
 
 struct StuckDecider;
+
+struct ToggleAdapter {
+    inner: tkm_hosts::claude::ClaudeAdapter,
+    blind: Arc<AtomicBool>,
+}
+
+impl tkm_hosts::HostAdapter for ToggleAdapter {
+    fn host(&self) -> Host {
+        Host::Claude
+    }
+    fn map_event(
+        &self,
+        request: &Request,
+    ) -> Result<Option<tkm_core::model::HookEvent>, tkm_hosts::AdapterError> {
+        self.inner.map_event(request)
+    }
+    fn render_reply(&self, request: &Request, action: &tkm_proto::ReplyAction) -> String {
+        if request.event == EventKind::ToolDone && self.blind.load(Ordering::Relaxed) {
+            String::new()
+        } else {
+            self.inner.render_reply(request, action)
+        }
+    }
+    fn read_session(
+        &self,
+        source: &tkm_hosts::SessionSource,
+    ) -> Result<tkm_core::model::Session, tkm_hosts::AdapterError> {
+        self.inner.read_session(source)
+    }
+    fn install(
+        &self,
+        context: &tkm_hosts::InstallContext,
+    ) -> Result<tkm_hosts::InstallReport, tkm_hosts::AdapterError> {
+        self.inner.install(context)
+    }
+    fn uninstall(
+        &self,
+        context: &tkm_hosts::InstallContext,
+    ) -> Result<tkm_hosts::InstallReport, tkm_hosts::AdapterError> {
+        self.inner.uninstall(context)
+    }
+    fn prune_target(&self) -> tkm_hosts::PruneTarget {
+        self.inner.prune_target()
+    }
+}
 
 impl Decider for StuckDecider {
     fn decide(&self, _request: DecideRequest) -> BoxFuture<'_, Outcome> {
@@ -100,6 +146,11 @@ fn tool_done(c: &mut Criterion) {
     options.settings = Arc::new(FixedSettings::new(Settings::default()));
     options.decider = Arc::new(StuckDecider);
     let daemon: Arc<Daemon> = Daemon::new(options);
+    let blind = Arc::new(AtomicBool::new(false));
+    daemon.adapters().register(Box::new(ToggleAdapter {
+        inner: tkm_hosts::claude::ClaudeAdapter::new(),
+        blind: blind.clone(),
+    }));
     daemon.calibration().put(
         CalibrationKey {
             model_version: MODEL.into(),
@@ -136,6 +187,9 @@ fn tool_done(c: &mut Criterion) {
     );
     drop(monitor);
     runtime.block_on(daemon.settle());
+    blind.store(true, Ordering::Relaxed);
+    assert_eq!(daemon.handle_tool_done(&failing).stdout, "");
+    blind.store(false, Ordering::Relaxed);
     assert!(matches!(
         daemon.handle_tool_done(&failing).action,
         tkm_proto::ReplyAction::Inject { .. }
@@ -168,6 +222,9 @@ fn tool_done(c: &mut Criterion) {
                     daemon.handle_tool_done(&failing);
                 }
                 runtime.block_on(daemon.settle());
+                blind.store(true, Ordering::Relaxed);
+                daemon.handle_tool_done(&failing);
+                blind.store(false, Ordering::Relaxed);
             },
             |()| black_box(daemon.handle_tool_done(black_box(&failing))),
             BatchSize::PerIteration,
