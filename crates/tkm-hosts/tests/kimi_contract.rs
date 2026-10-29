@@ -3,7 +3,7 @@
 
 use serde_json::{Value, json};
 use std::{collections::BTreeMap, fs, path::PathBuf};
-use tkm_core::model::{Call, HookEvent};
+use tkm_core::model::{Call, HookEvent, StopReason};
 use tkm_hosts::{
     AdapterError, HostAdapter, PruneTarget,
     kimi::{ENV_MARKERS, EXPECTED_EVENTS, KimiAdapter},
@@ -87,6 +87,11 @@ fn every_kimi_hook_fixture_maps_to_expected_event() {
             let mut expected =
                 HookEvent::new(Host::Kimi, kind, "9a1b2c3d-4e5f-6a7b-8c9d-0e1f2a3b4c5d");
             expected.cwd = Some(PathBuf::from("/home/user/project"));
+
+            if kind == EventKind::TurnEnd {
+                // Kimi `Stop` fires when the agent ends its own turn.
+                expected.stopped_by = Some(StopReason::OwnStop);
+            }
 
             if kind == EventKind::Prompt {
                 expected.prompt = Some(p["prompt"].as_str().unwrap().to_owned());

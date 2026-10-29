@@ -149,7 +149,7 @@ fn install_dry_run_does_not_modify_disk() {
     let report = adapter.install(&ctx).unwrap();
 
     assert!(report.dry_run);
-    assert!(!report.changed_files.is_empty());
+    assert_ne!(report.changed_files, [] as [std::path::PathBuf; 0]);
     assert!(!temp.backup_path().exists());
     assert_eq!(fs::read(temp.config_path()).unwrap(), original);
 }
@@ -198,11 +198,11 @@ fn created_file_is_deleted_on_uninstall() {
 #[test]
 fn instruction_when_hooks_disabled() {
     let temp = Scratch::new();
-    let disabled_config = r#"
+    let disabled_config = r"
 [hooks]
 enabled = false
 default_timeout_secs = 20
-"#;
+";
     fs::write(temp.config_path(), disabled_config).unwrap();
     let adapter = CodewhaleAdapter::new();
 
