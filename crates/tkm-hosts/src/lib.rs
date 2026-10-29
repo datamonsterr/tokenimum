@@ -9,6 +9,7 @@
 pub mod claude;
 pub mod codex;
 pub mod digest;
+pub mod fold_only;
 pub mod opencode;
 pub mod pi;
 pub mod shim;
