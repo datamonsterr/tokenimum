@@ -118,3 +118,22 @@ fn doctor_bounds_harness_version_to_one_second() {
         "{output:?}"
     );
 }
+
+#[test]
+fn doctor_persists_fallback_then_clears_it_after_repair() {
+    use tkm_hosts::{HostAdapter, InstallContext};
+    use tkm_proto::Host;
+    let fixture = Fixture::new();
+    fixture.init();
+    fs::write(fixture.home.join(".claude/settings.json"), "{\"hooks\":{}}\n").unwrap();
+    fixture.run(&["doctor"]);
+    let store = tkm_store::Store::open(&fixture.paths.db).unwrap();
+    assert!(store.host_fold_only(Host::Claude).unwrap());
+    let plan = stdout(&fixture.run(&["init", "--dry-run", "--only", "claude"]));
+    assert!(plan.contains("claude: fold-only"), "{plan}");
+    tkm_hosts::claude::ClaudeAdapter.install(&InstallContext {
+        agent_home: fixture.home.join(".claude"), repo_root: None, dry_run: false,
+    }).unwrap();
+    fixture.run(&["doctor"]);
+    assert!(!store.host_fold_only(Host::Claude).unwrap());
+}
