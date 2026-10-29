@@ -2,7 +2,7 @@
 use crate::{SkillCandidate, SkillSource, detect::AdapterHealth, process};
 use serde::Deserialize;
 use std::{
-    collections::HashSet,
+    collections::{BTreeMap, HashSet},
     ffi::OsString,
     path::{Path, PathBuf},
     sync::Arc,
@@ -14,12 +14,22 @@ use tkm_proto::Host;
 pub struct OtherskillSource {
     path: OsString,
     health: Arc<AdapterHealth>,
+    env: BTreeMap<String, String>,
 }
 impl OtherskillSource {
     /// Creates an adapter.
     #[must_use]
     pub fn new(path: OsString, health: Arc<AdapterHealth>) -> Self {
-        Self { path, health }
+        Self::new_with_env(path, health, BTreeMap::new())
+    }
+    /// Creates an adapter with an explicit inherited environment snapshot.
+    #[must_use]
+    pub fn new_with_env(
+        path: OsString,
+        health: Arc<AdapterHealth>,
+        env: BTreeMap<String, String>,
+    ) -> Self {
+        Self { path, health, env }
     }
 }
 #[derive(Deserialize)]
@@ -56,6 +66,7 @@ impl SkillSource for OtherskillSource {
         let result = (|| {
             let bin = process::binary(&self.path, "otherskill")?;
             let mut cmd = std::process::Command::new(bin);
+            cmd.envs(&self.env);
             cmd.args([
                 "select",
                 "--json",

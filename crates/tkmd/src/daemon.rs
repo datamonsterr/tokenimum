@@ -359,6 +359,8 @@ impl Daemon {
     pub async fn shutdown(self: &Arc<Self>) {
         self.settle().await;
         self.flush_now().await;
+        let ledger = self.ledger.clone();
+        let _ = tokio::task::spawn_blocking(move || ledger.flush()).await;
         for task in lock(&self.tasks).drain(..) {
             task.abort();
         }
@@ -573,7 +575,9 @@ impl Daemon {
     }
 
     fn escalation_mode(&self, session: &SessionState) -> EscalationMode {
-        if self.escalator.handles(session.host, &session.session_id) {
+        if session.settings.superorchestrator_mode != tkm_integrations::detect::Mode::Off
+            && self.escalator.handles(session.host, &session.session_id)
+        {
             EscalationMode::DelegatedWithAdapter
         } else if session.delegated {
             EscalationMode::DelegatedNoAdapter
@@ -809,6 +813,7 @@ impl Daemon {
                                             .root
                                             .clone()
                                             .unwrap_or_else(|| session.cwd.clone()),
+                                        decide_enabled: settings.decide.enabled,
                                         with_adapter: matches!(
                                             mode,
                                             EscalationMode::DelegatedWithAdapter

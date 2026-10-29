@@ -264,6 +264,14 @@ fn response(reader: &mut impl BufRead, id: u64) -> io::Result<()> {
                         .pointer("/result/protocolVersion")
                         .and_then(serde_json::Value::as_str)
                         .is_none())
+                || (id == 2
+                    && !value
+                        .pointer("/result/content")
+                        .and_then(serde_json::Value::as_array)
+                        .is_some_and(|items| !items.is_empty())
+                    && !value
+                        .pointer("/result/structuredContent")
+                        .is_some_and(serde_json::Value::is_object))
                 || value
                     .pointer("/result/isError")
                     .and_then(serde_json::Value::as_bool)
@@ -316,14 +324,15 @@ impl SuperorchestratorEscalator {
         if let Some(config) = &run.config_dir {
             cmd.env("SUPERORCHESTRATOR_CONFIG_DIR", config);
         }
+        process::prepare_group(&mut cmd);
         let mut child = cmd.spawn()?;
         let Some(mut input) = child.stdin.take() else {
-            let _ = child.kill();
+            process::kill_group(&mut child);
             let _ = child.wait();
             return Err(io::Error::other("missing stdin"));
         };
         let Some(output) = child.stdout.take() else {
-            let _ = child.kill();
+            process::kill_group(&mut child);
             let _ = child.wait();
             return Err(io::Error::other("missing stdout"));
         };
@@ -354,7 +363,7 @@ impl SuperorchestratorEscalator {
         let result = rx
             .recv_timeout(deadline.saturating_duration_since(Instant::now()))
             .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "MCP timeout"));
-        let _ = child.kill();
+        process::kill_group(&mut child);
         let _ = child.wait();
         result?
     }
@@ -431,6 +440,8 @@ impl Escalator for SuperorchestratorEscalator {
 pub trait SpendSink: Send + Sync {
     /// Records one decision's cost.
     fn record(&self, purpose: &str, model: &str, cost_usd: f64, run_id: Option<&str>);
+    /// Completes buffered writes, if the sink buffers records.
+    fn flush(&self) {}
 }
 /// Spend sink that discards records.
 #[derive(Default)]

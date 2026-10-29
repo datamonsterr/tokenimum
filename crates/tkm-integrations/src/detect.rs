@@ -197,6 +197,7 @@ impl Probe {
                 };
                 if config {
                     let mut cmd = std::process::Command::new(bin);
+                    cmd.envs(&self.env);
                     cmd.arg(if name == "otherskill" {
                         "--help"
                     } else {

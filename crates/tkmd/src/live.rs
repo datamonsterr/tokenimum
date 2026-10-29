@@ -51,6 +51,7 @@ pub(crate) struct EscalationJob {
     pub calls: Vec<Call>,
     pub repo_root: PathBuf,
     pub with_adapter: bool,
+    pub decide_enabled: bool,
     pub delegated_run: Option<tkm_integrations::superorchestrator::DelegatedRun>,
     pub command: Option<String>,
     pub secrets: BTreeMap<String, String>,
@@ -300,7 +301,7 @@ impl Daemon {
             && (job.delegated_run.is_some() || self.escalator.handles(job.host, &job.session_id));
         let mut suggest = Suggest::Redirect;
         let mut suggest_probs = BTreeMap::new();
-        if use_adapter {
+        if use_adapter && job.decide_enabled {
             let home = self
                 .env
                 .iter()
@@ -433,7 +434,7 @@ mod tests {
             let marker = dir.path().join("marker");
             let mcp = if succeeds {
                 format!(
-                    r#"while IFS= read -r line; do printf '%s\n' "$line" >> '{}'; case "$line" in *'"id":1'*) echo '{{"jsonrpc":"2.0","id":1,"result":{{"protocolVersion":"2025-06-18"}}}}';; *'"id":2'*) echo '{{"jsonrpc":"2.0","id":2,"result":{{}}}}';; esac; done"#,
+                    r#"while IFS= read -r line; do printf '%s\n' "$line" >> '{}'; case "$line" in *'"id":1'*) echo '{{"jsonrpc":"2.0","id":1,"result":{{"protocolVersion":"2025-06-18"}}}}';; *'"id":2'*) echo '{{"jsonrpc":"2.0","id":2,"result":{{"content":[{{"type":"text","text":"ok"}}]}}}}';; esac; done"#,
                     log.display()
                 )
             } else {
@@ -487,6 +488,7 @@ mod tests {
                 calls: Vec::new(),
                 repo_root: dir.path().to_path_buf(),
                 with_adapter: true,
+                decide_enabled: true,
                 delegated_run: run,
                 command: Some(format!("printf fallback > '{}'", marker.display())),
                 secrets: BTreeMap::new(),

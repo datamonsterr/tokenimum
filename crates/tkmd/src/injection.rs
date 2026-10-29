@@ -346,17 +346,21 @@ impl Daemon {
                 }
             }
         }
-        for skill in
-            self.skills
-                .candidates_in(&context.repo, context.host, &context.prompt, &context.cwd)
-        {
-            items.push(InjectCandidate {
-                id: format!("skill:{}", skill.id),
-                source: Source::Skills,
-                tokens: inject::estimate_tokens(&skill.text),
-                text: skill.text,
-                fire_gate_prevents: false,
-            });
+        if context.settings.otherskill_mode != tkm_integrations::detect::Mode::Off {
+            for skill in self.skills.candidates_in(
+                &context.repo,
+                context.host,
+                &context.prompt,
+                &context.cwd,
+            ) {
+                items.push(InjectCandidate {
+                    id: format!("skill:{}", skill.id),
+                    source: Source::Skills,
+                    tokens: inject::estimate_tokens(&skill.text),
+                    text: skill.text,
+                    fire_gate_prevents: false,
+                });
+            }
         }
         Ok(items)
     }

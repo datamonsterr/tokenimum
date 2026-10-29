@@ -9,22 +9,24 @@ use std::{
 };
 
 pub(crate) fn binary(path: &OsStr, name: &str) -> Option<PathBuf> {
-    std::env::split_paths(path).map(|p| p.join(name)).find(|p| {
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            p.metadata()
-                .is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
-        }
-        #[cfg(not(unix))]
-        {
-            p.is_file()
-        }
-    })
+    std::env::split_paths(path)
+        .filter_map(|p| std::path::absolute(p.join(name)).ok())
+        .find(|p| {
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                p.metadata()
+                    .is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+            }
+            #[cfg(not(unix))]
+            {
+                p.is_file()
+            }
+        })
 }
 const MAX_OUTPUT: u64 = 1024 * 1024;
 
-fn kill_group(child: &mut std::process::Child) {
+pub(crate) fn kill_group(child: &mut std::process::Child) {
     #[cfg(unix)]
     {
         let _ = Command::new("/bin/kill")
@@ -36,12 +38,28 @@ fn kill_group(child: &mut std::process::Child) {
     let _ = child.kill();
 }
 
-pub(crate) fn output(mut cmd: Command, timeout: Duration) -> io::Result<Vec<u8>> {
+pub(crate) fn prepare_group(cmd: &mut Command) {
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt;
         cmd.process_group(0);
     }
+}
+
+pub(crate) fn strip_orchestrator_env(cmd: &mut Command) {
+    let keys: Vec<_> = std::env::vars_os()
+        .map(|(key, _)| key)
+        .chain(cmd.get_envs().map(|(key, _)| key.to_os_string()))
+        .filter(|key| key.to_string_lossy().starts_with("SUPERORCHESTRATOR_"))
+        .collect();
+    for key in keys {
+        cmd.env_remove(key);
+    }
+}
+
+pub(crate) fn output(mut cmd: Command, timeout: Duration) -> io::Result<Vec<u8>> {
+    strip_orchestrator_env(&mut cmd);
+    prepare_group(&mut cmd);
     let mut child = cmd.stdout(Stdio::piped()).stderr(Stdio::null()).spawn()?;
     let stdout = child
         .stdout

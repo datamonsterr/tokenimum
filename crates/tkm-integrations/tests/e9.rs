@@ -236,7 +236,7 @@ fn escalation_sends_mcp_and_times_out() {
         dir.path(),
         "superorchestrator",
         &format!(
-            "[ -n \"$SUPERORCHESTRATOR_RUN_TOKEN\" ] || exit 1; [ -z \"$UNRELATED_SECRET\" ] || exit 1; while IFS= read -r line; do printf '%s\\n' \"$line\" >> '{}'; case \"$line\" in *'\"id\":1'*) echo '{{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{{\"protocolVersion\":\"2025-06-18\"}}}}';; *'\"id\":2'*) echo '{{\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{{}}}}';; esac; done",
+            "[ -n \"$SUPERORCHESTRATOR_RUN_TOKEN\" ] || exit 1; [ -z \"$UNRELATED_SECRET\" ] || exit 1; while IFS= read -r line; do printf '%s\\n' \"$line\" >> '{}'; case \"$line\" in *'\"id\":1'*) echo '{{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{{\"protocolVersion\":\"2025-06-18\"}}}}';; *'\"id\":2'*) echo '{{\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{{\"content\":[{{\"type\":\"text\",\"text\":\"ok\"}}]}}}}';; esac; done",
             log.display()
         ),
     );

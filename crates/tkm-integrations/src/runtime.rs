@@ -42,7 +42,11 @@ impl Integrations {
         let skills_health = Arc::new(AdapterHealth::new(clock.clone()));
         Self {
             runs: RunDetector::new(clock),
-            skills: OtherskillSource::new(path.clone(), skills_health.clone()),
+            skills: OtherskillSource::new_with_env(
+                path.clone(),
+                skills_health.clone(),
+                env.clone(),
+            ),
             escalator: SuperorchestratorEscalator::new(
                 path.clone(),
                 home.clone(),
@@ -122,11 +126,12 @@ impl Integrations {
     /// Finds a delegated run without subprocesses or filesystem access.
     #[must_use]
     pub fn delegated_run(&self, cwd: &Path, env: &BTreeMap<String, String>) -> Option<String> {
-        if !self.superorchestrator_enabled() {
-            return None;
-        }
         RunDetector::from_env(env)
-            .or_else(|| self.runs.match_cwd(cwd))
+            .or_else(|| {
+                self.superorchestrator_enabled()
+                    .then(|| self.runs.match_cwd(cwd))
+                    .flatten()
+            })
             .map(|r| r.run_id)
     }
     /// Refreshes the cached run list, subject to its rate limit.
