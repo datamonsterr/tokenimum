@@ -8,7 +8,7 @@
 //! Each test sets `XDG_RUNTIME_DIR`, `XDG_DATA_HOME`, and `HOME` on the child
 //! process to avoid touching the real user environment.
 
-use std::io::{Read, Write};
+use std::io::{Read, Seek, Write};
 use std::os::unix::ffi::OsStringExt;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
@@ -484,7 +484,6 @@ fn test_oversize_stdin_fails_open() {
     let tmp = TempDir::new().unwrap();
     let mut input = tempfile::tempfile().unwrap();
     input.write_all(&vec![b'x'; MAX_REQUEST_FRAME + 1]).unwrap();
-    use std::io::Seek;
     input.rewind().unwrap();
     let output = hook_cmd(&tmp, "cursor", "tool_done")
         .stdin(Stdio::from(input))
