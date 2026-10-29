@@ -199,12 +199,95 @@ pub enum FactEventKind {
     /// Candidate or active fact retired.
     Retired,
 }
+
 /// Folds a finished session without I/O. Partial and replayed sessions do not train facts.
+///
+/// SPEC 7.1: optional scores filter new candidates at `t_low`/`t_high`;
+/// absent verdicts use code evidence and one extra promotion confirmation.
+/// Code contradictions always count, independently of decision scores.
 #[must_use]
 pub fn update(
-    state: FactsState,
-    _input: &SessionEvidence,
-    _cfg: &FactsConfig,
+    mut state: FactsState,
+    input: &SessionEvidence,
+    cfg: &FactsConfig,
 ) -> (FactsState, Vec<FactEvent>) {
-    (state, Vec::new())
+    if input.session.partial
+        || state.processed.contains(&input.session.session_id)
+        || !valid_config(cfg)
+    {
+        return (state, Vec::new());
+    }
+    let digest = observe::observe(&input.session);
+    for candidate in extract::extract(&digest) {
+        if !decision_allows(input, &candidate.id) {
+            continue;
+        }
+        if let Some(existing) = state.facts.get_mut(&candidate.id) {
+            extract::merge(&mut existing.candidate, candidate);
+        } else {
+            state.facts.insert(
+                candidate.id.clone(),
+                Fact {
+                    candidate,
+                    life: lifecycle::Lifecycle::default(),
+                },
+            );
+        }
+    }
+    let mut events = Vec::new();
+    for fact in state.facts.values_mut() {
+        if matches!(fact.candidate.scope,Scope::Host(host) if host!=input.session.host) {
+            continue;
+        }
+        let id = &fact.candidate.id;
+        let score = input.decisions.as_ref().and_then(|d| d.scores.get(id));
+        let code_only = !score.is_some_and(|s| {
+            s.stable.is_some_and(f64::is_finite) && s.safe.is_some_and(f64::is_finite)
+        }) || !decision_allows(input, id);
+        let model_contradiction = input.decisions.as_ref().is_some_and(|d| {
+            valid_thresholds(d)
+                && score
+                    .and_then(|s| s.contradicts)
+                    .is_some_and(|s| s.is_finite() && s > d.t_high)
+        });
+        let injected = input.injected_ids.contains(&fact.candidate.id);
+        let evidence = extract::exercise(fact, &digest, injected);
+        events.extend(lifecycle::fold(
+            fact,
+            evidence,
+            code_only,
+            model_contradiction,
+            input,
+            cfg,
+        ));
+    }
+    state.processed.insert(input.session.session_id.clone());
+    (state, events)
+}
+fn valid_config(cfg: &FactsConfig) -> bool {
+    cfg.promote_confirmations > 0
+        && cfg.fire_min_sessions > 0
+        && cfg.recency_decay.is_finite()
+        && (0.0..=1.0).contains(&cfg.recency_decay)
+        && cfg.contradiction_weight.is_finite()
+        && cfg.contradiction_weight >= 0.0
+        && cfg.fire_gate.is_finite()
+        && (0.0..=1.0).contains(&cfg.fire_gate)
+}
+fn valid_thresholds(d: &Decisions) -> bool {
+    d.t_low.is_finite()
+        && d.t_high.is_finite()
+        && (0.0..=1.0).contains(&d.t_low)
+        && (d.t_low..=1.0).contains(&d.t_high)
+}
+fn decision_allows(input: &SessionEvidence, id: &str) -> bool {
+    input.decisions.as_ref().is_none_or(|d| {
+        !valid_thresholds(d)
+            || d.scores.get(id).is_none_or(|s| {
+                s.stable
+                    .is_none_or(|v| v.is_finite() && (d.t_low..=1.0).contains(&v))
+                    && s.safe
+                        .is_none_or(|v| v.is_finite() && (d.t_high..=1.0).contains(&v))
+            })
+    })
 }

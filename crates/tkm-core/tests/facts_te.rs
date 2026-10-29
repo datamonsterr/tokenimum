@@ -1,5 +1,6 @@
 // Portions ported from microsoft/TokenEconomizer (tests/test_envfacts.py and tests/test_envfacts_args.py, commit d0675a3),
 // Copyright (c) Microsoft Corporation, licensed under the Apache License, Version 2.0.
+#![forbid(unsafe_code)]
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 use std::collections::{BTreeMap, BTreeSet};
 use tkm_core::facts::{
