@@ -46,22 +46,31 @@ It does not contact the socket, spawn the daemon, read payload stdin, or touch a
 
 The client connects synchronously to the daemon's Unix-domain stream socket (`tkmd.sock`) resolved from `tkm_config::Paths::from_env()`.
 
-### Bounding the connect
+### Bounding the connect in safe Rust
 
 Per the Linux `unix(7)` manual:
-- Unix-domain stream sockets (`AF_UNIX`, `SOCK_STREAM`) operate entirely within the kernel's virtual filesystem and IPC subsystem. Unlike TCP sockets, there are no network hops, ARP resolutions, or handshakes.
+- Unix-domain stream sockets (`AF_UNIX`, `SOCK_STREAM`) operate entirely within the kernel's virtual filesystem and IPC subsystem.
 - If the socket file does not exist, `connect(2)` immediately returns `ENOENT`.
 - If the socket file exists but no process is listening, `connect(2)` immediately returns `ECONNREFUSED`.
 - If a server is listening and the listen queue has room, `connect(2)` succeeds immediately in microseconds.
-- If the listen queue is full, a non-blocking connect returns `EAGAIN` (`io::ErrorKind::WouldBlock`).
-- `tkm_proto::CONNECT_TIMEOUT` (2 ms) reflects the target contract budget. When `UnixStream::connect` returns `WouldBlock`, the client treats this as `DaemonBusy`: the daemon is running but under heavy load, so the client logs the busy state, does **not** attempt to spawn a second daemon, prints the host no-op reply, and exits 0.
+- If the listen queue is full, a blocking `connect(2)` blocks until backlog space becomes available (`EAGAIN` only applies when non-blocking flags are set).
 
-### Read timeout
+Standard Rust `std::os::unix::net::UnixStream` does not provide a timed connect, and workspace rules strictly forbid `unsafe` code (`#![forbid(unsafe_code)]`) or extra dependencies such as `socket2`.
+To strictly bound connect latency in safe Rust:
+- `tkm-hook` spawns a background thread running `UnixStream::connect` and awaits the result over an `std::sync::mpsc` channel with `recv_timeout(CONNECT_BOUND)`.
+- `CONNECT_BOUND` is set to 10 ms (allowing a small margin over `tkm_proto::CONNECT_TIMEOUT` of 2 ms to absorb thread scheduling jitter on busy CI runners).
+- On timeout, the outcome is treated as `DaemonBusy` (daemon running but listen backlog saturated). The hook logs "daemon busy", does **not** attempt to spawn a redundant daemon, outputs the host no-op reply, and does not join the worker thread (the hook process exit cleanly ends it).
 
-Once connected, `tkm-hook` sets `stream.set_read_timeout(Some(request.event.read_timeout()))`:
-- `SessionStart`: 300 ms
-- `Prompt`: 1,500 ms
-- `ToolBefore`, `ToolDone`, `TurnEnd`, `SessionEnd`: 5 ms
+### Write and read timeout strategy
+
+1. **Write timeout**:
+   Before writing the request frame, `tkm-hook` sets `stream.set_write_timeout(Some(request.event.read_timeout().max(Duration::from_millis(50))))`.
+   When sending large tool payloads (up to 8 MiB) against a daemon that accepted the connection but stopped reading, the kernel socket buffer would otherwise fill up and cause `write_frame` to block indefinitely. The 50 ms floor guarantees prompt failure and recovery.
+2. **Read timeout**:
+   After writing the request, `tkm-hook` sets `stream.set_read_timeout(Some(request.event.read_timeout()))`:
+   - `SessionStart`: 300 ms
+   - `Prompt`: 1,500 ms
+   - `ToolBefore`, `ToolDone`, `TurnEnd`, `SessionEnd`: 5 ms
 
 The synchronous `tkm_proto::read_frame::<_, Reply>` call is bounded strictly by this read timeout. If the daemon does not respond within the deadline, `read_frame` returns a timeout error, which is logged to `errors.log`, followed by the host no-op reply and exit 0. For `ToolDone`, total hook latency is bounded under 200 ms even under total daemon stall.
 
