@@ -13,14 +13,14 @@ env:
   CARGO_TERM_COLOR: always
 jobs:
   fmt:
-    runs-on: ubuntu-latest
+    runs-on: namespace-profile-datamonster01
     steps:
       - uses: actions/checkout@v7
       - run: rustup show
       - run: cargo fmt --all --check
   # The pinned toolchain is also the MSRV; clippy and test exercise that version.
   clippy:
-    runs-on: ubuntu-latest
+    runs-on: namespace-profile-linux-xl
     steps:
       - uses: actions/checkout@v7
       - run: rustup show
@@ -30,7 +30,7 @@ jobs:
           save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
       - run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
   test:
-    runs-on: ubuntu-latest
+    runs-on: namespace-profile-linux-xl
     steps:
       - uses: actions/checkout@v7
       - run: rustup show
@@ -44,7 +44,7 @@ jobs:
       - run: cargo nextest run --workspace --all-features --locked --no-tests=pass
       - run: cargo test --doc --workspace --all-features --locked
   doc:
-    runs-on: ubuntu-latest
+    runs-on: namespace-profile-datamonster01
     steps:
       - uses: actions/checkout@v7
       - run: rustup show
@@ -56,13 +56,13 @@ jobs:
         env:
           RUSTDOCFLAGS: -D warnings
   forbid-unsafe:
-    runs-on: ubuntu-latest
+    runs-on: namespace-profile-datamonster01
     steps:
       - uses: actions/checkout@v7
       - run: rustup show
       - run: bash scripts/check-forbid-unsafe.sh
   deny:
-    runs-on: ubuntu-latest
+    runs-on: namespace-profile-datamonster01
     steps:
       - uses: actions/checkout@v7
       - uses: EmbarkStudios/cargo-deny-action@v2
@@ -71,7 +71,7 @@ jobs:
           command-arguments: all
           rust-version: 1.99.1
   geiger:
-    runs-on: ubuntu-latest
+    runs-on: namespace-profile-linux-xl
     steps:
       - uses: actions/checkout@v7
       - run: python3 scripts/tests/test_geiger_diff.py
@@ -108,7 +108,7 @@ jobs:
             tkm-cli-geiger.json
             tkm-hook-geiger.json
   core-pure:
-    runs-on: ubuntu-latest
+    runs-on: namespace-profile-datamonster01
     steps:
       - uses: actions/checkout@v7
       - run: rustup show
