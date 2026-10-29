@@ -124,3 +124,74 @@ fn bench_rejects_cache_after_session_changes() {
     let out = s.run(&["replay", "--bench", destination.to_str().unwrap()]);
     assert!(!out.status.success(), "{out:?}");
 }
+
+#[test]
+fn record_bench_uses_mock_transport_and_marks_recorded_cache() {
+    use std::io::{Read, Write};
+    let s = support_ops::Sandbox::new();
+    let source = std::path::Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/bench"));
+    let destination = s.repo.join("bench");
+    std::fs::create_dir_all(destination.join("sessions")).unwrap();
+    std::fs::copy(source.join("cache.json"), destination.join("cache.json")).unwrap();
+    for entry in std::fs::read_dir(source.join("sessions")).unwrap() {
+        let entry = entry.unwrap();
+        std::fs::copy(
+            entry.path(),
+            destination.join("sessions").join(entry.file_name()),
+        )
+        .unwrap();
+    }
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let endpoint = format!("http://{}/decisions", listener.local_addr().unwrap());
+    let server = std::thread::spawn(move || {
+        for stream in listener.incoming().take(150) {
+            let mut stream = stream.unwrap();
+            let mut data = Vec::new();
+            let mut buffer = [0; 4096];
+            let (header_end, length) = loop {
+                let n = stream.read(&mut buffer).unwrap();
+                assert!(n > 0);
+                data.extend_from_slice(&buffer[..n]);
+                if let Some(end) = data.windows(4).position(|w| w == b"\r\n\r\n") {
+                    let headers = String::from_utf8_lossy(&data[..end]);
+                    let length = headers
+                        .lines()
+                        .find_map(|line| {
+                            line.to_ascii_lowercase()
+                                .strip_prefix("content-length:")
+                                .map(|value| value.trim().parse::<usize>().unwrap())
+                        })
+                        .unwrap();
+                    break (end + 4, length);
+                }
+            };
+            while data.len() < header_end + length {
+                let n = stream.read(&mut buffer).unwrap();
+                assert!(n > 0);
+                data.extend_from_slice(&buffer[..n]);
+            }
+            let request: serde_json::Value =
+                serde_json::from_slice(&data[header_end..header_end + length]).unwrap();
+            assert!(request["state"].is_string());
+            let response = serde_json::json!({"model": request["model"], "answers": {"stuck":{"type":"noul","noul":0.8},"progress":{"type":"noul","noul":0.2},"redirect":{"type":"choice","choice":"check_env"}},"usage":{"input_tokens":10,"output_tokens":0,"cost":0.000001}}).to_string();
+            write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", response.len(), response).unwrap();
+        }
+    });
+    let out = s.run_with_env(
+        &[
+            "replay",
+            "--bench",
+            "--record",
+            destination.to_str().unwrap(),
+        ],
+        &[
+            ("OPENROUTER_API_KEY", "fixture-key"),
+            ("TKM_DECIDE_ENDPOINT", &endpoint),
+        ],
+    );
+    assert!(out.status.success(), "{out:?}");
+    server.join().unwrap();
+    let cache = std::fs::read_to_string(destination.join("cache.json")).unwrap();
+    assert!(cache.contains("recorded OpenRouter response"));
+    assert!(!cache.contains("fixture-key"));
+}
