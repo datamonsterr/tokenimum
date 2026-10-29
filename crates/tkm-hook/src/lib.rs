@@ -151,17 +151,13 @@ where
     let mut i = 0;
     while i < args.len() {
         match args[i].as_str() {
-            "--host" => {
-                if args.get(i + 1).is_some_and(|v| !v.starts_with("--")) {
-                    i += 1;
-                    host = args[i].parse::<Host>().ok();
-                }
+            "--host" if args.get(i + 1).is_some_and(|v| !v.starts_with("--")) => {
+                i += 1;
+                host = args[i].parse::<Host>().ok();
             }
-            "--event" => {
-                if args.get(i + 1).is_some_and(|v| !v.starts_with("--")) {
-                    i += 1;
-                    event = args[i].parse::<EventKind>().ok();
-                }
+            "--event" if args.get(i + 1).is_some_and(|v| !v.starts_with("--")) => {
+                i += 1;
+                event = args[i].parse::<EventKind>().ok();
             }
             _ => {}
         }
@@ -574,14 +570,13 @@ pub fn run_hook_with_fallible_stdin<I, S, E, F>(
         return;
     };
     let payload = if let Some(raw_payload) = parsed.payload {
-        match serde_json::from_str(&raw_payload) {
-            Ok(payload) => payload,
-            Err(_) => {
-                if let Some(log) = log_path {
-                    append_error_log(log, "invalid --payload JSON");
-                }
-                serde_json::Value::Null
+        if let Ok(payload) = serde_json::from_str(&raw_payload) {
+            payload
+        } else {
+            if let Some(log) = log_path {
+                append_error_log(log, "invalid --payload JSON");
             }
+            serde_json::Value::Null
         }
     } else {
         let bytes = match read_stdin() {
