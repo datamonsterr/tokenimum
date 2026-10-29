@@ -10,9 +10,6 @@ use crate::model::{RepoKey, Timestamp};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
-#[path = "explain.rs"]
-pub mod explain;
-
 /// Candidate origin.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Source {

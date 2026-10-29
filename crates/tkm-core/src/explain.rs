@@ -113,7 +113,7 @@ pub struct Explanation {
 }
 // Cap supplied fields before applying the shared single-line sanitizer.
 fn clean(value: &str) -> String {
-    super::sanitize_line(&value.chars().take(512).collect::<String>())
+    crate::inject::sanitize_line(&value.chars().take(512).collect::<String>())
 }
 fn wrap(prefix: &str, text: &str) -> String {
     let mut result = prefix.to_owned();
