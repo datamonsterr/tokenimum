@@ -78,9 +78,7 @@ const PI: &[ExpectedEvent] = &[
 #[must_use]
 pub fn headless_args(host: Host) -> Option<&'static [&'static str]> {
     match host {
-        Host::Claude => Some(&["-p"]),
-        Host::Agy => Some(&["-p"]),
-        Host::Cursor => Some(&["-p"]),
+        Host::Claude | Host::Agy | Host::Cursor => Some(&["-p"]),
         Host::Kimi => Some(&["--print", "--prompt"]),
         Host::Opencode => Some(&["run"]),
         Host::Pi => Some(&["--print"]),

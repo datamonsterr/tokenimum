@@ -193,7 +193,7 @@ fn skill_evidence_is_persistent_per_session_and_replaceable() {
     store.replace_skill_evidence(id, &report).unwrap();
     assert_eq!(store.skill_evidence(&session.repo_key).unwrap(), report);
     store
-        .replace_skill_evidence(id, &Default::default())
+        .replace_skill_evidence(id, &tkm_core::prune::skills::SkillReport::default())
         .unwrap();
     assert!(
         store

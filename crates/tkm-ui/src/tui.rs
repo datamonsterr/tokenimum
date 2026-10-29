@@ -389,7 +389,7 @@ fn render_spend(state: &MonitorState, area: ratatui::layout::Rect, frame: &mut F
             .rev()
             .take(7)
             .rev()
-            .map(|(_, cost)| (cost.max(0.0) * 1_000.0).round() as u64),
+            .map(|(_, cost)| spark_height(*cost)),
     );
     frame.render_widget(Sparkline::default().data(&data), split[1]);
 }
@@ -560,6 +560,18 @@ pub fn run(paths: &Paths) -> Result<(), Error> {
     })();
     ratatui::restore();
     result
+}
+
+/// Whole thousandths of a dollar for a sparkline bar; negative or non-finite costs draw as zero.
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+fn spark_height(cost: f64) -> u64 {
+    let milli = (cost * 1_000.0).round();
+    if milli.is_finite() && milli > 0.0 {
+        // Clamped below 2^53, so the conversion is exact and cannot lose sign.
+        milli.min(9_007_199_254_740_991.0) as u64
+    } else {
+        0
+    }
 }
 
 #[cfg(test)]

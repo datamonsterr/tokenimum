@@ -166,6 +166,39 @@ ALTER TABLE decisions ADD COLUMN digest TEXT;
 ALTER TABLE facts ADD COLUMN state_changed_at INTEGER;
 ";
 
+/// Doctor fallback overrides; absence means use configured integration level.
+pub(crate) const V006: &str = r"
+CREATE TABLE host_health (
+    host TEXT PRIMARY KEY,
+    fold_only INTEGER NOT NULL CHECK (fold_only = 1)
+);
+";
+
+/// Per-native-event capability observations from doctor.
+pub(crate) const V007: &str = r"
+CREATE TABLE host_event_probes (
+    host TEXT NOT NULL,
+    native TEXT NOT NULL,
+    event TEXT NOT NULL,
+    arrived INTEGER NOT NULL,
+    probed_at INTEGER NOT NULL,
+    PRIMARY KEY(host, native)
+);
+";
+
+/// Durable daily free-model cadence and results, independent of daemon lifetimes.
+pub(crate) const V008: &str = r"
+CREATE TABLE free_model_probe_schedule (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    last_probed INTEGER NOT NULL
+);
+CREATE TABLE free_model_probes (
+    model TEXT PRIMARY KEY,
+    succeeded INTEGER NOT NULL,
+    probed_at INTEGER NOT NULL
+);
+";
+
 #[cfg(test)]
 mod report_schema_tests {
     use super::V001;
@@ -265,36 +298,3 @@ mod report_schema_tests {
         }
     }
 }
-
-/// Doctor fallback overrides; absence means use configured integration level.
-pub(crate) const V006: &str = r"
-CREATE TABLE host_health (
-    host TEXT PRIMARY KEY,
-    fold_only INTEGER NOT NULL CHECK (fold_only = 1)
-);
-";
-
-/// Per-native-event capability observations from doctor.
-pub(crate) const V007: &str = r"
-CREATE TABLE host_event_probes (
-    host TEXT NOT NULL,
-    native TEXT NOT NULL,
-    event TEXT NOT NULL,
-    arrived INTEGER NOT NULL,
-    probed_at INTEGER NOT NULL,
-    PRIMARY KEY(host, native)
-);
-";
-
-/// Durable daily free-model cadence and results, independent of daemon lifetimes.
-pub(crate) const V008: &str = r"
-CREATE TABLE free_model_probe_schedule (
-    id INTEGER PRIMARY KEY CHECK (id = 1),
-    last_probed INTEGER NOT NULL
-);
-CREATE TABLE free_model_probes (
-    model TEXT PRIMARY KEY,
-    succeeded INTEGER NOT NULL,
-    probed_at INTEGER NOT NULL
-);
-";

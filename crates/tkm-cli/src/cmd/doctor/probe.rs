@@ -179,7 +179,7 @@ fn configure_recorders(paths: &[std::path::PathBuf], host: Host) -> Result<(), C
                 .get_mut("hooks")
                 .and_then(toml_edit::Item::as_array_of_tables_mut)
             {
-                for hook in hooks {
+                for hook in hooks.iter_mut() {
                     if let (Some(native), Some(command)) = (
                         hook.get("event").and_then(toml_edit::Item::as_str),
                         hook.get("command").and_then(toml_edit::Item::as_str),
