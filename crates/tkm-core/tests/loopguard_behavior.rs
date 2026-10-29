@@ -337,9 +337,9 @@ fn no_envelope_or_invalid_envelope_never_produces_actions() {
     ] {
         let mut g = TurnGuard::new(EscalationMode::DelegatedNoAdapter);
         for _ in 0..80 {
-            assert!(
-                g.on_tool_done(&fail(), &LoopConfig::default(), envelope)
-                    .is_empty()
+            assert_eq!(
+                g.on_tool_done(&fail(), &LoopConfig::default(), envelope),
+                []
             );
         }
         assert_eq!(g.whole.turns, 80);
@@ -350,9 +350,9 @@ fn no_envelope_or_invalid_envelope_never_produces_actions() {
 fn judge_single_flight_rate_limit_and_failure_release() {
     let (mut g, first) = warmed_guard();
     for _ in 0..4 {
-        assert!(
-            g.on_tool_done(&fail(), &LoopConfig::default(), Some(100.0))
-                .is_empty()
+        assert_eq!(
+            g.on_tool_done(&fail(), &LoopConfig::default(), Some(100.0)),
+            []
         );
     }
     g.on_judge_unavailable(first);
@@ -383,9 +383,9 @@ fn judge_single_flight_rate_limit_and_failure_release() {
         JudgeVerdict::NotStuck
     );
     for _ in 0..4 {
-        assert!(
-            g.on_tool_done(&fail(), &LoopConfig::default(), Some(100.0))
-                .is_empty()
+        assert_eq!(
+            g.on_tool_done(&fail(), &LoopConfig::default(), Some(100.0)),
+            []
         );
     }
     assert_eq!(
@@ -442,9 +442,9 @@ fn verdict_redirect_is_delivered_on_next_call_and_starts_fresh_segment() {
         JudgeVerdict::Wait
     );
     for _ in 0..17 {
-        assert!(
-            g.on_tool_done(&fail(), &LoopConfig::default(), Some(100.0))
-                .is_empty()
+        assert_eq!(
+            g.on_tool_done(&fail(), &LoopConfig::default(), Some(100.0)),
+            []
         );
     }
     assert!(request(&g.on_tool_done(&fail(), &LoopConfig::default(), Some(100.0))).is_some());
