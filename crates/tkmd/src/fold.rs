@@ -1253,6 +1253,16 @@ mod tests {
         let cwd = root.join("repo");
         let cases = [
             (
+                Host::Claude,
+                root.join(".claude"),
+                claude,
+                fixtures
+                    .join("claude/sessions")
+                    .join(format!("{claude}.jsonl")),
+                root.join(".claude/projects/-home-user-project")
+                    .join(format!("{claude}.jsonl")),
+            ),
+            (
                 Host::Codex,
                 root.join(".codex"),
                 root.join(".codex/sessions/2026/01/02/rollout-2026-s.jsonl"),
@@ -1389,6 +1399,7 @@ mod replay_tests {
         let scratch = tempfile::tempdir().unwrap();
         let root = scratch.path();
         let fixtures = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures"));
+        let claude = "e928a2cf-e31b-4154-805b-919991d042ea";
         let codex = "01a18562-fb1c-7522-9939-dda89fa83662";
         let agy = "1def34bb-9ae9-4260-99c1-e7f59d3ef14d";
         let cursor = "c1a2b3c4-d5e6-7f8a-9b0c-1d2e3f4a5b6c";
@@ -1400,6 +1411,16 @@ mod replay_tests {
         let cursor_file = format!("cursor/transcripts/{cursor}.jsonl");
         let codewhale_file = format!("codewhale/sessions/{codewhale}.json");
         let cases = [
+            (
+                Host::Claude,
+                root.join(".claude"),
+                claude,
+                fixtures
+                    .join("claude/sessions")
+                    .join(format!("{claude}.jsonl")),
+                root.join(".claude/projects/-home-user-project")
+                    .join(format!("{claude}.jsonl")),
+            ),
             (
                 Host::Codex,
                 root.join(".codex"),
