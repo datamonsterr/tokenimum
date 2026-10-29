@@ -72,7 +72,7 @@ impl Observer<'_, '_> {
                 (Host::Pi, true) => "session_shutdown",
                 (Host::Opencode, false) => "session.created",
                 (Host::Opencode, true) => "session.deleted",
-                (Host::Agy, true) | (_, _) => return,
+                _ => return,
             };
             let payload = match plan.host {
                 Host::Agy => serde_json::json!({"conversationId": plan.session_id}),
@@ -164,8 +164,8 @@ pub fn run(ctx: &mut Ctx<'_>, args: &RunArgs) -> Result<ExitCode, CliError> {
         .build()?;
     #[cfg(unix)]
     let _signals = {
-        let _guard = runtime.enter();
         use tokio::signal::unix::{SignalKind, signal};
+        let _guard = runtime.enter();
         (
             signal(SignalKind::interrupt())?,
             signal(SignalKind::terminate())?,

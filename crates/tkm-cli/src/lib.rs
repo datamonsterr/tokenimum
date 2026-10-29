@@ -1,7 +1,8 @@
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
 // CLI types deliberately include their domain in their names for downstream command modules.
-#![allow(clippy::module_name_repetitions)]
+// Error-mapping helpers take errors by value so they compose with `map_err`.
+#![allow(clippy::module_name_repetitions, clippy::needless_pass_by_value)]
 //! The `tkm` command tree, shared context, and daemon/database access.
 //!
 //! Commands receive explicit writers through [`ctx::Ctx`] and return typed errors.
