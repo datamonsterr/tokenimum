@@ -14,6 +14,7 @@ copyright notices and is marked as such.
 Ported code (TokenEconomizer commit d0675a3; each file carries a header naming its TE sources):
 - crates/tkm-core/src/inject.rs (microskills/distiller.py, microskills/envfacts.py, microskills/stage.py)
 - crates/tkm-core/src/prune/ (toolprune/stage.py, toolprune/tools.py, plugin/denylist.py, plugin/adapter.py)
+- crates/tkm-core/src/ledger/ (ledger.py, pricing.py)
 
 Third-party agent skills
 ------------------------
