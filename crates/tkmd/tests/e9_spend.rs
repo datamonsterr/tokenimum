@@ -61,3 +61,43 @@ fn ledger_reports_only_uncached_known_costs_with_session_run() {
     assert_eq!(value["account"], "tokenimum-decisions");
     assert_eq!(value["run_id"], "run");
 }
+
+#[test]
+fn slow_spend_sink_does_not_block_record() {
+    struct Enabled;
+    impl Escalator for Enabled {
+        fn superorchestrator_enabled(&self) -> bool {
+            true
+        }
+        fn handles(&self, _: Host, _: &str) -> bool {
+            false
+        }
+        fn escalate(&self, _: &tkm_integrations::EscalationEvent) {}
+    }
+    struct Slow;
+    impl tkm_integrations::superorchestrator::SpendSink for Slow {
+        fn record(&self, _: &str, _: &str, _: f64, _: Option<&str>) {
+            std::thread::sleep(std::time::Duration::from_millis(500));
+        }
+    }
+    let ledger = StoreLedger::default();
+    ledger.set_spend_sink(Arc::new(Slow), Arc::new(Enabled));
+    let row = DecisionRow {
+        ts_ms: 0,
+        session_id: "claude:s".into(),
+        purpose: Purpose::LoopGuard,
+        requested_model: "model".into(),
+        model_version: None,
+        provider: None,
+        input_tokens: 1,
+        output_tokens: 1,
+        cost_usd: Some(0.1),
+        latency_ms: 0,
+        question_names: Vec::new(),
+        outcome: "ok".into(),
+        cached: false,
+    };
+    let start = std::time::Instant::now();
+    ledger.record(row);
+    assert!(start.elapsed() < std::time::Duration::from_millis(250));
+}
