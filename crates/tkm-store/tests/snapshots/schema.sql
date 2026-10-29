@@ -115,6 +115,16 @@ CREATE TABLE sessions (
     UNIQUE(host, agent_home, session_id)
 );
 
+-- table shadow_judgments
+CREATE TABLE shadow_judgments (
+    host TEXT NOT NULL,
+    agent_home TEXT NOT NULL,
+    session_id TEXT NOT NULL,
+    turn_idx INTEGER NOT NULL,
+    judged_at INTEGER NOT NULL,
+    PRIMARY KEY(host, agent_home, session_id, turn_idx)
+);
+
 -- table skill_evidence
 CREATE TABLE skill_evidence (
     session_id INTEGER NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,

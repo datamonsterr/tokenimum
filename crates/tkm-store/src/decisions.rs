@@ -94,6 +94,35 @@ pub struct InstallRecord {
     pub shim_hashes: BTreeMap<String, String>,
 }
 
+impl Store {
+    /// Records one distinct judged turn, preserving the first judgment time.
+    ///
+    /// # Errors
+    /// Returns an error if the database cannot be written.
+    pub fn record_judged_turn(
+        &self,
+        key: &crate::SessionKey,
+        turn_idx: i64,
+        at: Timestamp,
+    ) -> Result<(), StoreError> {
+        self.conn.execute("INSERT OR IGNORE INTO shadow_judgments (host, agent_home, session_id, turn_idx, judged_at) VALUES (?1, ?2, ?3, ?4, MIN(?5, COALESCE((SELECT MIN(created_at) FROM decisions), ?5)))", params![key.host.as_str(), key.agent_home, key.session_id, turn_idx, at.0])?;
+        Ok(())
+    }
+
+    /// Returns the first judgment time and the number of distinct judged turns.
+    ///
+    /// # Errors
+    /// Returns an error if the database cannot be read.
+    pub fn shadow_window(&self) -> Result<Option<(i64, u64)>, StoreError> {
+        let (started, count): (Option<i64>, i64) = self.conn.query_row(
+            "SELECT MIN(judged_at), COUNT(*) FROM shadow_judgments",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )?;
+        Ok(started.map(|at| (at, u64::try_from(count).unwrap_or(u64::MAX))))
+    }
+}
+
 const DECISION_COLUMNS: &str = "id, model, purpose, questions, answers, cost, latency_ms, shadow, outcome_label, created_at, repo_key, session_id, digest";
 const CALIBRATION_COLUMNS: &str =
     "model_version, purpose, thresholds, sample_count, precision, recall";

@@ -5,7 +5,7 @@
 //! as `fold_status = 'error'`; nothing here can panic the daemon (a panicking task becomes a
 //! `JoinError`).
 
-use std::collections::{BTreeSet, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -17,6 +17,11 @@ use tkm_core::facts::{
 };
 use tkm_core::model::{Host, RepoKey, StopReason, Timestamp};
 use tkm_core::prune::{self, PruneEvidence};
+use tkm_decide::api::{Answer, NoulCriteria, Question};
+use tkm_decide::cache::Purpose;
+use tkm_decide::client::{DecideRequest, Outcome};
+use tkm_decide::digest::{DigestInput, build_digest};
+use tkm_decide::redact::{RedactContext, Redactor};
 use tkm_hosts::{HostAdapter, SessionSource};
 use tkm_proto::monitor::{FactNotice, MonitorMessage};
 use tkm_store::{
@@ -226,6 +231,237 @@ pub fn replay_fold(
     }
 }
 
+#[cfg(test)]
+fn prepare_fact_questions(
+    session: &tkm_core::model::Session,
+    state: &FactsState,
+    injected: &BTreeSet<String>,
+) -> (BTreeMap<String, Question>, BTreeMap<String, Question>) {
+    let redactor = Redactor::new(RedactContext {
+        repo_root: session.cwd.clone(),
+        home: PathBuf::new(),
+        env: Vec::new(),
+    });
+    fact_questions(session, state, injected, &redactor)
+}
+
+fn fact_questions(
+    session: &tkm_core::model::Session,
+    state: &FactsState,
+    injected: &BTreeSet<String>,
+    redactor: &Redactor,
+) -> (BTreeMap<String, Question>, BTreeMap<String, Question>) {
+    let observations = facts::observe::observe(session);
+    let mut filters = BTreeMap::new();
+    for candidate in facts::extract::extract(&observations) {
+        let claim = redactor.redact(&facts::render::claim(&candidate));
+        for (prefix, instructions, yes, no) in [
+            (
+                "stable",
+                "Does this fact hold for this repository regardless of task?",
+                "repository-wide",
+                "task-specific",
+            ),
+            (
+                "safe",
+                "Is this fact harmless and free of destructive, secret-bearing or completion advice?",
+                "harmless",
+                "unsafe or completion advice",
+            ),
+        ] {
+            filters.insert(
+                format!("{prefix}_{}", candidate.id),
+                Question::Noul {
+                    instructions: format!("{instructions} Fact: {claim}"),
+                    criteria: Some(NoulCriteria {
+                        when_true: yes.into(),
+                        when_false: no.into(),
+                    }),
+                },
+            );
+        }
+    }
+    let contradictions = facts::exercised_ids(session, state, injected)
+        .into_iter()
+        .filter_map(|id| {
+            let fact = state.facts.get(&id)?;
+            let claim = redactor.redact(&facts::render::claim(&fact.candidate));
+            Some((
+                format!("contradicts_{id}"),
+                Question::Noul {
+                    instructions: format!("Does this session contradict the fact: {claim}?"),
+                    criteria: Some(NoulCriteria {
+                        when_true: "the session contradicts it".into(),
+                        when_false: "the session does not contradict it".into(),
+                    }),
+                },
+            ))
+        })
+        .collect();
+    (filters, contradictions)
+}
+
+struct FoldDecider<'a> {
+    daemon: &'a Daemon,
+    runtime: tokio::runtime::Handle,
+}
+
+fn decide_facts(
+    store: &Store,
+    record: &SessionRecord,
+    session: &tkm_core::model::Session,
+    state: &FactsState,
+    job: &FoldJob,
+    context: &FoldDecider<'_>,
+) -> Option<facts::Decisions> {
+    if !job.settings.decide.enabled || !job.settings.facts_enabled {
+        return None;
+    }
+    let home = context
+        .daemon
+        .env
+        .iter()
+        .rev()
+        .find(|(k, _)| k == "HOME")
+        .map(|(_, v)| PathBuf::from(v))
+        .unwrap_or_default();
+    let redactor = Redactor::new(RedactContext {
+        repo_root: job.cwd.clone(),
+        home,
+        env: context.daemon.env.clone(),
+    });
+    let (filters, contradictions) = fact_questions(session, state, &job.injected, &redactor);
+    let calls: Vec<_> = session
+        .turns
+        .iter()
+        .flat_map(|turn| turn.calls.iter().cloned())
+        .collect();
+    let prompt = session
+        .turns
+        .iter()
+        .map(|turn| turn.prompt.as_str())
+        .collect::<Vec<_>>()
+        .join("\n");
+    let digest = build_digest(
+        DigestInput {
+            prompt: &prompt,
+            calls: &calls,
+            tests: None,
+        },
+        &redactor,
+    );
+    let mut scores = BTreeMap::<String, facts::DecisionScores>::new();
+    for (purpose, questions) in [
+        (Purpose::FactFilter, filters),
+        (Purpose::FactContradiction, contradictions),
+    ] {
+        if questions.is_empty() {
+            continue;
+        }
+        let request = DecideRequest {
+            purpose,
+            session_id: format!("{}:{}", job.host.as_str(), job.key.session_id),
+            state: digest.clone(),
+            questions: questions.clone(),
+        };
+        let Outcome::Decision(decision) = context
+            .runtime
+            .block_on(context.daemon.decider.decide(request))
+        else {
+            continue;
+        };
+        let rows = store.list_calibration().unwrap_or_default();
+        let calibrated = rows
+            .iter()
+            .find(|row| {
+                row.model_version == decision.model_version && row.purpose == purpose.as_str()
+            })
+            .or_else(|| {
+                rows.iter().find(|row| {
+                    row.model_version == decision.model_version
+                        && row.purpose == "loop_guard"
+                        && (0.9..=1.0).contains(&row.precision)
+                })
+            });
+        let now = i64::try_from(context.daemon.clock.now_ms()).unwrap_or(i64::MAX);
+        let shadow = store.shadow_window().ok().flatten().map_or(
+            job.settings.shadow_days > 0 || job.settings.shadow_turns > 0,
+            |(start, count)| {
+                now.saturating_sub(start)
+                    < i64::try_from(job.settings.shadow_days.saturating_mul(86_400_000))
+                        .unwrap_or(i64::MAX)
+                    || count < job.settings.shadow_turns
+            },
+        );
+        let thresholds = calibrated.and_then(|row| {
+            Some((
+                row.thresholds.get("t_low")?.as_f64()?,
+                row.thresholds.get("t_high")?.as_f64()?,
+            ))
+        });
+        let thresholds = thresholds.filter(|(low, high)| {
+            low.is_finite()
+                && high.is_finite()
+                && (0.0..=1.0).contains(low)
+                && (0.0..=1.0).contains(high)
+                && low <= high
+        });
+        let valid = questions.keys().all(|key| matches!(decision.answers.get(key), Some(Answer::Noul { noul }) if noul.is_finite() && (0.0..=1.0).contains(noul)));
+        let acting = thresholds.is_some() && !shadow && valid;
+        let item = tkm_store::NewDecision {
+            model: decision.model_version.clone(),
+            purpose: purpose.as_str().into(),
+            questions: serde_json::to_value(&questions).unwrap_or_default(),
+            answers: serde_json::to_value(&decision.answers).unwrap_or_default(),
+            cost_usd: if decision.cached {
+                Some(0.0)
+            } else {
+                decision.usage.cost
+            },
+            latency_ms: u32::try_from(decision.latency_ms).unwrap_or(u32::MAX),
+            shadow: !acting,
+        };
+        if store
+            .insert_decision_with_context(
+                &item,
+                Some(Timestamp(now)),
+                Some(&job.repo),
+                Some(record.id),
+                Some(&digest),
+            )
+            .is_err()
+            || !acting
+        {
+            continue;
+        }
+        let Some((low, high)) = thresholds else {
+            continue;
+        };
+        for (key, answer) in &decision.answers {
+            let Answer::Noul { noul } = answer else {
+                continue;
+            };
+            if let Some(id) = key.strip_prefix("stable_") {
+                scores.entry(id.to_owned()).or_default().stable =
+                    Some(if *noul >= low { 1.0 } else { 0.0 });
+            }
+            if let Some(id) = key.strip_prefix("safe_") {
+                scores.entry(id.to_owned()).or_default().safe =
+                    Some(if *noul >= high { 1.0 } else { 0.0 });
+            }
+            if let Some(id) = key.strip_prefix("contradicts_") {
+                scores.entry(id.to_owned()).or_default().contradicts =
+                    Some(if *noul > high { 1.0 } else { 0.0 });
+            }
+        }
+    }
+    (!scores.is_empty()).then_some(facts::Decisions {
+        t_low: 0.3,
+        t_high: 0.8,
+        scores,
+    })
+}
+
 fn fold_prune(
     store: &Store,
     session: &tkm_core::model::Session,
@@ -254,6 +490,7 @@ fn fold_inner(
     record: &SessionRecord,
     adapter: &dyn HostAdapter,
     job: &FoldJob,
+    context: Option<&FoldDecider<'_>>,
 ) -> HResult<FoldReport> {
     let Some(path) = job.log_path.clone() else {
         store.set_session_fold_status(record.id, "skipped")?;
@@ -277,13 +514,15 @@ fn fold_inner(
             > session.total_records.saturating_mul(PARTIAL_PERCENT);
     session.partial = session.partial || skipped_too_many;
 
-    store.upsert_ledger(&LedgerRecord {
-        session_id: record.id,
-        usage: session.usage,
-        priced_cost: job.settings.pricing.price_session(&session, None),
-        overhead_tokens: job.overhead.0,
-        overhead_cost: job.overhead.1,
-    })?;
+    if job.settings.ledger_enabled {
+        store.upsert_ledger(&LedgerRecord {
+            session_id: record.id,
+            usage: session.usage,
+            priced_cost: job.settings.pricing.price_session(&session, None),
+            overhead_tokens: job.overhead.0,
+            overhead_cost: job.overhead.1,
+        })?;
+    }
     if session.partial {
         store.set_session_fold_status(record.id, "partial")?;
         return Ok(FoldReport {
@@ -321,22 +560,34 @@ fn fold_inner(
                 ));
             }
         }
-        let result = replay_fold(&session, state, &job.injected, &job.settings.facts);
-        persist_facts(
-            store,
-            &job.repo,
-            &before,
-            &result.facts,
-            Timestamp(job.ended_ms),
-        )?;
-        events = result.events;
-        crate::persist::fact_actions(
-            store,
-            &job.repo,
-            record.id,
-            Timestamp(job.ended_ms),
-            &events,
-        )?;
+        let decisions =
+            context.and_then(|context| decide_facts(store, record, &session, &state, job, context));
+        let mut result = replay_fold(&session, state.clone(), &job.injected, &job.settings.facts);
+        if decisions.is_some() {
+            let evidence = SessionEvidence {
+                session: session.clone(),
+                injected_ids: job.injected.clone(),
+                decisions,
+            };
+            (result.facts, result.events) = facts::update(state, &evidence, &job.settings.facts);
+        }
+        if job.settings.facts_enabled {
+            persist_facts(
+                store,
+                &job.repo,
+                &before,
+                &result.facts,
+                Timestamp(job.ended_ms),
+            )?;
+            events = result.events;
+            crate::persist::fact_actions(
+                store,
+                &job.repo,
+                record.id,
+                Timestamp(job.ended_ms),
+                &events,
+            )?;
+        }
         fold_prune(store, &session, Timestamp(job.ended_ms), &result.prune)?;
     }
     store.set_session_fold_status(record.id, "folded")?;
@@ -347,10 +598,11 @@ fn fold_inner(
 }
 
 /// Runs one fold on the calling (blocking) thread.
-pub(crate) fn run_fold(
+fn run_fold(
     backing: &dyn Backing,
     adapter: &dyn HostAdapter,
     job: &FoldJob,
+    context: Option<&FoldDecider<'_>>,
 ) -> HResult<FoldReport> {
     let store = backing.open()?;
     let Some(record) = store.find_session(&job.key)? else {
@@ -359,7 +611,7 @@ pub(crate) fn run_fold(
             job.key.session_id
         )));
     };
-    let result = fold_inner(&store, &record, adapter, job);
+    let result = fold_inner(&store, &record, adapter, job, context);
     if result.is_err() {
         let _ = store.set_session_fold_status(record.id, "error");
     }
@@ -524,6 +776,9 @@ impl Daemon {
         _now: u64,
     ) {
         for record in &resolved.stale {
+            if !resolved.settings.host(record.key.host).enabled {
+                continue;
+            }
             let tag: Tag = (record.key.host, record.key.session_id.clone());
             if lock(&self.state).sessions.contains_key(&tag) {
                 continue;
@@ -555,6 +810,9 @@ impl Daemon {
     }
 
     pub(crate) fn spawn_fold(self: &Arc<Self>, job: FoldJob) {
+        if !job.settings.host(job.host).enabled {
+            return;
+        }
         self.folds.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         let me = self.clone();
         tokio::spawn(async move {
@@ -563,9 +821,18 @@ impl Daemon {
             let session_id = job.key.session_id.clone();
             let repo = job.repo.clone();
             let host = job.host;
+            let runtime = tokio::runtime::Handle::current();
             let joined = tokio::task::spawn_blocking(move || {
                 let adapter = worker.adapters.get(job.host);
-                let report = run_fold(worker.backing.as_ref(), adapter.as_ref(), &job)?;
+                let report = run_fold(
+                    worker.backing.as_ref(),
+                    adapter.as_ref(),
+                    &job,
+                    Some(&FoldDecider {
+                        daemon: &worker,
+                        runtime,
+                    }),
+                )?;
                 let store = worker.backing.open()?;
                 let durable = if let Some(record) = store.find_session(&job.key)? {
                     store
@@ -861,6 +1128,41 @@ mod replay_tests {
     use super::*;
     use tkm_hosts::claude::ClaudeAdapter;
     #[test]
+    fn fold_batches_candidate_and_exercised_fact_questions() {
+        let source = SessionSource {
+            agent_home: "/fake/agent".into(),
+            path: PathBuf::from(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/tests/fixtures/replay-form-repair.jsonl"
+            )),
+            session_id: "fixture".into(),
+            repo_key: RepoKey("fixture".into()),
+            cwd: "/fake/repo".into(),
+        };
+        let session = ClaudeAdapter::new().read_session(&source).unwrap();
+        let mut state = replay_fold(
+            &session,
+            FactsState::default(),
+            &BTreeSet::new(),
+            &tkm_core::facts::FactsConfig::default(),
+        )
+        .facts;
+        for fact in state.facts.values_mut() {
+            fact.life.status = Status::Active;
+        }
+        let (filters, contradictions) = prepare_fact_questions(&session, &state, &BTreeSet::new());
+        assert!(!filters.is_empty());
+        assert!(filters.keys().any(|key| key.starts_with("stable_")));
+        assert!(filters.keys().any(|key| key.starts_with("safe_")));
+        assert!(
+            contradictions
+                .keys()
+                .all(|key| key.starts_with("contradicts_"))
+        );
+        assert!(!contradictions.is_empty());
+    }
+
+    #[test]
     fn replay_matches_persisted_fixture_fold() {
         let store = Store::open_in_memory().unwrap();
         let repo = RepoKey("fixture".into());
@@ -927,7 +1229,7 @@ mod replay_tests {
         );
         assert!(!expected.facts.facts.is_empty());
         let record = store.get_session(id).unwrap().unwrap();
-        let actual = fold_inner(&store, &record, &ClaudeAdapter::new(), &job).unwrap();
+        let actual = fold_inner(&store, &record, &ClaudeAdapter::new(), &job, None).unwrap();
         assert_eq!(actual.events, expected.events);
         let persisted = store.list_facts(&repo, None).unwrap();
         assert_eq!(persisted.len(), expected.facts.facts.len());

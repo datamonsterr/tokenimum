@@ -27,6 +27,8 @@ fn calibrate(env: &Env, daemon: &tkmd::daemon::Daemon) {
 fn redirect_settings() -> Settings {
     Settings {
         loop_mode: LoopMode::Redirect,
+        shadow_days: 0,
+        shadow_turns: 0,
         ..Settings::default()
     }
 }
@@ -162,6 +164,34 @@ async fn verdict_is_dropped_when_the_turn_ends_first() {
         replies.iter().all(|r| r.stdout.is_empty()),
         "dropped verdict must not surface"
     );
+}
+
+#[tokio::test]
+async fn calibrated_redirect_stays_shadowed_during_initial_window() {
+    let env = Env::new();
+    env.seed_envelope(FIXTURE_REPO, Host::Claude, &[5; 5]);
+    let daemon = daemon_with(
+        &env,
+        Settings::default(),
+        ScriptedDecider::new(stuck_decision()),
+    );
+    daemon.start_workers();
+    calibrate(&env, &daemon);
+    daemon.handle(session_start()).await;
+    daemon.handle(prompt()).await;
+    run_calls(&daemon, 18);
+    daemon.settle().await;
+    assert!(additional_context(&daemon.handle_tool_done(&failing_tool_done())).is_none());
+    daemon.flush_now().await;
+    let store = tkm_store::open_read_only(&env.paths.db).unwrap();
+    let shadow: i64 = store
+        .query_row(
+            "SELECT COUNT(*) FROM decisions WHERE purpose='loop_guard' AND shadow=1",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(shadow, 1);
 }
 
 #[tokio::test]

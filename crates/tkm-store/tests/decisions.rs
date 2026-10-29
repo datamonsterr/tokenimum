@@ -160,3 +160,30 @@ fn unknown_decision_cost_round_trips_as_null() {
     assert_eq!(stored.cost_usd, None);
     assert!(serde_json::to_value(stored).unwrap()["cost_usd"].is_null());
 }
+
+#[test]
+fn shadow_window_persists_first_decision_and_distinct_judged_turns() {
+    let path = std::env::temp_dir().join(format!("tkm-shadow-{}.sqlite", std::process::id()));
+    let _ = std::fs::remove_file(&path);
+    let key = tkm_store::SessionKey {
+        host: tkm_core::model::Host::Claude,
+        agent_home: "/home/test".into(),
+        session_id: "session".into(),
+    };
+    let store = tkm_store::Store::open(&path).unwrap();
+    store
+        .record_judged_turn(&key, 0, tkm_core::model::Timestamp(1_000))
+        .unwrap();
+    store
+        .record_judged_turn(&key, 0, tkm_core::model::Timestamp(2_000))
+        .unwrap();
+    drop(store);
+    let store = tkm_store::Store::open(&path).unwrap();
+    assert_eq!(store.shadow_window().unwrap(), Some((1_000, 1)));
+    store
+        .record_judged_turn(&key, 1, tkm_core::model::Timestamp(3_000))
+        .unwrap();
+    assert_eq!(store.shadow_window().unwrap(), Some((1_000, 2)));
+    drop(store);
+    let _ = std::fs::remove_file(path);
+}

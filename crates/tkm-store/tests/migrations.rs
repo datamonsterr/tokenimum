@@ -113,6 +113,7 @@ fn schema_snapshot_includes_all_tables() {
             "ledger",
             "repos",
             "sessions",
+            "shadow_judgments",
             "skill_evidence",
             "skill_evidence_sessions",
             "spend_attempts",

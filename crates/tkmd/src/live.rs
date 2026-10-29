@@ -34,6 +34,7 @@ pub(crate) struct JudgeJob {
     pub repo: RepoKey,
     pub key: tkm_store::SessionKey,
     pub seq: u64,
+    pub turn_idx: i64,
     pub request: JudgeRequest,
     pub prompt: String,
     pub calls: Vec<Call>,
@@ -152,6 +153,11 @@ fn redirect_kind(decision: &Decision) -> RedirectKind {
     }
 }
 
+fn shadow_active(start: i64, count: u64, now: i64, days: u64, turns: u64) -> bool {
+    let duration = i64::try_from(days.saturating_mul(86_400_000)).unwrap_or(i64::MAX);
+    now.saturating_sub(start) < duration || count < turns
+}
+
 impl Daemon {
     /// Runs one judge job to completion (called from the effect worker).
     pub(crate) async fn run_judge(self: &Arc<Self>, job: JudgeJob) {
@@ -183,7 +189,33 @@ impl Daemon {
             questions: questions.clone(),
         };
         let outcome = self.decider.decide(request).await;
-        self.apply_outcome(&job, &questions, &state, outcome);
+        let shadow = if matches!(outcome, Outcome::Decision(_)) {
+            // Persist earlier decisions before deriving the first decision time.
+            self.flush_now().await;
+            let backing = self.backing.clone();
+            let key = job.key.clone();
+            let turn_idx = job.turn_idx;
+            let now = i64::try_from(self.clock.now_ms()).unwrap_or(i64::MAX);
+            let days = job.settings.shadow_days;
+            let turns = job.settings.shadow_turns;
+            match tokio::task::spawn_blocking(move || {
+                let store = backing.open()?;
+                store.record_judged_turn(&key, turn_idx, tkm_core::model::Timestamp(now))?;
+                let window = store.shadow_window()?;
+                Ok::<_, tkm_store::StoreError>(
+                    window
+                        .is_none_or(|(start, count)| shadow_active(start, count, now, days, turns)),
+                )
+            })
+            .await
+            {
+                Ok(Ok(shadow)) => shadow,
+                _ => true,
+            }
+        } else {
+            true
+        };
+        self.apply_outcome(&job, &questions, &state, outcome, shadow);
     }
 
     fn apply_outcome(
@@ -192,9 +224,12 @@ impl Daemon {
         questions: &BTreeMap<String, Question>,
         digest: &str,
         outcome: Outcome,
+        shadow: bool,
     ) {
         match outcome {
-            Outcome::Decision(decision) => self.apply_decision(job, questions, digest, &decision),
+            Outcome::Decision(decision) => {
+                self.apply_decision(job, questions, digest, &decision, shadow)
+            }
             Outcome::NoDecision(reason) => {
                 self.release_judge(job);
                 if reason != NoDecisionReason::Disabled {
@@ -226,6 +261,7 @@ impl Daemon {
         questions: &BTreeMap<String, Question>,
         digest: &str,
         decision: &Decision,
+        shadow: bool,
     ) {
         let key = CalibrationKey {
             model_version: decision.model_version.clone(),
@@ -233,7 +269,8 @@ impl Daemon {
         };
         let calibrated =
             tkm_decide::calibrate::CalibrationStore::get(self.calibration.as_ref(), &key);
-        let acting = job.settings.loop_mode == LoopMode::Redirect && calibrated.is_some();
+        let acting =
+            job.settings.loop_mode == LoopMode::Redirect && calibrated.is_some() && !shadow;
         let thresholds = calibrated.unwrap_or_default();
 
         let evidence = Arc::new(std::sync::atomic::AtomicI64::new(0));
@@ -588,3 +625,37 @@ mod tests {
 #[cfg(test)]
 #[path = "e9_review_tests.rs"]
 mod e9_review_tests;
+
+#[cfg(test)]
+mod shadow_tests {
+    use super::shadow_active;
+    use crate::clock::{Clock, ManualClock};
+    use std::time::Duration;
+
+    #[test]
+    fn clock_and_turn_count_both_gate_shadow_exit() {
+        let clock = ManualClock::new(1_000);
+        assert!(shadow_active(
+            1_000,
+            200,
+            i64::try_from(clock.now_ms()).unwrap_or(i64::MAX),
+            14,
+            200
+        ));
+        clock.advance(Duration::from_secs(14 * 86_400));
+        assert!(shadow_active(
+            1_000,
+            199,
+            i64::try_from(clock.now_ms()).unwrap_or(i64::MAX),
+            14,
+            200
+        ));
+        assert!(!shadow_active(
+            1_000,
+            200,
+            i64::try_from(clock.now_ms()).unwrap_or(i64::MAX),
+            14,
+            200
+        ));
+    }
+}
