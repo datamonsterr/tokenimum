@@ -97,3 +97,76 @@ fn credential_requires_private_regular_file() {
     symlink(&target, &path).unwrap();
     assert_eq!(read_key(dir.path()), None);
 }
+
+#[test]
+fn failed_skill_process_enters_backoff_and_fails_open() {
+    for body in ["exit 1", "printf garbage", "/bin/sleep 3"] {
+        let dir = tempfile::tempdir().unwrap();
+        script(
+            dir.path(),
+            "otherskill",
+            &format!("if [ \"$1\" = --help ]; then exit 0; fi; {body}"),
+        );
+        let runtime = Integrations::new(
+            Mode::Off,
+            Mode::On,
+            dir.path().as_os_str().to_owned(),
+            dir.path().to_path_buf(),
+            BTreeMap::new(),
+            Arc::new(SystemClock),
+        );
+        runtime.detect_now(dir.path());
+        assert!(
+            runtime
+                .candidates(&RepoKey::default(), Host::Claude, "prompt")
+                .is_empty()
+        );
+        assert!(!runtime.otherskill_enabled());
+        assert!(matches!(
+            runtime.status()[1].state,
+            tkm_integrations::detect::AdapterState::Backoff { .. }
+        ));
+    }
+}
+
+#[test]
+fn runtime_delegated_escalation_reaches_mcp() {
+    use tkm_integrations::{EscalationEvent, Escalator};
+    let dir = tempfile::tempdir().unwrap();
+    let log = dir.path().join("rpc");
+    script(
+        dir.path(),
+        "superorchestrator",
+        &format!(
+            "if [ \"$1\" = --version ]; then exit 0; fi; if [ \"$1\" = runs ]; then printf '[]'; exit 0; fi; while IFS= read -r line; do printf '%s\\n' \"$line\" >> '{}'; case \"$line\" in *'\"id\":1'*) echo '{{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{{}}}}';; *'\"id\":2'*) echo '{{\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{{}}}}';; esac; done",
+            log.display()
+        ),
+    );
+    let runtime = Integrations::new(
+        Mode::On,
+        Mode::Off,
+        dir.path().as_os_str().to_owned(),
+        dir.path().to_path_buf(),
+        BTreeMap::new(),
+        Arc::new(SystemClock),
+    );
+    runtime.detect_now(dir.path());
+    let env = BTreeMap::from([
+        ("SUPERORCHESTRATOR_RUN_ID".to_owned(), "run".to_owned()),
+        (
+            "SUPERORCHESTRATOR_RUN_TOKEN".to_owned(),
+            "secret".to_owned(),
+        ),
+    ]);
+    runtime.observe_session(Host::Claude, "session", dir.path(), &env);
+    assert!(runtime.handles(Host::Claude, "session"));
+    runtime.escalate(&EscalationEvent {
+        host: Host::Claude,
+        session_id: "session".into(),
+        ..EscalationEvent::default()
+    });
+    let calls = fs::read_to_string(log).unwrap();
+    assert!(calls.contains("report_progress"));
+    assert!(calls.contains("tokenimum.loop"));
+    assert!(!calls.contains("secret"));
+}
