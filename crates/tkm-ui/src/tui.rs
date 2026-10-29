@@ -581,7 +581,7 @@ mod ordering_tests {
             message,
             || Ok::<_, ()>((vec![], vec![]))
         )?);
-        assert!(state.sessions.is_empty());
+        assert_eq!(state.sessions.len(), 0);
         tick_resync(
             &feed,
             &mut state,
@@ -590,7 +590,7 @@ mod ordering_tests {
             || start + Duration::from_secs(5),
             &mut load,
         )?;
-        assert!(state.sessions.is_empty());
+        assert_eq!(state.sessions.len(), 0);
         tick_resync(
             &feed,
             &mut state,
