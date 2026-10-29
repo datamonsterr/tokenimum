@@ -301,3 +301,16 @@ proptest! {
         prop_assert_eq!(actual, expected);
     }
 }
+
+#[test]
+fn reply_preserves_pending_signal_through_framing() {
+    let reply = Reply {
+        version: PROTOCOL_VERSION,
+        action: ReplyAction::Nothing,
+        stdout: String::new(),
+        pending: Some(true),
+    };
+    let frame = encode_frame(&reply, MAX_REPLY_FRAME).unwrap();
+    let decoded: Reply = read_frame(Cursor::new(frame), MAX_REPLY_FRAME).unwrap();
+    assert_eq!(decoded.pending, Some(true));
+}
