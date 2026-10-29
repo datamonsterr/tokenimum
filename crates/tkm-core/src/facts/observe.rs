@@ -335,13 +335,14 @@ fn elide_heredocs(command: &str) -> String {
     }
     out
 }
-/// Splits operators outside quotes; heredoc bodies are elided.
+/// Splits operators outside quotes; shell comments and heredoc bodies are elided.
 #[must_use]
 pub fn segments(command: &str) -> Vec<String> {
     let elided = elide_heredocs(command);
     let mut chars = elided.chars().peekable();
     let (mut out, mut buf, mut quote) = (Vec::new(), String::new(), None);
     let mut expansions: Vec<(char, Option<char>)> = Vec::new();
+    let mut word_start = true;
     while let Some(c) = chars.next() {
         // Single quotes preserve backslashes. Everywhere else an escaped operator
         // or quote belongs to the current segment rather than changing its syntax.
@@ -349,6 +350,9 @@ pub fn segments(command: &str) -> Vec<String> {
             buf.push(c);
             if let Some(next) = chars.next() {
                 buf.push(next);
+                if next != '\n' {
+                    word_start = false;
+                }
             }
             continue;
         }
@@ -364,12 +368,14 @@ pub fn segments(command: &str) -> Vec<String> {
             if let Some(opener) = chars.next() {
                 buf.push(opener);
                 expansions.push((if opener == '(' { ')' } else { '}' }, quote.take()));
+                word_start = opener == '(';
             }
             continue;
         }
         if c == '`' && quote == Some('"') {
             buf.push(c);
             expansions.push(('`', quote.take()));
+            word_start = true;
             continue;
         }
         if quote == Some('"') {
@@ -379,14 +385,29 @@ pub fn segments(command: &str) -> Vec<String> {
             }
             continue;
         }
+        // POSIX comments start only at an unquoted word boundary. Ignore their
+        // quotes, operators and backslashes, but preserve the terminating newline.
+        // A hash inside parameter expansion is an operator rather than a comment.
+        if c == '#' && word_start && !expansions.iter().any(|(closer, _)| *closer == '}') {
+            while chars.peek().is_some_and(|next| *next != '\n') {
+                chars.next();
+            }
+            continue;
+        }
+        word_start = matches!(
+            c,
+            ' ' | '\t' | '\n' | ';' | '|' | '&' | '(' | ')' | '<' | '>'
+        );
         if expansions.last().is_some_and(|(closer, _)| *closer == c) {
             buf.push(c);
+            word_start = false;
             if let Some((_, outer_quote)) = expansions.pop() {
                 quote = outer_quote;
             }
         } else if c == '`' {
             buf.push(c);
             expansions.push(('`', quote.take()));
+            word_start = true;
         } else if c == '(' && !expansions.is_empty() {
             buf.push(c);
             expansions.push((')', None));
@@ -906,19 +927,40 @@ fn tests_ran(output: &str) -> bool {
         )
 }
 fn probe_hit(probe: Probe, output: &str) -> bool {
-    matches(
+    output.lines().any(|line| {
+        let line = line.trim();
         match probe {
-            Probe::Remote => r"(?m)^\S+\s+\S+\s+\((?:fetch|push)\)\s*$",
-            Probe::Branch => r"(?m)^\s*remotes/\S+",
-            Probe::Tag => r"(?m)^v?\d+(?:\.\d+)+(?:[a-z]+\d*|\.post\d+|-\S+)?\s*$",
-            Probe::Fsck => {
-                r"(?m)^(?:unreachable|dangling)\s+(?:commit|tree|blob|tag)\s+[0-9a-f]{7,}"
+            Probe::Remote => {
+                git_ref_name(line) || matches(r"\A\S+\s+\S+\s+\((?:fetch|push)\)\z", line)
             }
-            Probe::Stash => r"(?m)^stash@\{\d+\}",
-            Probe::Refs => r"(?m)^[0-9a-f]{7,}\s+refs/",
-        },
-        output,
-    )
+            Probe::Branch => {
+                if let Some((name, target)) = line.split_once(" -> ") {
+                    name.contains('/') && git_ref_name(name) && git_ref_name(target)
+                } else {
+                    line.contains('/') && git_ref_name(line)
+                }
+            }
+            Probe::Tag => git_ref_name(line),
+            Probe::Fsck => matches(
+                r"\A(?:unreachable|dangling)\s+(?:commit|tree|blob|tag)\s+[0-9a-f]{7,}",
+                line,
+            ),
+            Probe::Stash => matches(r"\Astash@\{\d+\}", line),
+            Probe::Refs => matches(r"\A[0-9a-f]{7,}\s+refs/", line),
+        }
+    })
+}
+fn git_ref_name(name: &str) -> bool {
+    // git-check-ref-format rules, allowing one component for remote/tag names.
+    !name.is_empty()
+        && name != "@"
+        && !name.ends_with('.')
+        && !name.contains("..")
+        && !name.contains("@{")
+        && !matches(r"[\x00-\x20\x7f~^:?*\[\\]", name)
+        && name
+            .split('/')
+            .all(|part| !part.is_empty() && !part.starts_with('.') && !part.ends_with(".lock"))
 }
 fn shell_sets(command: &str) -> BTreeMap<String, String> {
     let mut sets = BTreeMap::new();
@@ -949,17 +991,21 @@ fn env_call(command: &str, output: &str, ok: bool, call: usize) -> EnvCall {
         1,
     );
     let mut sets = shell_sets(command);
-    let in_code = !has_expansion(command)
-        && classify_command(command)
-            .iter()
-            .any(|o| o.intent == Intent::RunInterpreter);
     if let Ok(rx) = regex::Regex::new(
         r#"os\.environ(?:\.setdefault\(\s*|\[\s*)['"]([A-Z_][A-Z0-9_]*)['"]\s*(?:,|\]\s*=)\s*['"]([^'"]*)['"]"#,
-    ) && in_code
-    {
-        for c in rx.captures_iter(command) {
-            if let (Some(var), Some(value)) = (c.get(1), c.get(2)) {
-                sets.insert(var.as_str().into(), value.as_str().into());
+    ) {
+        for segment in segments(&unwrap(command)) {
+            if has_expansion(&segment)
+                || !classify_command(&segment)
+                    .iter()
+                    .any(|o| o.intent == Intent::RunInterpreter)
+            {
+                continue;
+            }
+            for c in rx.captures_iter(&segment) {
+                if let (Some(var), Some(value)) = (c.get(1), c.get(2)) {
+                    sets.insert(var.as_str().into(), value.as_str().into());
+                }
             }
         }
     }
@@ -1081,7 +1127,7 @@ fn attribute(obs: &mut [Observation], command: &str, output: &str, success: bool
                 Outcome::Unknown
             } else if probe_hit(probe, output) {
                 Outcome::Hit
-            } else if success {
+            } else if success && output.trim().is_empty() {
                 Outcome::Empty
             } else {
                 Outcome::Unknown
