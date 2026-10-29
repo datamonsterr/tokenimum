@@ -49,12 +49,33 @@ fn render_starts_with_frontmatter_naming_the_skill() {
 }
 
 #[test]
-fn render_lists_only_the_two_read_only_commands() {
+fn skill_lists_all_read_only_commands() {
     let text = render(Host::Pi);
-    assert!(text.contains("tkm facts --brief"));
-    assert!(text.contains("tkm why <event>"));
-    let commands: Vec<_> = text.lines().filter(|l| l.starts_with("tkm ")).collect();
-    assert_eq!(commands, ["tkm facts --brief", "tkm why <event>"]);
+    for command in [
+        "tkm status",
+        "tkm status --json",
+        "tkm why <event|last>",
+        "tkm facts --brief",
+        "tkm skills --json",
+        "tkm doctor",
+    ] {
+        assert!(text.contains(command), "missing {command}: {text}");
+    }
+    assert!(text.contains("only read"));
+    assert!(text.contains("change nothing"));
+}
+
+#[test]
+fn skill_description_claims_no_effect() {
+    let text = render(Host::Claude);
+    let description = text
+        .lines()
+        .find(|line| line.starts_with("description:"))
+        .unwrap()
+        .to_lowercase();
+    for word in ["improve", "save", "faster", "fix", "reduce", "cheaper"] {
+        assert!(!description.contains(word), "unexpected claim {word}");
+    }
 }
 
 #[test]
