@@ -220,6 +220,17 @@ fn scored_facts_obey_count_and_token_caps() {
     );
     let config = Config {
         max_facts: 5,
+        ..Config::default()
+    };
+    assert_eq!(inject::select(&items, Some(&scores), config).len(), 5);
+    let config = Config {
+        max_facts: 5,
+        max_fact_tokens: 149,
+        ..Config::default()
+    };
+    assert_eq!(inject::select(&items, Some(&scores), config).len(), 4);
+    let config = Config {
+        max_facts: 5,
         max_fact_tokens: 120,
         ..Config::default()
     };
