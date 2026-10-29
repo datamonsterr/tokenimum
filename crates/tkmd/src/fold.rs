@@ -573,11 +573,11 @@ fn fold_inner(
     job: &FoldJob,
     context: Option<&FoldDecider<'_>>,
 ) -> HResult<FoldReport> {
-    let Some(path) = job
-        .log_path
-        .clone()
-        .or_else(|| derived_log_path(job.host, &job.agent_home, &job.cwd, &job.key.session_id))
-    else {
+    let Some(path) = job.log_path.clone().or_else(|| {
+        // A derived location that does not exist is a session without a log, not a read error.
+        derived_log_path(job.host, &job.agent_home, &job.cwd, &job.key.session_id)
+            .filter(|path| path.exists())
+    }) else {
         store.set_session_fold_status(record.id, "skipped")?;
         return Ok(FoldReport {
             status: "skipped",
