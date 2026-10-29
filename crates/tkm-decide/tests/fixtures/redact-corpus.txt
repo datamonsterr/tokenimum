@@ -1,0 +1,28 @@
+AKIA1234567890ABCDEF
+ASIA1234567890ABCDEF
+aws_secret_access_key = fakeawssecret0123456789
+GitHub ghp_abcdefghijklmnopqrstuvwxyz1234567890 github_pat_abcdefghijklmnopqrstuvwxyz123456
+OpenRouter sk-or-v1-abcdef0123456789abcdef0123456789
+Anthropic sk-ant-abcdef0123456789abcdef0123456789
+OpenAI sk-proj-abcdef0123456789abcdef0123456789 sk-svcacct-abcdef0123456789abcdef0123456789
+Moonshot sk-fakemoonshotabcdef0123456789
+DeepSeek sk-fakedeepseekabcdef0123456789
+Cursor cursor-fakecursorabcdef0123456789
+JWT eyJabcdef.eyJabcdef.signature
+-----BEGIN RSA PRIVATE KEY-----
+FAKEPRIVATEKEYDATA
+-----END RSA PRIVATE KEY-----
+fakeenvvalue123
+/outside/private
+/home/test/private
+-----BEGIN PGP PRIVATE KEY BLOCK-----
+FAKEPGPKEYDATA
+-----END PGP PRIVATE KEY BLOCK-----
+Bearer opaque_bearer_fixture_12345
+Authorization: Custom opaque_custom_auth_fixture
+https://fixture-user:fixture-password@example.test/resource
+password = fixture multi word phrase
+cat x>/mnt/secret/a
+a,/srv/priv/b
+-----BEGIN EC PRIVATE KEY-----
+UNTERMINATEDKEYDATA
