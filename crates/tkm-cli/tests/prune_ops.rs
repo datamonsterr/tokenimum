@@ -128,7 +128,7 @@ fn prune_apply_one_and_restore_all_four_hosts() {
     for (relative, token) in [
         (".claude/settings.local.json", "mcp__example__unused"),
         (".cursor/cli.json", "Mcp(example:unused)"),
-        ("opencode.json", "mcp__example__unused"),
+        ("opencode.json", "example_unused"),
         (".pi/settings.json", "-mcp__example__unused"),
     ] {
         let path = s.repo.join(relative);

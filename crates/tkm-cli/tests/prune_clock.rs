@@ -11,7 +11,7 @@ use tkmd::clock::ManualClock;
 
 #[test]
 fn mocked_clock_applies_at_idle_boundary_or_ready_deadline() {
-    for deadline in [false, true] {
+    for (deadline, recent_hook) in [(false, false), (true, false), (false, true)] {
         let s = support_ops::Sandbox::new();
         let paths = tkm_config::paths::Paths::from_dirs(
             s.home.path(),
@@ -32,10 +32,21 @@ fn mocked_clock_applies_at_idle_boundary_or_ready_deadline() {
                 repo_key: repo.key.clone(),
                 display_name: "test".into(),
                 first_seen: Timestamp(0),
-                last_seen: Timestamp(if deadline { boundary - 1 } else { ready }),
+                last_seen: Timestamp(if deadline {
+                    boundary - 1
+                } else if recent_hook {
+                    0
+                } else {
+                    ready
+                }),
                 delegated_runs: 0,
             })
             .unwrap();
+        if recent_hook {
+            let db = rusqlite::Connection::open(&paths.db).unwrap();
+            db.execute("INSERT INTO sessions (host,agent_home,session_id,repo_key,cwd,started_at,fold_status,shadow,integration_level) VALUES ('claude','test','activity',?1,'test',0,'open',0,'hooks')", [&repo.key.0]).unwrap();
+            db.execute("INSERT INTO events (kind,session_id,inputs,evidence_ids,explanation_template_id,params,created_at) VALUES ('hook.seen',last_insert_rowid(),'{}','[]','hook','{}',?1)", [ready]).unwrap();
+        }
         for _ in 0..5 {
             store
                 .record_tool_unused_session(&repo.key, Host::Claude, "mcp__example__unused")

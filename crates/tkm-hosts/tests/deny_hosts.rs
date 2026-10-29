@@ -25,7 +25,7 @@ fn surfaces() -> [(Host, &'static str, &'static str, &'static str); 4] {
         (
             Host::Opencode,
             "opencode.json",
-            "mcp__example__unused",
+            "example_unused",
             r#"{"permission":{"foreign":"deny","existing":"allow"},"untouched": [ 1, 2 ]}"#,
         ),
         (
@@ -191,5 +191,71 @@ fn four_host_deny_refuses_tracked_and_escaping_targets() {
             );
             assert_eq!(fs::read_to_string(target).unwrap(), original);
         }
+    }
+}
+
+#[test]
+fn restore_removes_created_containers_and_preserves_later_foreign_changes() {
+    for (host, relative, _, _) in surfaces() {
+        let repo = tempfile::tempdir().unwrap();
+        assert!(
+            Command::new("git")
+                .args(["init", "--quiet"])
+                .arg(repo.path())
+                .status()
+                .unwrap()
+                .success()
+        );
+        let path = repo.path().join(relative);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, r#"{"untouched": [ 1, 2 ]}"#).unwrap();
+        let applied = update_host_deny(
+            repo.path(),
+            host,
+            &BTreeSet::new(),
+            &set(&["mcp__example__unused"]),
+            false,
+        )
+        .unwrap();
+        let edited = fs::read_to_string(&path)
+            .unwrap()
+            .replace("[ 1, 2 ]", "[ 3, 4 ]");
+        fs::write(&path, edited).unwrap();
+        update_host_deny(repo.path(), host, &applied.owned, &BTreeSet::new(), false).unwrap();
+        assert_eq!(
+            fs::read_to_string(&path).unwrap(),
+            r#"{"untouched": [ 3, 4 ]}"#
+        );
+    }
+}
+
+#[test]
+fn restoring_a_new_settings_file_returns_to_absence() {
+    for (host, relative, _, _) in surfaces() {
+        let repo = tempfile::tempdir().unwrap();
+        assert!(
+            Command::new("git")
+                .args(["init", "--quiet"])
+                .arg(repo.path())
+                .status()
+                .unwrap()
+                .success()
+        );
+        let applied = update_host_deny(
+            repo.path(),
+            host,
+            &BTreeSet::new(),
+            &set(&["mcp__example__unused"]),
+            false,
+        )
+        .unwrap();
+        update_host_deny(repo.path(), host, &applied.owned, &BTreeSet::new(), false).unwrap();
+        assert!(!repo.path().join(relative).exists());
+        assert!(
+            update_host_deny(repo.path(), host, &BTreeSet::new(), &BTreeSet::new(), false)
+                .unwrap()
+                .changed_files
+                .is_empty()
+        );
     }
 }
