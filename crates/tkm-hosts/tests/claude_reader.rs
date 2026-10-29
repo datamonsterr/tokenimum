@@ -228,8 +228,9 @@ fn tool_use_result_without_text_falls_back_to_result_content() {
         json!({"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"c0","content":"1 passed","is_error":false}]},"toolUseResult":{"exit_code":0}}),
     ]
     .iter()
-    .map(|row| format!("{row}\n"))
-    .collect::<String>();
+    .map(ToString::to_string)
+    .collect::<Vec<_>>()
+    .join("\n");
     let path = temporary_log(&log);
     let session = ClaudeAdapter::new()
         .read_session(&source(path.clone()))

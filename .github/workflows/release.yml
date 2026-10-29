@@ -43,7 +43,7 @@ jobs:
       - name: Install target and pinned Zig linker
         run: |
           rustup target add "${{ matrix.target }}"
-          python3 -m pip install --user ziglang==0.17.0
+          python3 -m pip install --user --break-system-packages ziglang==0.17.0
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
           cargo install --locked cargo-zigbuild --version 0.24.0
       - name: Build twice, verify static linking, and compare hashes
@@ -101,11 +101,18 @@ jobs:
       - name: Install cargo-geiger
         run: cargo install --locked cargo-geiger --version 0.14.0 --features vendored-openssl
       - name: Generate report
-        run: cargo geiger --locked --output-format Json --quiet > cargo-geiger.json
+        run: |
+          set -euo pipefail
+          for package in tkmd tkm-cli tkm-hook; do
+            cargo geiger --manifest-path "$GITHUB_WORKSPACE/crates/$package/Cargo.toml" --all-features --locked --output-format Json --quiet > "${package}-geiger.json"
+          done
       - uses: actions/upload-artifact@v7
         with:
           name: tokenimum-cargo-geiger
-          path: cargo-geiger.json
+          path: |
+            tkmd-geiger.json
+            tkm-cli-geiger.json
+            tkm-hook-geiger.json
           if-no-files-found: error
 
   publish:

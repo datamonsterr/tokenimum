@@ -228,7 +228,7 @@ impl Daemon {
     ) {
         match outcome {
             Outcome::Decision(decision) => {
-                self.apply_decision(job, questions, digest, &decision, shadow)
+                self.apply_decision(job, questions, digest, &decision, shadow);
             }
             Outcome::NoDecision(reason) => {
                 self.release_judge(job);
@@ -642,7 +642,7 @@ mod shadow_tests {
             14,
             200
         ));
-        clock.advance(Duration::from_secs(14 * 86_400));
+        clock.advance(Duration::from_hours(14 * 24));
         assert!(shadow_active(
             1_000,
             199,

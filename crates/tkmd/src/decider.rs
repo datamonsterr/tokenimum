@@ -205,11 +205,12 @@ impl StoreLedger {
             );
             let purpose = match decision.purpose.as_str() {
                 "loop_guard" => tkm_decide::cache::Purpose::LoopGuard,
-                "relevance" => tkm_decide::cache::Purpose::Relevance,
+                "relevance" | "models_probe" | "doctor_probe" => {
+                    tkm_decide::cache::Purpose::Relevance
+                }
                 "fact_filter" => tkm_decide::cache::Purpose::FactFilter,
                 "fact_contradiction" => tkm_decide::cache::Purpose::FactContradiction,
                 "redirect" => tkm_decide::cache::Purpose::Redirect,
-                "models_probe" | "doctor_probe" => tkm_decide::cache::Purpose::Relevance,
                 _ => continue,
             };
             self.inner.record(DecisionRow {
