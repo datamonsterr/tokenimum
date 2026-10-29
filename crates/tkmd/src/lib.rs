@@ -32,6 +32,7 @@ pub mod host_level;
 pub mod injection;
 pub mod live;
 pub mod logging;
+pub mod maintenance;
 pub mod monitor;
 pub mod persist;
 pub mod registry;

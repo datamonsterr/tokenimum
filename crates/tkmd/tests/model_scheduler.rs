@@ -121,3 +121,42 @@ fn daily_claim_is_atomic_between_connections() {
     assert!(!second.claim_free_model_probe(86_400_099).unwrap());
     assert!(second.claim_free_model_probe(86_400_100).unwrap());
 }
+
+#[tokio::test]
+async fn workers_schedule_a_probe_without_an_explicit_doctor_call() {
+    let env = common::Env::new();
+    let clock = Arc::new(ManualClock::new(1_800_000_000_000));
+    let (endpoint, hits) = common::fake_openrouter(200, body(), Duration::ZERO).await;
+    let ledger = Arc::new(StoreLedger::default());
+    let decider = client(&endpoint, clock.clone(), ledger.clone());
+    let daemon = daemon(&env, clock, decider, ledger);
+    daemon.start_workers();
+    assert!(common::eventually(3, || hits.load(Ordering::SeqCst) == 1).await);
+    assert!(common::eventually(3, || env.store().free_model_probes().unwrap().len() == 1).await);
+    daemon.shutdown().await;
+}
+
+#[tokio::test]
+async fn locked_store_skips_http_and_keeps_paid_fallback_available() {
+    let env = common::Env::new();
+    let clock = Arc::new(ManualClock::new(1_800_000_000_000));
+    let (endpoint, hits) = common::fake_openrouter(200, body(), Duration::ZERO).await;
+    let ledger = Arc::new(StoreLedger::default());
+    let decider = client(&endpoint, clock.clone(), ledger.clone());
+    let mut options = DaemonOptions::new(env.paths.clone());
+    drop(env.store());
+    let writer = rusqlite::Connection::open(&env.paths.db).unwrap();
+    writer.execute_batch("BEGIN IMMEDIATE").unwrap();
+    options.backing = Arc::new(tkmd::backing::SqliteBacking::with_busy_timeout(
+        env.paths.db.clone(),
+        Duration::from_millis(1),
+    ));
+    options.clock = clock;
+    options.decider = decider.clone();
+    options.ledger = ledger;
+    let daemon = Daemon::new(options);
+    daemon.reprobe_models().await;
+    assert_eq!(hits.load(Ordering::SeqCst), 0);
+    assert_eq!(decider.active_models(), ["test/paid-20261029"]);
+    writer.execute_batch("ROLLBACK").unwrap();
+}

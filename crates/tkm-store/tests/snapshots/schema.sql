@@ -67,6 +67,19 @@ CREATE TABLE facts (
     PRIMARY KEY(repo_key, fact_id)
 );
 
+-- table free_model_probe_schedule
+CREATE TABLE free_model_probe_schedule (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    last_probed INTEGER NOT NULL
+);
+
+-- table free_model_probes
+CREATE TABLE free_model_probes (
+    model TEXT PRIMARY KEY,
+    succeeded INTEGER NOT NULL,
+    probed_at INTEGER NOT NULL
+);
+
 -- table host_event_probes
 CREATE TABLE host_event_probes (
     host TEXT NOT NULL,

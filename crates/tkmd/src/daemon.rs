@@ -161,6 +161,8 @@ pub struct Daemon {
     pub(crate) scan_interval: Duration,
     pub(crate) stale_after: Duration,
     pub(crate) env: Vec<(String, String)>,
+    pub(crate) model_probe_revision: Mutex<Option<i64>>,
+    pub(crate) maintenance_lock: tokio::sync::Mutex<()>,
     pub(crate) idle_events:
         Mutex<std::collections::HashMap<Host, std::collections::BTreeSet<String>>>,
     pub(crate) host_fallback: Mutex<std::collections::HashMap<Host, bool>>,
@@ -236,6 +238,8 @@ impl Daemon {
         });
         let default_settings = options.settings.settings_for(None);
         Arc::new(Self {
+            model_probe_revision: Mutex::new(None),
+            maintenance_lock: tokio::sync::Mutex::new(()),
             idle_events: Mutex::new(std::collections::HashMap::new()),
             host_fallback: Mutex::new(std::collections::HashMap::new()),
             errors_tx,
@@ -348,6 +352,7 @@ impl Daemon {
         tasks.push(tokio::spawn(self.clone().flush_loop()));
         tasks.push(tokio::spawn(self.clone().idle_loop()));
         tasks.push(crate::fold::spawn_log_watcher(self.clone()));
+        tasks.push(tokio::spawn(self.clone().maintenance_loop()));
     }
 
     /// Refreshes integration-dependent settings on all live sessions after detection.

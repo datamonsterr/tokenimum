@@ -47,6 +47,7 @@ pub fn record_probe_hook() -> Option<ExitCode> {
     Some(ExitCode::SUCCESS)
 }
 
+#[allow(clippy::too_many_lines)] // One probe report includes every independent event result.
 pub(super) fn run(ctx: &mut Ctx<'_>, host: Host) -> Result<bool, CliError> {
     let store = daemon::open_db_for_write(&ctx.paths)?;
     let now = i64::try_from(

@@ -24,6 +24,7 @@ use crate::{cli::DoctorArgs, ctx::Ctx, error::CliError};
 /// Returns output errors. Failed checks produce report lines and exit 1;
 /// checks never start a daemon. With a key, explicit model probes record their
 /// attempts in the database; other checks use read-only database access.
+#[allow(clippy::too_many_lines)] // Independent diagnostics continue after each failed check.
 pub fn run(ctx: &mut Ctx<'_>, args: &DoctorArgs) -> Result<ExitCode, CliError> {
     let mut failed = false;
     // Validate host before diagnostics mutate any health state.

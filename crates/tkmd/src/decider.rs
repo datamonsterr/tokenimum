@@ -26,6 +26,23 @@ pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 pub trait Decider: Send + Sync {
     /// Runs one batched decision request. Never fails: failures are outcomes.
     fn decide(&self, request: DecideRequest) -> BoxFuture<'_, Outcome>;
+    /// Probe free slots on the same live client. Sources without models do nothing.
+    fn reprobe_free(
+        &self,
+        _session_id: String,
+    ) -> BoxFuture<'_, Vec<tkm_decide::probe::FreeProbeResult>> {
+        Box::pin(async { Vec::new() })
+    }
+    /// Configured free slots; empty for offline or scripted sources.
+    fn free_models(&self) -> Vec<String> {
+        Vec::new()
+    }
+    /// Current available model order, useful for diagnostics.
+    fn active_models(&self) -> Vec<String> {
+        Vec::new()
+    }
+    /// Restore one persisted result after daemon restart or an explicit doctor probe.
+    fn restore_free_model(&self, _model: &str, _succeeded: bool) {}
 }
 
 /// Decider that always reports "disabled" (decisions off, or no transport).
@@ -39,8 +56,8 @@ impl Decider for NullDecider {
 }
 
 /// [`Decider`] over the real [`DecisionClient`].
-pub struct ClientDecider<T: Transport> {
-    client: DecisionClient<T, SystemClock, Arc<StoreLedger>>,
+pub struct ClientDecider<T: Transport, C: crate::clock::Clock = SystemClock> {
+    client: DecisionClient<T, C, Arc<StoreLedger>>,
 }
 
 impl<T: Transport + 'static> ClientDecider<T> {
@@ -57,9 +74,39 @@ impl<T: Transport + 'static> ClientDecider<T> {
     }
 }
 
-impl<T: Transport + 'static> Decider for ClientDecider<T> {
+impl<T: Transport, C: crate::clock::Clock> ClientDecider<T, C> {
+    /// Create a client with an injected clock for maintenance and budget tests.
+    pub fn with_clock(
+        config: DecideConfig,
+        key: Option<ApiKey>,
+        transport: T,
+        clock: C,
+        ledger: Arc<StoreLedger>,
+    ) -> Self {
+        Self {
+            client: DecisionClient::new(config, key, transport, clock, ledger),
+        }
+    }
+}
+
+impl<T: Transport + 'static, C: crate::clock::Clock + 'static> Decider for ClientDecider<T, C> {
     fn decide(&self, request: DecideRequest) -> BoxFuture<'_, Outcome> {
         Box::pin(async move { self.client.decide(request).await })
+    }
+    fn reprobe_free(
+        &self,
+        session_id: String,
+    ) -> BoxFuture<'_, Vec<tkm_decide::probe::FreeProbeResult>> {
+        Box::pin(async move { self.client.probe_free_models(&session_id).await })
+    }
+    fn free_models(&self) -> Vec<String> {
+        self.client.free_models()
+    }
+    fn active_models(&self) -> Vec<String> {
+        self.client.active_models()
+    }
+    fn restore_free_model(&self, model: &str, succeeded: bool) {
+        self.client.restore_free_model(model, succeeded);
     }
 }
 

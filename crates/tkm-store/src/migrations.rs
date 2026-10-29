@@ -119,7 +119,7 @@ CREATE TABLE installs (
 ";
 
 /// Migrations in schema version order.
-pub(crate) const MIGRATIONS: &[&str] = &[V001, V002, V003, V004, V005, V006];
+pub(crate) const MIGRATIONS: &[&str] = &[V001, V002, V003, V004, V005, V006, V007];
 
 /// Nullable reporting context; historical rows deliberately retain unknown times.
 pub(crate) const V004: &str = r"
@@ -219,7 +219,7 @@ mod report_schema_tests {
         let version: i64 = conn
             .pragma_query_value(None, "user_version", |row| row.get(0))
             .unwrap();
-        assert_eq!(version, 6);
+        assert_eq!(version, 7);
         let legacy = store
             .get_fact(&tkm_core::model::RepoKey("legacy".into()), "f")
             .unwrap()
@@ -271,5 +271,18 @@ CREATE TABLE host_event_probes (
     arrived INTEGER NOT NULL,
     probed_at INTEGER NOT NULL,
     PRIMARY KEY(host, native)
+);
+";
+
+/// Durable daily free-model cadence and results, independent of daemon lifetimes.
+pub(crate) const V007: &str = r"
+CREATE TABLE free_model_probe_schedule (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    last_probed INTEGER NOT NULL
+);
+CREATE TABLE free_model_probes (
+    model TEXT PRIMARY KEY,
+    succeeded INTEGER NOT NULL,
+    probed_at INTEGER NOT NULL
 );
 ";
