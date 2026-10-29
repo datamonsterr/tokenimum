@@ -34,10 +34,13 @@ pub enum ShimStatus {
 }
 
 fn hex_sha256(bytes: &[u8]) -> String {
-    Sha256::digest(bytes)
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect()
+    const DIGITS: &[u8; 16] = b"0123456789abcdef";
+    let mut out = String::with_capacity(64);
+    for byte in Sha256::digest(bytes).iter() {
+        out.push(char::from(DIGITS[usize::from(byte >> 4)]));
+        out.push(char::from(DIGITS[usize::from(byte & 15)]));
+    }
+    out
 }
 
 /// Splits off the two header lines; the body keeps every later byte.
