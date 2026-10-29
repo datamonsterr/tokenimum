@@ -5,8 +5,9 @@ use criterion::{Criterion, criterion_group, criterion_main};
 use std::hint::black_box;
 
 fn placeholder(c: &mut Criterion) {
-    c.bench_function("placeholder", |b| {
-        b.iter(|| black_box(1_u64) + black_box(2));
+    // Sub-nanosecond work rounds to 0 or 1 ns and makes the 20% gate flip between runs.
+    c.bench_function("placeholder_sum_1k", |b| {
+        b.iter(|| (0..black_box(1_000_u64)).map(black_box).sum::<u64>());
     });
 }
 
