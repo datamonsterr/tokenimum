@@ -33,3 +33,6 @@ pub(super) fn uninstall(context: &InstallContext) -> Result<InstallReport, Adapt
     let (root, path) = paths(context);
     writer::uninstall_hooks(&root, &path, "claude", context.dry_run)
 }
+
+/// Verified project-local pruning settings path.
+pub(crate) const DENY_PATH: &str = ".claude/settings.local.json";

@@ -14,7 +14,7 @@ use tkm_core::{
     model::{Host, Timestamp},
     prune::{self, PruneConfig, ToolEvidence},
 };
-use tkm_hosts::{HostAdapter, claude::ClaudeAdapter, writer::deny::update_deny};
+use tkm_hosts::writer::deny::update_host_deny;
 
 /// Show, apply, or restore deny-list proposals.
 ///
@@ -64,7 +64,14 @@ pub fn run(ctx: &mut Ctx<'_>, args: &PruneArgs) -> Result<ExitCode, CliError> {
     drop(statement);
     match &args.command {
         None => {}
-        Some(PruneCommand::Apply(_)) => apply(ctx, &db, &candidates, &prune)?,
+        Some(PruneCommand::Apply(args)) => {
+            if let Some(tool) = &args.tool {
+                for tools in candidates.values_mut() {
+                    tools.retain(|name| name == tool);
+                }
+            }
+            apply(ctx, &db, &candidates, &prune)?;
+        }
         Some(PruneCommand::Restore(args)) => restore(ctx, args.tool.as_deref())?,
     }
     Ok(ExitCode::SUCCESS)
@@ -126,36 +133,28 @@ fn apply(
     let store = daemon::open_db_for_write(&ctx.paths)?;
     let rows = store.list_denylist(&ctx.repo.root).map_err(store_error)?;
     for (host, desired) in candidates {
-        if host != "claude" {
+        let Some(kind @ (Host::Claude | Host::Cursor | Host::Opencode | Host::Pi)) =
+            host_kind(host)
+        else {
             writeln!(
                 ctx.stdout,
-                "{host}: apply not supported yet; proposal only (no file written)"
+                "{host}: proposal only (no verified deny target)"
             )?;
             continue;
-        }
-        if !matches!(
-            ClaudeAdapter::new().prune_target(),
-            tkm_hosts::PruneTarget::SettingsDenyList { .. }
-        ) {
-            writeln!(
-                ctx.stdout,
-                "{host}: apply not supported yet; proposal only (no file written)"
-            )?;
-            continue;
-        }
+        };
         let owned: BTreeSet<_> = rows
             .iter()
-            .filter(|e| e.host == Host::Claude && !e.restored)
+            .filter(|e| e.host == kind && !e.restored)
             .map(|e| e.tool.clone())
             .collect();
         let requested = owned.union(desired).cloned().collect();
-        let report = update_deny(&ctx.repo.root, &owned, &requested, false)
+        let report = update_host_deny(&ctx.repo.root, kind, &owned, &requested, false)
             .map_err(|e| CliError::Usage(format!("cannot update deny list: {e}")))?;
         for tool in report.owned.difference(&owned) {
             store
                 .record_denylist_write(&tkm_store::DenylistEntry {
                     checkout_path: ctx.repo.root.clone(),
-                    host: Host::Claude,
+                    host: kind,
                     tool: tool.clone(),
                     written_at: current,
                     restored: false,
@@ -168,35 +167,28 @@ fn apply(
 fn restore(ctx: &mut Ctx<'_>, tool: Option<&str>) -> Result<(), CliError> {
     let store = daemon::open_db_for_write(&ctx.paths)?;
     let rows = store.list_denylist(&ctx.repo.root).map_err(store_error)?;
-    let owned: BTreeSet<_> = rows
-        .iter()
-        .filter(|e| e.host == Host::Claude && !e.restored)
-        .map(|e| e.tool.clone())
-        .collect();
-    let desired: BTreeSet<_> = owned
-        .iter()
-        .filter(|name| tool.is_some_and(|tool| tool != name.as_str()))
-        .cloned()
-        .collect();
-    if !owned.is_empty() {
-        let report = update_deny(&ctx.repo.root, &owned, &desired, false)
+    for kind in [Host::Claude, Host::Cursor, Host::Opencode, Host::Pi] {
+        let owned: BTreeSet<_> = rows
+            .iter()
+            .filter(|e| e.host == kind && !e.restored)
+            .map(|e| e.tool.clone())
+            .collect();
+        let desired = owned
+            .iter()
+            .filter(|name| tool.is_some_and(|tool| tool != name.as_str()))
+            .cloned()
+            .collect();
+        if owned.is_empty() {
+            continue;
+        }
+        let report = update_host_deny(&ctx.repo.root, kind, &owned, &desired, false)
             .map_err(|e| CliError::Usage(format!("cannot restore deny list: {e}")))?;
         for name in owned.difference(&report.owned) {
             store
-                .mark_denylist_restored(&ctx.repo.root, Host::Claude, name)
+                .mark_denylist_restored(&ctx.repo.root, kind, name)
                 .map_err(store_error)?;
-            writeln!(ctx.stdout, "restored {name}")?;
+            writeln!(ctx.stdout, "{}: restored {name}", kind.as_str())?;
         }
-    }
-    for row in rows
-        .iter()
-        .filter(|e| e.host != Host::Claude && !e.restored && tool.is_none_or(|t| t == e.tool))
-    {
-        writeln!(
-            ctx.stdout,
-            "{}: restore not supported yet; no file written",
-            row.host.as_str()
-        )?;
     }
     Ok(())
 }

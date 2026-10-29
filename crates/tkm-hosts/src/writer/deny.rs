@@ -1,4 +1,4 @@
-//! Claude's local deny list, with ownership supplied by the caller's store.
+//! Host-local deny lists, with ownership supplied by the caller's store.
 
 use super::{
     Update, atomic_update, checked_backup, invalid, read_optional, retry_update, safe_target, span,
@@ -11,8 +11,38 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-const RELATIVE: &str = ".claude/settings.local.json";
-const EXCLUDE_LINE: &str = "/.claude/settings.local.json";
+use tkm_core::model::Host;
+
+#[derive(Clone, Copy)]
+enum Surface {
+    Permissions,
+    Opencode,
+    Pi,
+}
+
+impl Surface {
+    fn keys(self) -> &'static [&'static str] {
+        match self {
+            Self::Permissions => &["permissions", "deny"],
+            Self::Opencode => &["permission"],
+            Self::Pi => &["defaultTools"],
+        }
+    }
+
+    fn node(self, text: &str) -> Result<span::Node, AdapterError> {
+        let mut node = span::parse(text)?;
+        for key in self.keys() {
+            node = node
+                .members
+                .into_iter()
+                .rev()
+                .find(|member| member.key == *key)
+                .ok_or_else(|| invalid("deny container missing"))?
+                .value;
+        }
+        Ok(node)
+    }
+}
 
 /// Result of reconciling a local deny list against a caller-owned set.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -67,23 +97,30 @@ pub(crate) fn refuse_tracked(root: &Path, path: &Path) -> Result<(), AdapterErro
     Ok(())
 }
 
-fn deny_entries(value: &Value) -> Result<Vec<String>, AdapterError> {
-    if !value.is_object() {
-        return Err(invalid("settings must be an object"));
+fn entries(value: &Value, surface: Surface) -> Result<Vec<String>, AdapterError> {
+    let mut container = value;
+    for key in surface.keys() {
+        if !container.is_object() {
+            return Err(invalid("deny settings parent must be an object"));
+        }
+        let Some(child) = container.get(key) else {
+            return Ok(Vec::new());
+        };
+        container = child;
     }
-    let Some(permissions) = value.get("permissions") else {
-        return Ok(Vec::new());
-    };
-    if !permissions.is_object() {
-        return Err(invalid("permissions must be an object"));
+    if matches!(surface, Surface::Opencode) {
+        let object = container
+            .as_object()
+            .ok_or_else(|| invalid("permission must be an object"))?;
+        return Ok(object
+            .iter()
+            .filter(|(_, value)| *value == "deny")
+            .map(|(key, _)| key.clone())
+            .collect());
     }
-    let Some(deny) = permissions.get("deny") else {
-        return Ok(Vec::new());
-    };
-    let Some(entries) = deny.as_array() else {
-        return Err(invalid("permissions.deny must be an array"));
-    };
-    entries
+    container
+        .as_array()
+        .ok_or_else(|| invalid("deny settings must be an array"))?
         .iter()
         .map(|value| {
             value
@@ -94,16 +131,28 @@ fn deny_entries(value: &Value) -> Result<Vec<String>, AdapterError> {
         .collect()
 }
 
-fn ensure_deny(mut text: String) -> Result<String, AdapterError> {
+fn ensure_container(mut text: String, surface: Surface) -> Result<String, AdapterError> {
     let root = span::parse(&text)?;
-    if root.member("permissions").is_none() {
-        text = span::append_member(&text, &root, "permissions", &json!({"deny":[]}));
-    } else {
-        let permissions = root
-            .member("permissions")
-            .ok_or_else(|| invalid("permissions missing"))?;
-        if permissions.member("deny").is_none() {
-            text = span::append_member(&text, permissions, "deny", &json!([]));
+    match surface {
+        Surface::Permissions => {
+            if let Some(permissions) = root.member("permissions") {
+                if permissions.member("deny").is_none() {
+                    text = span::append_member(&text, permissions, "deny", &json!([]));
+                }
+            } else {
+                text = span::append_member(&text, &root, "permissions", &json!({"deny":[]}));
+            }
+        }
+        Surface::Opencode | Surface::Pi => {
+            let key = surface.keys()[0];
+            if root.member(key).is_none() {
+                let empty = if matches!(surface, Surface::Opencode) {
+                    json!({})
+                } else {
+                    json!([])
+                };
+                text = span::append_member(&text, &root, key, &empty);
+            }
         }
     }
     Ok(text)
@@ -113,48 +162,111 @@ fn reconcile(
     text: &str,
     owned: &BTreeSet<String>,
     desired: &BTreeSet<String>,
+    surface: Surface,
 ) -> Result<(String, BTreeSet<String>), AdapterError> {
     let value: Value = serde_json::from_str(text)?;
-    let entries = deny_entries(&value)?;
-    let mut new_owned = BTreeSet::new();
+    let entries = entries(&value, surface)?;
+    // A foreign allow, ask, or granular opencode rule is never replaced or adopted.
     let additions: Vec<_> = desired
         .iter()
-        .filter(|entry| !entries.contains(entry))
+        .filter(|entry| {
+            !entries.contains(entry)
+                && (!matches!(surface, Surface::Opencode)
+                    || value
+                        .get("permission")
+                        .and_then(|map| map.get(*entry))
+                        .is_none())
+        })
         .cloned()
         .collect();
-    for entry in &entries {
-        if owned.contains(entry) && desired.contains(entry) {
-            new_owned.insert(entry.clone());
-        }
-    }
+    let mut new_owned: BTreeSet<_> = owned
+        .intersection(desired)
+        .filter(|entry| entries.contains(entry))
+        .cloned()
+        .collect();
     let removals: Vec<_> = entries
         .iter()
         .enumerate()
         .filter(|(_, entry)| owned.contains(*entry) && !desired.contains(*entry))
-        .map(|(index, _)| index)
+        .map(|(index, entry)| (index, entry.clone()))
         .collect();
     if additions.is_empty() && removals.is_empty() {
         return Ok((text.to_owned(), new_owned));
     }
-    let mut changed = ensure_deny(text.to_owned())?;
-    for index in removals.into_iter().rev() {
-        let root = span::parse(&changed)?;
-        let deny = root
-            .member("permissions")
-            .and_then(|permissions| permissions.member("deny"))
-            .ok_or_else(|| invalid("deny list missing"))?;
-        changed = span::remove_element(&changed, deny, index);
+    let mut changed = ensure_container(text.to_owned(), surface)?;
+    for (index, entry) in removals.into_iter().rev() {
+        let container = surface.node(&changed)?;
+        changed = if matches!(surface, Surface::Opencode) {
+            span::remove_member(&changed, &container, &entry)
+        } else {
+            span::remove_element(&changed, &container, index)
+        };
     }
     for entry in additions {
-        let root = span::parse(&changed)?;
-        let deny = root
-            .member("permissions")
-            .and_then(|permissions| permissions.member("deny"))
-            .ok_or_else(|| invalid("deny list missing"))?;
-        changed = span::append_element(&changed, deny, &Value::String(entry.clone()));
+        let container = surface.node(&changed)?;
+        changed = if matches!(surface, Surface::Opencode) {
+            span::append_member(&changed, &container, &entry, &json!("deny"))
+        } else {
+            span::append_element(&changed, &container, &Value::String(entry.clone()))
+        };
         new_owned.insert(entry);
     }
     Ok((changed, new_owned))
+}
+
+fn token(host: Host, name: &str) -> String {
+    match host {
+        Host::Cursor => name
+            .strip_prefix("mcp__")
+            .and_then(|name| name.split_once("__"))
+            .map_or_else(
+                || name.to_owned(),
+                |(server, tool)| format!("Mcp({server}:{tool})"),
+            ),
+        Host::Pi => format!("-{name}"),
+        _ => name.to_owned(),
+    }
+}
+
+/// Reconciles a verified host's project deny settings, preserving foreign entries.
+///
+/// Ownership uses catalog names; Cursor MCP names and Pi exclusions are encoded
+/// for their host. Dry runs do not write. The original file is backed up once,
+/// and both settings and backup paths are excluded from git.
+///
+/// # Errors
+/// Refuses unsupported hosts, tracked settings, escaping symlinks, malformed
+/// settings, and failed git or filesystem operations.
+pub fn update_host_deny(
+    repo: &Path,
+    host: Host,
+    owned: &BTreeSet<String>,
+    desired: &BTreeSet<String>,
+    dry_run: bool,
+) -> Result<DenyReport, AdapterError> {
+    let (relative, surface) = match host {
+        Host::Claude => (crate::claude::DENY_PATH, Surface::Permissions),
+        Host::Cursor => (crate::cursor::DENY_PATH, Surface::Permissions),
+        Host::Opencode => (crate::opencode::DENY_PATH, Surface::Opencode),
+        Host::Pi => (crate::pi::DENY_PATH, Surface::Pi),
+        _ => return Err(invalid("host has no verified project deny target")),
+    };
+    let encoded_owned = owned.iter().map(|name| token(host, name)).collect();
+    let encoded_desired = desired.iter().map(|name| token(host, name)).collect();
+    let mut report = update_surface(
+        repo,
+        relative,
+        surface,
+        &encoded_owned,
+        &encoded_desired,
+        dry_run,
+    )?;
+    report.owned = desired
+        .iter()
+        .filter(|name| report.owned.contains(&token(host, name)))
+        .cloned()
+        .collect();
+    Ok(report)
 }
 
 /// Reconciles `<repo>/.claude/settings.local.json` `permissions.deny`.
@@ -174,7 +286,18 @@ pub fn update_deny(
     desired: &BTreeSet<String>,
     dry_run: bool,
 ) -> Result<DenyReport, AdapterError> {
-    let path = repo.join(RELATIVE);
+    update_host_deny(repo, Host::Claude, owned, desired, dry_run)
+}
+
+fn update_surface(
+    repo: &Path,
+    relative: &str,
+    surface: Surface,
+    owned: &BTreeSet<String>,
+    desired: &BTreeSet<String>,
+    dry_run: bool,
+) -> Result<DenyReport, AdapterError> {
+    let path = repo.join(relative);
     let target = safe_target(repo, &path)?;
     refuse_tracked(repo, &path)?;
     refuse_tracked(repo, &target)?;
@@ -184,7 +307,7 @@ pub fn update_deny(
         // Recheck the index too when retrying a concurrently changed document.
         refuse_tracked(repo, &path)?;
         refuse_tracked(repo, &target)?;
-        let (changed, new_owned) = reconcile(original.unwrap_or("{}"), owned, desired)?;
+        let (changed, new_owned) = reconcile(original.unwrap_or("{}"), owned, desired, surface)?;
         let settings_changed = original.unwrap_or("{}") != changed;
         let mut report = DenyReport {
             owned: new_owned,
@@ -203,7 +326,8 @@ pub fn update_deny(
             report.changed_files.push(backup.clone());
         }
         // Exclude before creating settings, so a partial write cannot expose it.
-        exclude_changed |= update_exclude(&exclude, EXCLUDE_LINE, dry_run)?;
+        exclude_changed |= update_exclude(&exclude, &format!("/{relative}"), dry_run)?;
+        exclude_changed |= update_exclude(&exclude, &format!("/{relative}.tkm-bak"), dry_run)?;
         if exclude_changed {
             report.changed_files.push(exclude);
         }

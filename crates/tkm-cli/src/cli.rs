@@ -178,7 +178,10 @@ pub enum PruneCommand {
 
 /// Deny-list apply options.
 #[derive(Debug, Default, Args)]
-pub struct PruneApplyArgs {}
+pub struct PruneApplyArgs {
+    /// Tool to apply; omit to apply all eligible tools.
+    pub tool: Option<String>,
+}
 
 /// Deny-list restore options.
 #[derive(Debug, Args)]

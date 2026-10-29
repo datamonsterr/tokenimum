@@ -60,7 +60,7 @@ fn four_host_deny_roundtrip_preserves_foreign_bytes_and_backup() {
         assert!(edited.contains(token), "{host:?}: {edited}");
         assert!(edited.contains(r#""untouched": [ 1, 2 ]"#));
         let backup = path.with_file_name(format!(
-            "{}.tokenimum.bak",
+            "{}.tkm-bak",
             path.file_name().unwrap().to_str().unwrap()
         ));
         assert_eq!(fs::read_to_string(&backup).unwrap(), original);
@@ -99,7 +99,7 @@ fn four_host_deny_dry_run_does_not_write_and_new_files_are_excluded() {
         assert!(
             exclude
                 .lines()
-                .any(|line| line == format!("/{relative}.tokenimum.bak"))
+                .any(|line| line == format!("/{relative}.tkm-bak"))
         );
     }
 }
