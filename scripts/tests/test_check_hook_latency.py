@@ -36,6 +36,12 @@ class HookLatencyTests(unittest.TestCase):
         _, ok = module.render(stats, 3.0, 10.0)
         self.assertFalse(ok)
 
+    def test_reads_hyperfine_2_measurements(self):
+        measurements = [{"time_wall_clock": {"value": i / 1000}} for i in range(1, 101)]
+        stats = module.summarize({"results": [{"measurements": measurements}]})
+        self.assertAlmostEqual(stats["p50"], 50.0)
+        self.assertAlmostEqual(stats["p99"], 99.0)
+
     def test_rejects_exports_without_times(self):
         with self.assertRaises(ValueError):
             module.summarize({"results": [{"command": "x"}]})
