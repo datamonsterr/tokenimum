@@ -90,14 +90,14 @@ fn claude_event_kinds_are_normalized() {
 
 #[test]
 fn shim_hosts_expect_no_hook_events() {
-    assert!(expected_events(Host::Opencode).is_empty());
-    assert!(expected_events(Host::Pi).is_empty());
+    assert_eq!(expected_events(Host::Opencode), []);
+    assert_eq!(expected_events(Host::Pi), []);
 }
 
 #[test]
 fn env_markers_are_empty_for_hosts_without_markers() {
-    assert!(tkm_hosts::env_markers(Host::Claude).is_empty());
-    assert!(tkm_hosts::env_markers(Host::Codex).is_empty());
-    assert!(tkm_hosts::env_markers(Host::Opencode).is_empty());
-    assert!(tkm_hosts::env_markers(Host::Pi).is_empty());
+    assert_eq!(tkm_hosts::env_markers(Host::Claude), []);
+    assert_eq!(tkm_hosts::env_markers(Host::Codex), []);
+    assert_eq!(tkm_hosts::env_markers(Host::Opencode), []);
+    assert_eq!(tkm_hosts::env_markers(Host::Pi), []);
 }
