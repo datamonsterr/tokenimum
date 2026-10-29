@@ -167,20 +167,38 @@ fn te_envfacts_test_classify_forms_and_intents() {
         ),
     ] {
         let o = observe::classify_command(cmd);
-        assert_eq!((o[0].intent, o[0].form.as_str()), (intent, form), "{cmd}");
+        assert_eq!(
+            o.iter()
+                .map(|o| (o.intent, o.form.as_str()))
+                .collect::<Vec<_>>(),
+            vec![(intent, form)],
+            "{cmd}"
+        );
     }
+    let fetched = observe::classify_command("curl -sS https://api.example.org/x | head -3");
+    assert_eq!(fetched.len(), 1);
+    assert_eq!(fetched[0].intent, Intent::FetchRemote);
+    assert_eq!(fetched[0].hosts, vec!["api.example.org"]);
     assert_eq!(
         observe::classify_command("git tag | tail -5"),
         Vec::<observe::Observation>::new()
     );
     assert_eq!(
         observe::classify_command("git remote -v; git tag --contains HEAD | head; git log -3")
-            .len(),
-        2
+            .iter()
+            .map(|o| (o.intent, o.probe))
+            .collect::<Vec<_>>(),
+        vec![
+            (Intent::ProbeVcsRefs, Some(observe::Probe::Remote)),
+            (Intent::ProbeVcsRefs, Some(observe::Probe::Tag))
+        ]
     );
     assert_eq!(
-        observe::classify_command("python - <<'PY'\npytest -q\nPY").len(),
-        1
+        observe::classify_command("python - <<'PY'\npytest -q\nPY")
+            .iter()
+            .map(|o| o.intent)
+            .collect::<Vec<_>>(),
+        vec![Intent::RunInterpreter]
     );
 }
 #[test]

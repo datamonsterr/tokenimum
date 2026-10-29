@@ -34,7 +34,7 @@ fn rejects_whole_invalid_env_values_instead_of_learning_a_safe_prefix() {
     for value in [
         "conf.dev$(evil)",
         "conf.dev`evil`",
-        "conf.dev'evil'",
+        "'conf.dev evil'",
         "conf.dev/../../secret",
     ] {
         let s = session(vec![
