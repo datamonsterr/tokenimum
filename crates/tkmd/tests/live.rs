@@ -324,3 +324,40 @@ async fn second_stuck_segment_after_the_redirect_budget_escalates_with_a_notice(
     assert_eq!(escalations, 1);
     let _ = Arc::strong_count(&decider);
 }
+
+#[tokio::test]
+async fn judged_turn_outcomes_label_decisions_for_calibration() {
+    for (interrupted, expected) in [(true, "stuck"), (false, "progress")] {
+        let env = Env::new();
+        env.seed_envelope(FIXTURE_REPO, Host::Claude, &[5; 5]);
+        let daemon = daemon_with(
+            &env,
+            Settings {
+                loop_mode: LoopMode::Shadow,
+                ..Settings::default()
+            },
+            ScriptedDecider::new(stuck_decision()),
+        );
+        daemon.start_workers();
+        daemon.handle(session_start()).await;
+        daemon.handle(prompt()).await;
+        run_calls(&daemon, 18);
+        daemon.settle().await;
+        if interrupted {
+            daemon.handle(prompt()).await;
+        } else {
+            daemon.handle_tool_done(&tool_done());
+            daemon.handle(stop()).await;
+        }
+        daemon.flush_now().await;
+        let db = tkm_store::open_read_only(&env.paths.db).unwrap();
+        let actual: Option<String> = db
+            .query_row(
+                "SELECT outcome_label FROM decisions WHERE purpose = 'loop_guard'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(actual.as_deref(), Some(expected));
+    }
+}
