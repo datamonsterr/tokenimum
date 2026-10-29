@@ -119,7 +119,8 @@ CREATE TABLE installs (
 ";
 
 /// Migrations in schema version order.
-pub(crate) const MIGRATIONS: &[&str] = &[V001, V002, V003, V004, V005, V006, V007, V008, V009];
+pub(crate) const MIGRATIONS: &[&str] =
+    &[V001, V002, V003, V004, V005, V006, V007, V008, V009, V010];
 
 /// Distinct judged turns and the first decision timestamp survive daemon restarts.
 pub(crate) const V005: &str = r"
@@ -264,7 +265,7 @@ mod report_schema_tests {
         let version: i64 = conn
             .pragma_query_value(None, "user_version", |row| row.get(0))
             .unwrap();
-        assert_eq!(version, 9);
+        assert_eq!(version, 10);
         let legacy = store
             .get_fact(&tkm_core::model::RepoKey("legacy".into()), "f")
             .unwrap()
@@ -336,3 +337,16 @@ mod prune_migration_tests {
         assert_eq!(store.get_repo(&repo).unwrap().unwrap().delegated_runs, 4);
     }
 }
+
+/// Timestamped observations; lifetime counters are not backdated into fabricated history.
+pub(crate) const V010: &str = r"
+CREATE TABLE delegated_run_history (
+    repo_key TEXT NOT NULL REFERENCES repos(repo_key),
+    host TEXT NOT NULL,
+    agent_home TEXT NOT NULL,
+    session_id TEXT NOT NULL,
+    ran_at INTEGER NOT NULL,
+    PRIMARY KEY(repo_key, host, agent_home, session_id)
+);
+CREATE INDEX delegated_run_history_window ON delegated_run_history(repo_key, ran_at);
+";

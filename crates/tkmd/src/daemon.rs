@@ -1242,6 +1242,13 @@ impl Daemon {
                 }
                 .into(),
             });
+            if session.delegated {
+                outbox.push_delegated(crate::persist::DelegatedRun {
+                    repo: session.repo.clone(),
+                    key: session.key.clone(),
+                    at: session.started,
+                });
+            }
             drop(outbox);
             if want_stale {
                 stale_tags = sessions

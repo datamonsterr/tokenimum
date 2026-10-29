@@ -116,6 +116,17 @@ pub struct EnvelopeSample {
     pub calls: u32,
 }
 
+/// A delegated session observed by the daemon, persisted through the retrying outbox.
+#[derive(Debug, Clone)]
+pub struct DelegatedRun {
+    /// Repository identity shared across its worktrees.
+    pub repo: RepoKey,
+    /// Natural session key used for deduplication.
+    pub key: SessionKey,
+    /// First observed start time.
+    pub at: Timestamp,
+}
+
 /// Everything waiting to be written.
 #[derive(Debug, Default)]
 pub struct FlushBatch {
@@ -123,6 +134,8 @@ pub struct FlushBatch {
     pub repos: VecDeque<Repo>,
     /// Session rows.
     pub sessions: VecDeque<SessionUpsert>,
+    /// Timestamped delegated sessions.
+    pub delegated: VecDeque<DelegatedRun>,
     /// Turn rows.
     pub turns: VecDeque<TurnUpsert>,
     /// Event rows.
@@ -142,6 +155,7 @@ impl FlushBatch {
     pub fn is_empty(&self) -> bool {
         self.repos.is_empty()
             && self.sessions.is_empty()
+            && self.delegated.is_empty()
             && self.turns.is_empty()
             && self.events.is_empty()
             && self.decisions.is_empty()
@@ -165,6 +179,7 @@ impl FlushBatch {
         }
         merge!(repos);
         merge!(sessions);
+        merge!(delegated);
         merge!(turns);
         merge!(events);
         merge!(decisions);
@@ -172,6 +187,17 @@ impl FlushBatch {
         merge!(envelope);
         merge!(calibration);
         dropped
+    }
+
+    /// Queues a delegated observation once per repository and session.
+    pub fn push_delegated(&mut self, run: DelegatedRun) {
+        if !self
+            .delegated
+            .iter()
+            .any(|queued| queued.repo == run.repo && queued.key == run.key)
+        {
+            self.delegated.push_back(run);
+        }
     }
 
     /// Queues a session upsert, replacing an older queued upsert of the same session.
@@ -240,6 +266,10 @@ pub fn apply(store: &Store, batch: &mut FlushBatch) -> Result<(), StoreError> {
             id,
         );
         batch.sessions.pop_front();
+    }
+    while let Some(run) = batch.delegated.front() {
+        store.record_delegated_run(&run.repo, &run.key, run.at)?;
+        batch.delegated.pop_front();
     }
     for _ in 0..batch.turns.len() {
         let Some(turn) = batch.turns.front() else {

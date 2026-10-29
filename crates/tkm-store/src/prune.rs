@@ -1,6 +1,6 @@
 //! Durable pruning readiness and delegation history.
 
-use crate::{Store, StoreError};
+use crate::{SessionKey, Store, StoreError};
 use rusqlite::{OptionalExtension, params};
 use tkm_core::{
     model::{Host, RepoKey, Timestamp},
@@ -47,6 +47,45 @@ impl Store {
         tool: &str,
     ) -> Result<Option<Timestamp>, StoreError> {
         let at: Option<i64> = self.conn.query_row("SELECT ready_since FROM tool_evidence WHERE repo_key = ?1 AND host = ?2 AND tool = ?3", params![repo.0, host.as_str(), tool], |row| row.get::<_, Option<i64>>(0)).optional()?.flatten();
+        Ok(at.map(Timestamp))
+    }
+}
+
+impl Store {
+    /// Record a delegated session once, retaining its first observed start and lifetime count.
+    /// The transaction makes outbox retries and daemon restarts idempotent.
+    ///
+    /// # Errors
+    /// Returns an error if the repository is absent or the transaction fails.
+    pub fn record_delegated_run(
+        &self,
+        repo: &RepoKey,
+        key: &SessionKey,
+        at: Timestamp,
+    ) -> Result<(), StoreError> {
+        let tx = self.conn.unchecked_transaction()?;
+        let inserted = tx.execute("INSERT INTO delegated_run_history (repo_key, host, agent_home, session_id, ran_at) VALUES (?1, ?2, ?3, ?4, ?5) ON CONFLICT(repo_key, host, agent_home, session_id) DO NOTHING", params![repo.0, key.host.as_str(), key.agent_home, key.session_id, at.0])?;
+        if inserted > 0 {
+            tx.execute(
+                "UPDATE repos SET delegated_runs = delegated_runs + 1 WHERE repo_key = ?1",
+                [&repo.0],
+            )?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Latest delegated start in the inclusive last 30 days, excluding future observations.
+    /// Historical lifetime counts without timestamps do not imply recent delegation.
+    ///
+    /// # Errors
+    /// Returns an error when history cannot be queried.
+    pub fn last_delegated_run_within(
+        &self,
+        repo: &RepoKey,
+        now: Timestamp,
+    ) -> Result<Option<Timestamp>, StoreError> {
+        let at: Option<i64> = self.conn.query_row("SELECT MAX(ran_at) FROM delegated_run_history WHERE repo_key = ?1 AND ran_at >= ?2 AND ran_at <= ?3", params![repo.0, now.0.saturating_sub(2_592_000_000), now.0], |row| row.get(0))?;
         Ok(at.map(Timestamp))
     }
 }

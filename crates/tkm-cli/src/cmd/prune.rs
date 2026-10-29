@@ -11,7 +11,7 @@ use std::{
 };
 use tkm_core::{
     model::{Host, Timestamp},
-    prune::{self, PruneConfig, ToolEvidence},
+    prune::{self, PruneConfig, PruneMode, ToolEvidence},
 };
 use tkm_hosts::writer::deny::update_host_deny;
 
@@ -147,6 +147,22 @@ fn apply(
         ));
     };
     let store = daemon::open_db_for_write(&ctx.paths)?;
+    let last_delegated = store
+        .last_delegated_run_within(&ctx.repo.key, current)
+        .map_err(store_error)?;
+    let requested = PruneConfig {
+        mode: PruneMode::Apply,
+        ..config.clone()
+    };
+    if prune::effective_mode(Host::Claude, &requested, last_delegated, current)
+        == PruneMode::Propose
+    {
+        writeln!(
+            ctx.stdout,
+            "proposal only: delegated run in the last 30 days; no deny settings written"
+        )?;
+        return Ok(());
+    }
     let rows = store.list_denylist(&ctx.repo.root).map_err(store_error)?;
     for (host, desired) in candidates {
         let Some(kind @ (Host::Claude | Host::Cursor | Host::Opencode | Host::Pi)) =
