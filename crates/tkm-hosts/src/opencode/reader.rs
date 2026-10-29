@@ -58,10 +58,11 @@ fn json_files(path: &Path) -> Vec<Value> {
     paths.sort();
     paths
         .into_iter()
-        .filter_map(|path| {
+        .map(|path| {
             std::fs::read_to_string(path)
                 .ok()
                 .and_then(|text| parse(&text))
+                .unwrap_or(Value::Null)
         })
         .collect()
 }
@@ -86,12 +87,33 @@ fn legacy(source: &SessionSource) -> Option<Value> {
         .find(|value| {
             value.get("id").and_then(Value::as_str) == Some(source.session_id.as_str())
         })?;
-    let messages: Vec<_> = json_files(&storage.join("message").join(&source.session_id))
+    let mut messages = json_files(&storage.join("message").join(&source.session_id));
+    messages.sort_by_key(|message| {
+        (
+            message
+                .pointer("/time/created")
+                .and_then(Value::as_i64)
+                .unwrap_or_default(),
+            message
+                .get("id")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_owned(),
+        )
+    });
+    let messages: Vec<_> = messages
         .into_iter()
         .map(|info| {
             let parts = info
                 .get("id")
                 .and_then(Value::as_str)
+                .filter(|id| {
+                    !id.is_empty()
+                        && !id.contains('/')
+                        && !id.contains('\\')
+                        && *id != "."
+                        && *id != ".."
+                })
                 .map_or_else(Vec::new, |id| json_files(&storage.join("part").join(id)));
             serde_json::json!({"info": info, "parts": parts})
         })
@@ -114,12 +136,14 @@ fn export(source: &SessionSource) -> Result<Value, AdapterError> {
         .stdout
         .take()
         .ok_or_else(|| invalid("opencode export stdout unavailable"))?;
-    let output = std::thread::spawn(move || {
+    let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+    std::thread::spawn(move || {
         let mut bytes = Vec::new();
-        stdout
+        let result = stdout
             .take(256 * 1024 * 1024 + 1)
             .read_to_end(&mut bytes)
-            .map(|_| bytes)
+            .map(|_| bytes);
+        let _ = sender.send(result);
     });
     let deadline = Instant::now() + Duration::from_secs(30);
     let status = loop {
@@ -136,9 +160,9 @@ fn export(source: &SessionSource) -> Result<Value, AdapterError> {
     if !status.success() {
         return Err(invalid("opencode export failed"));
     }
-    let bytes = output
-        .join()
-        .map_err(|_| invalid("opencode export read failed"))??;
+    let bytes = receiver
+        .recv_timeout(deadline.saturating_duration_since(Instant::now()))
+        .map_err(|_| invalid("opencode export read timed out"))??;
     if bytes.len() > 256 * 1024 * 1024 {
         return Err(invalid("opencode export too large"));
     }
@@ -186,6 +210,15 @@ fn read_json(source: &SessionSource, value: &Value) -> Result<Session, AdapterEr
             .session
             .total_records
             .saturating_add(u64::try_from(parts.len()).unwrap_or(u64::MAX));
+        reader.session.skipped_records = reader.session.skipped_records.saturating_add(
+            u64::try_from(
+                parts
+                    .iter()
+                    .filter(|part| !part.get("type").is_some_and(Value::is_string))
+                    .count(),
+            )
+            .unwrap_or(u64::MAX),
+        );
         if !entry
             .get("info")
             .is_some_and(|message| reader.message(message, parts))
@@ -229,16 +262,27 @@ pub(super) fn read(source: &SessionSource) -> Result<Session, AdapterError> {
     {
         return Err(invalid("invalid opencode session id"));
     }
-    let Some(path) = database(&source.path) else {
-        let value = match legacy(source) {
-            Some(value) => value,
-            None => export(source)?,
-        };
-        return read_json(source, &value);
+    let db_error = if let Some(path) = database(&source.path) {
+        match read_database(source, &path) {
+            Ok(session) => return Ok(session),
+            Err(error) => Some(error),
+        }
+    } else {
+        None
     };
-    std::fs::metadata(&path)?;
+    if let Some(value) = legacy(source) {
+        return read_json(source, &value);
+    }
+    match export(source).and_then(|value| read_json(source, &value)) {
+        Ok(session) => Ok(session),
+        Err(error) => Err(db_error.unwrap_or(error)),
+    }
+}
+
+fn read_database(source: &SessionSource, path: &Path) -> Result<Session, AdapterError> {
+    std::fs::metadata(path)?;
     let db = Connection::open_with_flags(
-        &path,
+        path,
         OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
     )
     .map_err(sql)?;

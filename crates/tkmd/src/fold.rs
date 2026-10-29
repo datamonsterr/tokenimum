@@ -668,10 +668,11 @@ fn derived_log_path(
                 .join("sessions")
                 .join(format!("{session_id}.json")),
         ),
-        Host::Opencode => agent_home
-            .parent()
-            .and_then(Path::parent)
-            .and_then(|home| file(home.join(".local/share/opencode/opencode.db"))),
+        Host::Opencode => agent_home.parent().and_then(Path::parent).map(|home| {
+            let data = home.join(".local/share/opencode");
+            let db = data.join("opencode.db");
+            if db.is_file() { db } else { data }
+        }),
         Host::Pi => find_session(&agent_home.join("sessions"), session_id, 2, Host::Pi),
         _ => None,
     }
