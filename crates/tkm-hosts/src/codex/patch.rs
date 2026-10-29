@@ -1,4 +1,9 @@
 //! Canonical patch changes shared by live hooks and completed rollout items.
+//!
+//! `add` digests its full content and `delete` is empty. `update` digests by
+//! operation, path and move destination only: live patch hunks and rollout
+//! unified diffs are not comparable (hunk headers are optional and +/- lines
+//! may be interleaved or grouped), so their text is never digested.
 
 use std::path::{Path, PathBuf};
 
@@ -27,22 +32,6 @@ impl Change {
     }
 }
 
-/// Ignore hunk positions and context: live patch syntax and generated unified
-/// diffs describe those differently. Preserve every added and removed line.
-fn update_content(text: &str) -> String {
-    let mut in_hunk = false;
-    let mut content = String::new();
-    for line in text.lines() {
-        if line.starts_with("@@") {
-            in_hunk = true;
-        } else if in_hunk && line.starts_with(['+', '-']) {
-            content.push_str(line);
-            content.push('\n');
-        }
-    }
-    content
-}
-
 fn change(
     op: &'static str,
     path: &str,
@@ -53,7 +42,7 @@ fn change(
     let path = repo_relative(path, cwd)?;
     let mut content = match op {
         "add" => content.to_owned(),
-        "update" => update_content(content),
+        // Update hunks differ between live and rollout forms; see module docs.
         // The live delete syntax supplies no previous content.
         _ => String::new(),
     };

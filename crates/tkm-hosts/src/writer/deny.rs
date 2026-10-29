@@ -1,8 +1,8 @@
 //! Claude's local deny list, with ownership supplied by the caller's store.
 
 use super::{
-    Update, atomic_update, checked_backup, invalid, read_optional, retry_update, safe_target,
-    save_backup, span,
+    Update, atomic_update, checked_backup, invalid, read_optional, retry_update, safe_target, span,
+    update_with_backup,
 };
 use crate::AdapterError;
 use serde_json::{Value, json};
@@ -208,16 +208,8 @@ pub fn update_deny(
             report.changed_files.push(exclude);
         }
         if settings_changed && !dry_run {
-            match atomic_update(&target, original, Some(&changed), || {
-                if needs_backup {
-                    save_backup(
-                        &backup_target,
-                        original.unwrap_or_default().as_bytes(),
-                        &target,
-                    )?;
-                }
-                Ok(())
-            })? {
+            let backup_path = needs_backup.then_some(backup_target.as_path());
+            match update_with_backup(&target, original, &changed, backup_path, || {})? {
                 Update::Done(()) => {}
                 Update::Retry(current) => return Ok(Update::Retry(current)),
             }

@@ -194,8 +194,9 @@ pub(super) fn retry_update<T>(
     .into())
 }
 
-/// Stage bytes, then compare immediately before publishing or deleting.
-/// The callback publishes the first-write backup only after a successful check.
+/// Stage bytes, then compare before and after the callback, immediately before
+/// publishing or deleting. The callback publishes the first-write backup only
+/// after the first check; the second check catches edits made while it ran.
 pub(super) fn atomic_update(
     path: &Path,
     snapshot: Option<&str>,
@@ -230,6 +231,10 @@ pub(super) fn atomic_update(
             return Ok(Update::Retry(current));
         }
         before_publish()?;
+        let current = read_optional(path)?;
+        if current.as_deref() != snapshot {
+            return Ok(Update::Retry(current));
+        }
         if let Some(temporary) = &temporary {
             fs::rename(temporary, path)?;
         } else if snapshot.is_some() {
@@ -243,9 +248,14 @@ pub(super) fn atomic_update(
     result
 }
 
-pub(super) fn save_backup(path: &Path, original: &[u8], source: &Path) -> Result<(), AdapterError> {
+/// Returns whether this call created the backup.
+pub(super) fn save_backup(
+    path: &Path,
+    original: &[u8],
+    source: &Path,
+) -> Result<bool, AdapterError> {
     if path.exists() {
-        return Ok(());
+        return Ok(false);
     }
     let parent = path
         .parent()
@@ -263,15 +273,42 @@ pub(super) fn save_backup(path: &Path, original: &[u8], source: &Path) -> Result
         // A hard link publishes the complete backup atomically without replacing
         // an existing first-write backup from a concurrent installer.
         match fs::hard_link(&temporary, path) {
-            Ok(()) => Ok(()),
-            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => Ok(()),
+            Ok(()) => Ok(true),
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => Ok(false),
             Err(error) => Err(error.into()),
         }
     })();
     let cleanup = fs::remove_file(&temporary);
-    result?;
+    let created = result?;
     cleanup?;
-    Ok(())
+    Ok(created)
+}
+
+/// Publishes `replacement` after saving the first-write backup when requested.
+/// A backup (or empty creation marker) made by this attempt is removed again
+/// when the settings changed meanwhile, since it no longer matches them.
+/// `after_backup` runs once the backup is saved, before the final comparison.
+pub(super) fn update_with_backup(
+    target: &Path,
+    snapshot: Option<&str>,
+    replacement: &str,
+    backup: Option<&Path>,
+    after_backup: impl FnOnce(),
+) -> Result<Update<()>, AdapterError> {
+    let mut created = false;
+    let result = atomic_update(target, snapshot, Some(replacement), || {
+        if let Some(backup) = backup {
+            created = save_backup(backup, snapshot.unwrap_or_default().as_bytes(), target)?;
+        }
+        after_backup();
+        Ok(())
+    });
+    if created && !matches!(result, Ok(Update::Done(()))) {
+        if let Some(backup) = backup {
+            let _ = fs::remove_file(backup);
+        }
+    }
+    result
 }
 
 fn shell_words(command: &str) -> Option<Vec<String>> {
@@ -580,16 +617,8 @@ pub fn install_hooks(
         if dry_run {
             return Ok(Update::Done(report));
         }
-        match atomic_update(&target, original, Some(&changed), || {
-            if needs_backup {
-                save_backup(
-                    &backup_target,
-                    original.unwrap_or_default().as_bytes(),
-                    &target,
-                )?;
-            }
-            Ok(())
-        })? {
+        let backup_path = needs_backup.then_some(backup_target.as_path());
+        match update_with_backup(&target, original, &changed, backup_path, || {})? {
             Update::Done(()) => Ok(Update::Done(report)),
             Update::Retry(current) => Ok(Update::Retry(current)),
         }
@@ -770,6 +799,48 @@ mod review_tests {
         .unwrap();
         assert!(matches!(update, Update::Retry(Some(_))));
         assert_eq!(fs::read_to_string(&path).unwrap(), "{\"editor\":true}");
+    }
+
+    #[test]
+    fn aborted_attempt_removes_only_backup_it_created() {
+        let scratch = Scratch::new();
+        let path = scratch.0.join("settings.json");
+        let backup = scratch.0.join("settings.json.tkm-bak");
+        fs::write(&path, "{}").unwrap();
+        let update = update_with_backup(&path, Some("{}"), "ours", Some(&backup), || {
+            fs::write(&path, "{\"editor\":true}").unwrap();
+        })
+        .unwrap();
+        assert!(matches!(update, Update::Retry(Some(_))));
+        assert!(!backup.exists());
+        assert_eq!(fs::read_to_string(&path).unwrap(), "{\"editor\":true}");
+
+        fs::write(&backup, "older").unwrap();
+        let update = update_with_backup(
+            &path,
+            Some("{\"editor\":true}"),
+            "ours",
+            Some(&backup),
+            || {
+                fs::write(&path, "again").unwrap();
+            },
+        )
+        .unwrap();
+        assert!(matches!(update, Update::Retry(Some(_))));
+        assert_eq!(fs::read_to_string(&backup).unwrap(), "older");
+    }
+
+    #[test]
+    fn absent_target_marker_is_removed_on_conflict() {
+        let scratch = Scratch::new();
+        let path = scratch.0.join("settings.json");
+        let backup = scratch.0.join("settings.json.tkm-bak");
+        let update = update_with_backup(&path, None, "ours", Some(&backup), || {
+            fs::write(&path, "{}").unwrap();
+        })
+        .unwrap();
+        assert!(matches!(update, Update::Retry(Some(_))));
+        assert!(!backup.exists());
     }
 
     #[test]

@@ -77,4 +77,4 @@ string; otherwise compact JSON of the input with object keys sorted. Output dige
 first line starting with an error marker (`error`, `Error`, `Exit code`, `fatal`, `panicked`) if
 any, else the last non-empty line. Both are truncated to 512 characters. Live events and log
 readers use the same functions (`tkm_hosts::digest`), so E2 sees equal digests for the same call.
-Digests are not redacted; E3 redacts before any external call.
+Digests are not redacted; E3 redacts before any external call. Codex `apply_patch` updates digest by path (and move destination) only, because live patch hunks and rollout unified diffs are not comparable.
