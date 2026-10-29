@@ -67,6 +67,35 @@ CREATE TABLE facts (
     PRIMARY KEY(repo_key, fact_id)
 );
 
+-- table free_model_probe_schedule
+CREATE TABLE free_model_probe_schedule (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    last_probed INTEGER NOT NULL
+);
+
+-- table free_model_probes
+CREATE TABLE free_model_probes (
+    model TEXT PRIMARY KEY,
+    succeeded INTEGER NOT NULL,
+    probed_at INTEGER NOT NULL
+);
+
+-- table host_event_probes
+CREATE TABLE host_event_probes (
+    host TEXT NOT NULL,
+    native TEXT NOT NULL,
+    event TEXT NOT NULL,
+    arrived INTEGER NOT NULL,
+    probed_at INTEGER NOT NULL,
+    PRIMARY KEY(host, native)
+);
+
+-- table host_health
+CREATE TABLE host_health (
+    host TEXT PRIMARY KEY,
+    fold_only INTEGER NOT NULL CHECK (fold_only = 1)
+);
+
 -- table installs
 CREATE TABLE installs (
     host TEXT NOT NULL, -- harness identity

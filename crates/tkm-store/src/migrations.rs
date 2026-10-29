@@ -119,7 +119,7 @@ CREATE TABLE installs (
 ";
 
 /// Migrations in schema version order.
-pub(crate) const MIGRATIONS: &[&str] = &[V001, V002, V003, V004, V005];
+pub(crate) const MIGRATIONS: &[&str] = &[V001, V002, V003, V004, V005, V006, V007, V008];
 
 /// Distinct judged turns and the first decision timestamp survive daemon restarts.
 pub(crate) const V005: &str = r"
@@ -231,7 +231,7 @@ mod report_schema_tests {
         let version: i64 = conn
             .pragma_query_value(None, "user_version", |row| row.get(0))
             .unwrap();
-        assert_eq!(version, 5);
+        assert_eq!(version, 8);
         let legacy = store
             .get_fact(&tkm_core::model::RepoKey("legacy".into()), "f")
             .unwrap()
@@ -265,3 +265,36 @@ mod report_schema_tests {
         }
     }
 }
+
+/// Doctor fallback overrides; absence means use configured integration level.
+pub(crate) const V006: &str = r"
+CREATE TABLE host_health (
+    host TEXT PRIMARY KEY,
+    fold_only INTEGER NOT NULL CHECK (fold_only = 1)
+);
+";
+
+/// Per-native-event capability observations from doctor.
+pub(crate) const V007: &str = r"
+CREATE TABLE host_event_probes (
+    host TEXT NOT NULL,
+    native TEXT NOT NULL,
+    event TEXT NOT NULL,
+    arrived INTEGER NOT NULL,
+    probed_at INTEGER NOT NULL,
+    PRIMARY KEY(host, native)
+);
+";
+
+/// Durable daily free-model cadence and results, independent of daemon lifetimes.
+pub(crate) const V008: &str = r"
+CREATE TABLE free_model_probe_schedule (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    last_probed INTEGER NOT NULL
+);
+CREATE TABLE free_model_probes (
+    model TEXT PRIMARY KEY,
+    succeeded INTEGER NOT NULL,
+    probed_at INTEGER NOT NULL
+);
+";

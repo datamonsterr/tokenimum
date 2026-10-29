@@ -161,6 +161,11 @@ pub struct Daemon {
     pub(crate) scan_interval: Duration,
     pub(crate) stale_after: Duration,
     pub(crate) env: Vec<(String, String)>,
+    pub(crate) model_probe_revision: Mutex<Option<i64>>,
+    pub(crate) maintenance_lock: tokio::sync::Mutex<()>,
+    pub(crate) idle_events:
+        Mutex<std::collections::HashMap<Host, std::collections::BTreeSet<String>>>,
+    pub(crate) host_fallback: Mutex<std::collections::HashMap<Host, bool>>,
     tasks: Mutex<Vec<JoinHandle<()>>>,
 }
 
@@ -233,6 +238,10 @@ impl Daemon {
         });
         let default_settings = options.settings.settings_for(None);
         Arc::new(Self {
+            model_probe_revision: Mutex::new(None),
+            maintenance_lock: tokio::sync::Mutex::new(()),
+            idle_events: Mutex::new(std::collections::HashMap::new()),
+            host_fallback: Mutex::new(std::collections::HashMap::new()),
             errors_tx,
             dropped_errors: AtomicUsize::new(0),
             paths: options.paths,
@@ -343,6 +352,7 @@ impl Daemon {
         tasks.push(tokio::spawn(self.clone().flush_loop()));
         tasks.push(tokio::spawn(self.clone().idle_loop()));
         tasks.push(crate::fold::spawn_log_watcher(self.clone()));
+        tasks.push(tokio::spawn(self.clone().maintenance_loop()));
     }
 
     /// Refreshes integration-dependent settings on all live sessions after detection.
@@ -430,6 +440,11 @@ impl Daemon {
         }
         let kind = event.kind;
         let recorded = self.observe_hook(&tag, kind, request.host_event.as_deref());
+        if matches!(kind, EventKind::TurnEnd | EventKind::SessionEnd)
+            && self.event_uses_idle(request.host, request.host_event.as_deref(), kind)
+        {
+            return Ok(noop_reply(request.host));
+        }
         let result = match event.kind {
             EventKind::ToolBefore => Ok(self.deliver_pending(request, adapter.as_ref(), &event)),
             EventKind::SessionStart => self.session_start(request, adapter.as_ref(), event).await,
@@ -630,7 +645,8 @@ impl Daemon {
 
     pub(crate) fn begin_turn(&self, session: &mut SessionState, seq: u64, prompt: String) {
         session.loop_evidence = None;
-        let guard = (session.settings.loop_mode != LoopMode::Off)
+        let guard = (!self.host_is_fold_only(session.host)
+            && session.settings.loop_mode != LoopMode::Off)
             .then(|| TurnGuard::new(self.escalation_mode(session)));
         session.turn = Some(TurnState {
             seq,
@@ -781,6 +797,11 @@ impl Daemon {
                 request.host_event.as_deref(),
                 Some(now),
             );
+            if self.host_is_fold_only(host)
+                || self.event_uses_idle(host, request.host_event.as_deref(), event.kind)
+            {
+                return Ok(noop_reply(host));
+            }
             if session.turn.is_none() {
                 *turn_seq += 1;
                 self.begin_turn(session, *turn_seq, String::new());
@@ -950,6 +971,9 @@ impl Daemon {
         adapter: &dyn HostAdapter,
         event: &HookEvent,
     ) -> Reply {
+        if self.host_is_fold_only(event.host) {
+            return noop_reply(request.host);
+        }
         let tag: Tag = (event.host, event.session_id.clone());
         let (pending, redirect, seq) = {
             let mut state = lock(&self.state);
@@ -1169,6 +1193,10 @@ impl Daemon {
             let mut settings = (*resolved.settings).clone();
             settings.prune.superorchestrator_adapter_enabled =
                 self.escalator.superorchestrator_enabled();
+            if self.host_is_fold_only(seed.host) {
+                settings.inject_enabled = false;
+                settings.loop_mode = LoopMode::Off;
+            }
             session.settings = Arc::new(settings);
             session.resolved = true;
             let remembered = turn_bases.get(&tag).copied().unwrap_or(0);
@@ -1207,7 +1235,12 @@ impl Daemon {
                 ended: None,
                 fold_status: "open".into(),
                 shadow: false,
-                integration_level: "hooks".into(),
+                integration_level: if self.host_is_fold_only(seed.host) {
+                    "fold-only"
+                } else {
+                    "hooks"
+                }
+                .into(),
             });
             drop(outbox);
             if want_stale {

@@ -64,8 +64,8 @@ impl Store {
             Ok((
                 row.get::<_, String>(0)?,
                 SkillUsage {
-                    loaded_sessions: row.get(1)?,
-                    invocations: row.get(2)?,
+                    loaded_sessions: unsigned(row.get(1)?, 1)?,
+                    invocations: unsigned(row.get(2)?, 2)?,
                 },
             ))
         })?;
@@ -76,4 +76,14 @@ impl Store {
         }
         Ok(report)
     }
+}
+
+fn unsigned(value: i64, column: usize) -> rusqlite::Result<u64> {
+    u64::try_from(value).map_err(|e| {
+        rusqlite::Error::FromSqlConversionFailure(
+            column,
+            rusqlite::types::Type::Integer,
+            Box::new(e),
+        )
+    })
 }

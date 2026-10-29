@@ -15,4 +15,5 @@ pub mod config;
 pub mod digest;
 pub mod key;
 pub mod pricing;
+pub mod probe;
 pub mod redact;

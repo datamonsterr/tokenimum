@@ -93,6 +93,11 @@ pub fn run(ctx: &mut Ctx<'_>, args: &InitArgs) -> Result<ExitCode, CliError> {
                 continue;
             }
         };
+        let mode = if stored_fallback(ctx, host)? {
+            IntegrationMode::FoldOnly
+        } else {
+            mode
+        };
         match target(ctx, &registry, host, home, mode) {
             Ok(mut target) => {
                 target.account = account;
@@ -223,7 +228,7 @@ pub fn run(ctx: &mut Ctx<'_>, args: &InitArgs) -> Result<ExitCode, CliError> {
         }
         // Fake service managers need not start a live daemon; diagnostics remain visible but
         // do not turn a successfully applied installation into an installation failure.
-        let _ = super::doctor::run(ctx, &DoctorArgs { probe: false })?;
+        let _ = super::doctor::run(ctx, &DoctorArgs { probe: None })?;
         for target in &targets {
             for instruction in &target.report.instructions {
                 writeln!(ctx.stdout, "trust {}: {instruction}", target.host.as_str())?;
@@ -281,6 +286,16 @@ fn select(ctx: &Ctx<'_>, args: &InitArgs) -> Result<Vec<(Host, PathBuf)>, CliErr
             .then_some((host, path))
         })
         .collect())
+}
+
+/// Doctor-persisted fold-only fallback; absent database means none recorded.
+fn stored_fallback(ctx: &Ctx<'_>, host: Host) -> Result<bool, CliError> {
+    if !ctx.paths.db.exists() {
+        return Ok(false);
+    }
+    let store = tkm_store::Store::from_read_only_connection(daemon::open_db(&ctx.paths)?)
+        .map_err(state::failure)?;
+    store.host_fold_only(host).map_err(state::failure)
 }
 
 fn target(

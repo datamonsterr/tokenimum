@@ -259,6 +259,37 @@ impl<T: Transport, C: Clock, L: SpendLedger> DecisionClient<T, C, L> {
         }
         outcomes
     }
+    /// Available model slugs in the current effective order.
+    #[must_use]
+    pub fn active_models(&self) -> Vec<String> {
+        self.chain.active_models()
+    }
+
+    /// Configured free slots, including ones that have not answered yet.
+    #[must_use]
+    pub fn free_models(&self) -> Vec<String> {
+        self.chain.free_models()
+    }
+
+    /// Restore a durable availability result; ignores models outside configured free slots.
+    pub fn restore_free_model(&self, model: &str, succeeded: bool) {
+        self.chain.reprobe_free(model, succeeded);
+    }
+
+    /// Probe configured free slots using the same request as doctor and the live client's
+    /// ordinary privacy, deadline, and budget gates. Success updates this client's live chain.
+    pub async fn probe_free_models(&self, session_id: &str) -> Vec<crate::probe::FreeProbeResult> {
+        let models = self.free_models();
+        let outcomes = self
+            .reprobe_free(crate::probe::availability_request(session_id))
+            .await;
+        models
+            .into_iter()
+            .zip(outcomes)
+            .map(|(model, outcome)| crate::probe::FreeProbeResult { model, outcome })
+            .collect()
+    }
+
     fn gate(&self, req: &DecideRequest) -> Option<Outcome> {
         if !self.config.enabled {
             return Some(Outcome::NoDecision(NoDecisionReason::Disabled));

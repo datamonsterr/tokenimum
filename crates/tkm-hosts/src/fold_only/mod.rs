@@ -41,3 +41,24 @@ pub fn mode_for(host: Host, shims: bool) -> IntegrationMode {
         _ => IntegrationMode::Hooks,
     }
 }
+
+/// Resolve a configured level with doctor health and the person's enable switch.
+/// Unknown or unavailable integration paths degrade to fold-only.
+#[must_use]
+pub fn effective_mode(
+    host: Host,
+    configured: &str,
+    enabled: bool,
+    fallback: bool,
+) -> IntegrationMode {
+    if !enabled || fallback || configured == "fold-only" {
+        return IntegrationMode::FoldOnly;
+    }
+    let native = mode_for(host, true);
+    match configured {
+        "auto" => native,
+        "hooks" if native == IntegrationMode::Hooks => native,
+        "shim" if native == IntegrationMode::Shim => native,
+        _ => IntegrationMode::FoldOnly,
+    }
+}

@@ -89,15 +89,15 @@ fn claude_event_kinds_are_normalized() {
 }
 
 #[test]
-fn shim_hosts_expect_no_hook_events() {
-    assert_eq!(
-        expected_events(Host::Opencode),
-        &[] as &[tkm_hosts::probe::ExpectedEvent]
-    );
-    assert_eq!(
-        expected_events(Host::Pi),
-        &[] as &[tkm_hosts::probe::ExpectedEvent]
-    );
+fn shim_hosts_have_probe_coverage_for_all_lifecycle_events() {
+    for host in [Host::Opencode, Host::Pi] {
+        assert_eq!(expected_events(host).len(), 5);
+        assert!(
+            expected_events(host)
+                .iter()
+                .any(|e| e.kind == EventKind::SessionEnd)
+        );
+    }
 }
 
 #[test]
