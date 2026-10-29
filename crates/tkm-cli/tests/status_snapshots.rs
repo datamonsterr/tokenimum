@@ -106,7 +106,7 @@ fn why_4812_snapshot() {
             integration_level: "hooks".into(),
         })
         .unwrap();
-    let decision = store.insert_decision_with_context(&tkm_store::NewDecision { model: "inception/mercury-decide-20260930".into(), purpose: "fact_filter".into(), questions: serde_json::json!({}), answers: serde_json::json!({"stable_f-17":{"type":"noul","noul":0.94},"safe_f-17":{"type":"noul","noul":0.97}}), cost_usd: 0.000006, latency_ms: 1, shadow:false }, Some(Timestamp(NOW-60_000)), Some(&ctx.repo.key), Some(sid), None).unwrap();
+    let decision = store.insert_decision_with_context(&tkm_store::NewDecision { model: "inception/mercury-decide-20260930".into(), purpose: "fact_filter".into(), questions: serde_json::json!({}), answers: serde_json::json!({"stable_f-17":{"type":"noul","noul":0.94},"safe_f-17":{"type":"noul","noul":0.97}}), cost_usd: Some(0.000006), latency_ms: 1, shadow:false }, Some(Timestamp(NOW-60_000)), Some(&ctx.repo.key), Some(sid), None).unwrap();
     store
         .insert_candidate_fact(&tkm_store::FactRecord {
             repo_key: ctx.repo.key.clone(),

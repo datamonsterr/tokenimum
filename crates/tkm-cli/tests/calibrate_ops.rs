@@ -25,7 +25,7 @@ fn calibrate_loop_fits_labelled_decisions() {
             purpose: "loop_guard".into(),
             questions: serde_json::Value::Null,
             answers: serde_json::json!({"stuck": {"type":"noul", "noul": if i < 10 { 0.95 } else { 0.1 }}}),
-            cost_usd: 0.0,
+            cost_usd: Some(0.0),
             latency_ms: 0,
             shadow: true,
         };
@@ -78,7 +78,7 @@ fn calibrate_refuses_threshold_at_or_below_t_low_without_overwriting() {
             let id = store.insert_decision(&tkm_store::NewDecision {
                 model: prior.model_version.clone(), purpose: "loop_guard".into(), questions: serde_json::json!({}),
                 answers: serde_json::json!({"stuck": {"type": "noul", "noul": if i < 10 { threshold } else { 0.01 }}}),
-                cost_usd: 0.0, latency_ms: 0, shadow: true,
+                cost_usd: Some(0.0), latency_ms: 0, shadow: true,
             }).unwrap();
             store
                 .set_decision_outcome(id, if i < 10 { "stuck" } else { "progress" })

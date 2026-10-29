@@ -155,7 +155,7 @@ fn status_spend_is_global_and_uses_the_utc_day() {
         purpose: "relevance".into(),
         questions: serde_json::json!({}),
         answers: serde_json::json!({}),
-        cost_usd: 0.125,
+        cost_usd: Some(0.125),
         latency_ms: 1,
         shadow: false,
     };
@@ -247,9 +247,9 @@ fn status_reports_envelope_pending_tools_and_savings_samples() {
             .upsert_ledger(&LedgerRecord {
                 session_id: sid,
                 usage: Usage::default(),
-                priced_cost: cost,
+                priced_cost: Some(cost),
                 overhead_tokens: 0,
-                overhead_cost: 0.0,
+                overhead_cost: Some(0.0),
             })
             .unwrap();
     }

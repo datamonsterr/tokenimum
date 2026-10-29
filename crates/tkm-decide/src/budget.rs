@@ -2,7 +2,7 @@
 use crate::cache::Purpose;
 use std::sync::{Arc, Mutex};
 /// One decision attempt or cache retrieval, excluding all state and key material.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct DecisionRow {
     /// Unix timestamp in milliseconds.
     pub ts_ms: u64,

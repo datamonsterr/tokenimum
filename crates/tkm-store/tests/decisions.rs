@@ -12,7 +12,7 @@ fn decision() -> NewDecision {
         purpose: "stuck".into(),
         questions: json!([{"id":"q"}]),
         answers: json!({"q":0.9}),
-        cost_usd: 0.001,
+        cost_usd: Some(0.001),
         latency_ms: 123,
         shadow: true,
     }
@@ -37,7 +37,7 @@ fn roundtrip_decisions() {
     assert_eq!(first.purpose, item.purpose);
     assert_eq!(first.questions, item.questions);
     assert_eq!(first.answers, item.answers);
-    assert_eq!(first.cost_usd.to_bits(), item.cost_usd.to_bits());
+    assert_eq!(first.cost_usd, item.cost_usd);
     assert_eq!(first.latency_ms, item.latency_ms);
     assert_eq!(first.shadow, item.shadow);
     assert_eq!(first.outcome_label, None);

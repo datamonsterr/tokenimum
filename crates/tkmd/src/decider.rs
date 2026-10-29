@@ -85,6 +85,7 @@ type SpendTarget = (Arc<dyn SpendSink>, Arc<dyn Escalator>);
 enum SpendMessage {
     Record(Arc<dyn SpendSink>, String, String, f64, Option<String>),
     Flush(Option<Arc<dyn SpendSink>>, std::sync::mpsc::Sender<()>),
+    Attempt(std::path::PathBuf, DecisionRow),
 }
 
 /// Spend ledger for the decision client. Rows live in memory (cap checks must not touch disk);
@@ -94,6 +95,7 @@ pub struct StoreLedger {
     inner: InMemoryLedger,
     sink: Mutex<Option<SpendTarget>>,
     spend_tx: std::sync::mpsc::Sender<SpendMessage>,
+    persistence: Mutex<Option<std::path::PathBuf>>,
 }
 
 impl Default for StoreLedger {
@@ -104,6 +106,15 @@ impl Default for StoreLedger {
                 match message {
                     SpendMessage::Record(sink, purpose, model, cost, run_id) => {
                         sink.record(&purpose, &model, cost, run_id.as_deref());
+                    }
+                    SpendMessage::Attempt(path, row) => {
+                        let result = tkm_store::Store::open(&path).and_then(|store| {
+                            let value = serde_json::to_value(row)?;
+                            store.insert_spend_attempt(&value)
+                        });
+                        if let Err(error) = result {
+                            tracing::warn!(%error, "could not persist decision spend");
+                        }
                     }
                     SpendMessage::Flush(sink, ack) => {
                         if let Some(sink) = sink {
@@ -118,6 +129,7 @@ impl Default for StoreLedger {
             inner: InMemoryLedger::default(),
             sink: Mutex::new(None),
             spend_tx,
+            persistence: Mutex::new(None),
         }
     }
 }
@@ -128,42 +140,77 @@ impl StoreLedger {
     /// # Errors
     /// Returns an error if the stored decisions or sessions cannot be read.
     pub fn restore(&self, store: &tkm_store::Store) -> Result<(), tkm_store::StoreError> {
-        for decision in store.list_recent_decisions(-1)? {
+        let legacy_max = store.legacy_spend_max_id()?;
+        for decision in store.list_recent_decisions(-1)?.into_iter().filter(|d| {
+            d.id <= legacy_max || matches!(d.purpose.as_str(), "models_probe" | "doctor_probe")
+        }) {
             let Some(ts_ms) = decision.created_at.and_then(|t| u64::try_from(t.0).ok()) else {
                 continue;
             };
-            let Some(session) = decision
+            let session = decision
                 .session_id
                 .map(|id| store.get_session(id))
                 .transpose()?
-                .flatten()
-            else {
-                continue;
-            };
+                .flatten();
+            let session_id = session.map_or_else(
+                || format!("legacy:{}", decision.id),
+                |session| format!("{}:{}", session.key.host.as_str(), session.key.session_id),
+            );
             let purpose = match decision.purpose.as_str() {
                 "loop_guard" => tkm_decide::cache::Purpose::LoopGuard,
                 "relevance" => tkm_decide::cache::Purpose::Relevance,
                 "fact_filter" => tkm_decide::cache::Purpose::FactFilter,
                 "redirect" => tkm_decide::cache::Purpose::Redirect,
+                "models_probe" | "doctor_probe" => tkm_decide::cache::Purpose::Relevance,
                 _ => continue,
             };
             self.inner.record(DecisionRow {
                 ts_ms,
-                session_id: format!("{}:{}", session.key.host.as_str(), session.key.session_id),
+                session_id,
                 purpose,
                 requested_model: decision.model.clone(),
                 model_version: Some(decision.model),
                 provider: None,
                 input_tokens: 0,
                 output_tokens: 0,
-                cost_usd: Some(decision.cost_usd),
+                cost_usd: decision.cost_usd,
                 latency_ms: u64::from(decision.latency_ms),
                 question_names: Vec::new(),
                 outcome: "restored".into(),
                 cached: false,
             });
         }
+        for value in store.list_spend_attempts()? {
+            let row = serde_json::from_value(value)?;
+            self.inner.record(row);
+        }
         Ok(())
+    }
+
+    /// Load and enable durable attempt storage before serving requests.
+    ///
+    /// # Errors
+    /// Returns an error if the database cannot be opened or restored.
+    pub fn enable_persistence(
+        &self,
+        path: std::path::PathBuf,
+    ) -> Result<(), tkm_store::StoreError> {
+        let store = tkm_store::Store::open(&path)?;
+        self.restore(&store)?;
+        *self
+            .persistence
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = Some(path);
+        Ok(())
+    }
+
+    /// Count attempts today for which the cost was unavailable.
+    pub fn unknown_today(&self, now_ms: u64) -> usize {
+        self.inner
+            .rows()
+            .iter()
+            .filter(|row| row.ts_ms / 86_400_000 == now_ms / 86_400_000 && row.cost_usd.is_none())
+            .count()
     }
 
     /// Waits up to two seconds for previously queued spend records.
@@ -184,15 +231,15 @@ impl StoreLedger {
         *self.sink.lock().unwrap_or_else(PoisonError::into_inner) = Some((sink, escalator));
     }
     /// Tokens and cost the daemon spent on decisions for one session id.
-    pub fn session_overhead(&self, session_id: &str) -> (u64, f64) {
+    pub fn session_overhead(&self, session_id: &str) -> (u64, Option<f64>) {
         self.inner
             .rows()
             .iter()
             .filter(|row| row.session_id == session_id)
-            .fold((0, 0.0), |(tokens, cost), row| {
+            .fold((0, Some(0.0)), |(tokens, cost), row| {
                 (
                     tokens + row.input_tokens + row.output_tokens,
-                    cost + row.cost_usd.unwrap_or(0.0),
+                    cost.zip(row.cost_usd).map(|(total, amount)| total + amount),
                 )
             })
     }
@@ -213,6 +260,14 @@ impl SpendLedger for StoreLedger {
     }
 
     fn record(&self, row: DecisionRow) {
+        let path = self
+            .persistence
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone();
+        if let Some(path) = path {
+            let _ = self.spend_tx.send(SpendMessage::Attempt(path, row.clone()));
+        }
         let target = self
             .sink
             .lock()

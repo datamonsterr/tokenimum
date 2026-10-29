@@ -57,7 +57,7 @@ pub(crate) struct FoldJob {
     pub log_path: Option<PathBuf>,
     pub settings: Arc<Settings>,
     pub injected: BTreeSet<String>,
-    pub overhead: (u64, f64),
+    pub overhead: (u64, Option<f64>),
     pub ended_ms: i64,
 }
 
@@ -280,11 +280,7 @@ fn fold_inner(
     store.upsert_ledger(&LedgerRecord {
         session_id: record.id,
         usage: session.usage,
-        priced_cost: job
-            .settings
-            .pricing
-            .price_session(&session, None)
-            .unwrap_or(0.0),
+        priced_cost: job.settings.pricing.price_session(&session, None),
         overhead_tokens: job.overhead.0,
         overhead_cost: job.overhead.1,
     })?;
@@ -896,7 +892,7 @@ mod replay_tests {
             log_path: Some(path.clone()),
             settings: settings.clone(),
             injected: BTreeSet::new(),
-            overhead: (0, 0.0),
+            overhead: (0, Some(0.0)),
             ended_ms: 1,
         };
         let id = store

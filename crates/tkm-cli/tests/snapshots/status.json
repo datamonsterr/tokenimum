@@ -39,7 +39,9 @@
       "spend": {
         "decisions_today_usd": 0.0,
         "daily_cap_usd": 0.5,
-        "scope": "global"
+        "scope": "global",
+        "unknown_session_costs": 0,
+        "unknown_decision_costs_today": 0
       },
       "savings": [],
       "last_actions": []

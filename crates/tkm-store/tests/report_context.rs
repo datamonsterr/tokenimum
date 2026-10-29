@@ -54,7 +54,7 @@ fn report_context_round_trips_and_legacy_writes_remain_null() {
         purpose: "relevance".into(),
         questions: serde_json::json!({}),
         answers: serde_json::json!({}),
-        cost_usd: 0.000006,
+        cost_usd: Some(0.000006),
         latency_ms: 1,
         shadow: false,
     };

@@ -140,9 +140,9 @@ fn roundtrip_ledger() {
             cache_read: 30,
             cache_write: 40,
         },
-        priced_cost: 1.5,
+        priced_cost: Some(1.5),
         overhead_tokens: 7,
-        overhead_cost: 0.25,
+        overhead_cost: Some(0.25),
     };
     store.upsert_ledger(&ledger).unwrap();
     assert_eq!(store.get_ledger(id).unwrap(), Some(ledger.clone()));
@@ -158,9 +158,9 @@ fn ledger_rejects_u64_overflow() {
     let mut ledger = LedgerRecord {
         session_id: id,
         usage: Usage::default(),
-        priced_cost: 0.0,
+        priced_cost: Some(0.0),
         overhead_tokens: 0,
-        overhead_cost: 0.0,
+        overhead_cost: Some(0.0),
     };
     for field in 0..5 {
         ledger.usage = Usage::default();
@@ -213,7 +213,7 @@ fn unknown_session_cost_round_trips_as_null() {
         usage: Usage::default(),
         priced_cost: None,
         overhead_tokens: 0,
-        overhead_cost: 0.0,
+        overhead_cost: Some(0.0),
     };
     store.upsert_ledger(&ledger).unwrap();
     let stored = store.get_ledger(id).unwrap().unwrap();

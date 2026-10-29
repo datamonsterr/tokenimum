@@ -97,7 +97,7 @@ pub(super) fn probe(
                     purpose: "doctor_probe".into(),
                     questions: questions.clone(),
                     answers,
-                    cost_usd: attempt.cost_usd.unwrap_or(0.0),
+                    cost_usd: attempt.cost_usd,
                     latency_ms: u32::try_from(attempt.latency_ms).unwrap_or(u32::MAX),
                     shadow: true,
                 },

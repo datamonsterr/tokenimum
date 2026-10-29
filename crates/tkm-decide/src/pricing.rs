@@ -14,6 +14,10 @@ pub struct ModelPrice {
     pub prompt_per_token: f64,
     /// Completion price per token.
     pub completion_per_token: f64,
+    /// Cache read price per token, when supplied.
+    pub cache_read_per_token: Option<f64>,
+    /// Cache write price per token, when supplied.
+    pub cache_write_per_token: Option<f64>,
     /// Context length.
     pub context: u64,
 }
@@ -37,6 +41,8 @@ struct Entry {
 struct Prices {
     prompt: String,
     completion: String,
+    input_cache_read: Option<String>,
+    input_cache_write: Option<String>,
 }
 /// Parses model JSON, omitting alias slugs and malformed individual entries.
 ///
@@ -60,6 +66,8 @@ pub fn parse_models(json: &str) -> Result<Vec<ModelPrice>, PricingError> {
                 canonical: entry.canonical_slug,
                 prompt_per_token: parse(&entry.pricing.prompt)?,
                 completion_per_token: parse(&entry.pricing.completion)?,
+                cache_read_per_token: entry.pricing.input_cache_read.as_deref().and_then(parse),
+                cache_write_per_token: entry.pricing.input_cache_write.as_deref().and_then(parse),
                 context: entry.context_length,
             })
         })
@@ -114,4 +122,94 @@ fn update_value(table: &mut Table, name: &str, mut new: Item) {
         *new_value.decor_mut() = old.decor().clone();
     }
     table[name] = new;
+}
+
+/// Refresh the local model table when it is at least seven days old.
+/// The injected fetch function makes network failure and time deterministic in tests.
+///
+/// # Errors
+/// Returns an error on an invalid table, failed fetch, or invalid listing.
+pub fn refresh_pricing(
+    existing: &str,
+    now_ms: i64,
+    fetch: impl FnOnce() -> Result<String, String>,
+) -> Result<String, PricingError> {
+    let mut doc = existing
+        .parse::<DocumentMut>()
+        .map_err(|e| PricingError(e.to_string()))?;
+    let fetched = doc.get("fetched_at").and_then(Item::as_integer);
+    if fetched.is_some_and(|time| time <= now_ms && now_ms.saturating_sub(time) < 604_800_000) {
+        return Ok(existing.to_owned());
+    }
+    let models = parse_models(&fetch().map_err(PricingError)?)?;
+    if models.is_empty() {
+        return Err(PricingError("model listing has no usable prices".into()));
+    }
+    if !doc.contains_key("models") {
+        doc["models"] = Item::Table(Table::new());
+    }
+    let table = doc["models"]
+        .as_table_mut()
+        .ok_or_else(|| PricingError("models is not a table".into()))?;
+    for model in models {
+        let mut price = Table::new();
+        price["input"] = value(model.prompt_per_token * 1_000_000.0);
+        price["output"] = value(model.completion_per_token * 1_000_000.0);
+        if let Some(rate) = model.cache_read_per_token {
+            price["cache_read"] = value(rate * 1_000_000.0);
+        }
+        if let Some(rate) = model.cache_write_per_token {
+            price["cache_write"] = value(rate * 1_000_000.0);
+        }
+        if model.canonical != model.slug {
+            table[&model.canonical] = Item::Table(price.clone());
+        }
+        table[&model.slug] = Item::Table(price);
+    }
+    doc["fetched_at"] = value(now_ms);
+    Ok(doc.to_string())
+}
+
+/// Refresh a pricing file from the model endpoint, retaining the old file on failure.
+///
+/// # Errors
+/// Returns an error on network, parsing or filesystem failure.
+pub async fn refresh_file(path: &std::path::Path, now_ms: i64) -> Result<(), PricingError> {
+    let existing = match std::fs::read_to_string(path) {
+        Ok(text) => text,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(error) => return Err(PricingError(error.to_string())),
+    };
+    let doc = existing
+        .parse::<DocumentMut>()
+        .map_err(|e| PricingError(e.to_string()))?;
+    if doc
+        .get("fetched_at")
+        .and_then(Item::as_integer)
+        .is_some_and(|time| time <= now_ms && now_ms.saturating_sub(time) < 604_800_000)
+    {
+        return Ok(());
+    }
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .map_err(|e| PricingError(e.to_string()))?;
+    let body = client
+        .get(MODELS_URL)
+        .send()
+        .await
+        .and_then(reqwest::Response::error_for_status)
+        .map_err(|e| PricingError(e.to_string()))?
+        .text()
+        .await
+        .map_err(|e| PricingError(e.to_string()))?;
+    let updated = refresh_pricing(&existing, now_ms, || Ok(body))?;
+    let parent = path
+        .parent()
+        .ok_or_else(|| PricingError("pricing path has no parent".into()))?;
+    std::fs::create_dir_all(parent).map_err(|e| PricingError(e.to_string()))?;
+    let temp = path.with_extension(format!("toml.{}.tmp", std::process::id()));
+    std::fs::write(&temp, updated).map_err(|e| PricingError(e.to_string()))?;
+    std::fs::rename(&temp, path).map_err(|e| PricingError(e.to_string()))?;
+    Ok(())
 }

@@ -87,6 +87,7 @@ fn refresh_uses_fixture_rates_and_preserves_stale_table_on_failure() {
     let refreshed = refresh_pricing(old, 700_000_000, || Ok(fixture.to_owned())).unwrap();
     let table = tkm_core::ledger::PriceTable::parse(&refreshed).unwrap();
     assert!(table.models.contains_key("liquid/d1.1"));
+    assert!(table.models.contains_key("liquid/d1.1-20261027"));
     assert!(table.models.contains_key("vendor/model"));
     assert!(refreshed.contains("fetched_at = 700000000"));
     assert!(refresh_pricing(&refreshed, 700_000_001, || Err("should not fetch".into())).is_ok());

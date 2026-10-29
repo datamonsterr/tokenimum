@@ -351,7 +351,7 @@ fn snapshot_reads_persisted_decision() {
             purpose: "loop_guard".into(),
             questions: serde_json::json!({}),
             answers: serde_json::json!({"ok": true}),
-            cost_usd: 0.1,
+            cost_usd: Some(0.1),
             latency_ms: 10,
             shadow: false,
         })
@@ -386,9 +386,9 @@ fn snapshot_reads_persisted_decision() {
         .upsert_ledger(&LedgerRecord {
             session_id: session,
             usage: Usage::default(),
-            priced_cost: 1.25,
+            priced_cost: Some(1.25),
             overhead_tokens: 0,
-            overhead_cost: 0.0,
+            overhead_cost: Some(0.0),
         })
         .unwrap();
     store
@@ -503,7 +503,7 @@ fn snapshot_retains_current_facts_and_recent_ledger_and_retirements() {
     for i in 0..1005 {
         conn.execute("INSERT INTO sessions VALUES (?1,'claude','home',?2,'repo','/repo',?1,?1,'folded',0,'full')", rusqlite::params![i + 1, format!("s-{i}")]).unwrap();
         conn.execute(
-            "INSERT INTO ledger VALUES (?1,0,0,0,0,?2,0,0)",
+            "INSERT INTO ledger VALUES (?1,0,0,0,0,?2,0,0,0,?2)",
             rusqlite::params![i + 1, f64::from(i)],
         )
         .unwrap();

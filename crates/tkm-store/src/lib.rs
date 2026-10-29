@@ -42,7 +42,7 @@ use std::time::Duration;
 
 use rusqlite::{Connection, ErrorCode, OpenFlags, TransactionBehavior};
 
-const SCHEMA_VERSION: i64 = 3;
+const SCHEMA_VERSION: i64 = 4;
 const DEFAULT_BUSY_TIMEOUT: Duration = Duration::from_secs(2);
 
 /// Store operations can fail because of I/O, SQLite, migration, or JSON errors.

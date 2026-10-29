@@ -134,4 +134,8 @@ fn spend_attempts_survive_restart_and_unknown_costs_are_counted() {
     assert_eq!(second.spent_today_usd(86_400_001), 0.25);
     assert_eq!(second.spent_session_usd("claude:s"), 0.25);
     assert_eq!(second.unknown_today(86_400_001), 1);
+    assert_eq!(
+        tkm_decide::budget::Budget::new(1.0, 0.25).check(&second, 86_400_001, "claude:s"),
+        tkm_decide::budget::BudgetVerdict::OverSession
+    );
 }
