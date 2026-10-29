@@ -268,6 +268,9 @@ impl Settings {
         if let Some(v) = unsigned(config, "prune.quiet_minutes") {
             out.prune.quiet_minutes = v;
         }
+        if let Some(protect) = config.get_list("prune.protect") {
+            out.prune.protect = protect.to_vec();
+        }
         out.prune.mode = match config.get_str("prune.mode") {
             Some("off") => PruneMode::Off,
             Some("report") => PruneMode::Report,

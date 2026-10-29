@@ -41,7 +41,20 @@ pub fn run_with_clock(
     let db = daemon::open_db(&ctx.paths)?;
     let config = ctx.load_config()?;
     let mut prune = tkmd::settings::Settings::from_config(&config).prune;
-    prune.superorchestrator_adapter_enabled = true;
+    let probe = tkm_integrations::detect::Probe::new(
+        super::init::state::env(ctx, "PATH")
+            .unwrap_or_default()
+            .into(),
+        super::init::state::home(ctx)?,
+        ctx.cwd.clone(),
+        ctx.env.iter().cloned().collect(),
+    );
+    let mode = config
+        .get_str("integrations.superorchestrator")
+        .and_then(|value| value.parse().ok())
+        .unwrap_or_default();
+    prune.superorchestrator_adapter_enabled = probe.detect("superorchestrator", mode).state
+        == tkm_integrations::detect::AdapterState::Enabled;
     writeln!(ctx.stdout, "Readiness is based on unused counts only.")?;
     let mut statement = db.prepare("SELECT host, tool, prompts_unused, sessions_unused, last_used FROM tool_evidence WHERE repo_key = ?1 ORDER BY host, tool").map_err(db_error)?;
     let rows = statement

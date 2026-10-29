@@ -305,6 +305,12 @@ fn build_registry() -> Vec<Key> {
             "Quiet period before writing a deny list."
         ),
         key!(
+            "prune.protect",
+            Kind::List,
+            "[]",
+            "Tool names or trailing-star prefixes protected from pruning."
+        ),
+        key!(
             "prune.mode",
             Kind::Enum(&["off", "report", "propose", "apply"]),
             "propose",

@@ -192,15 +192,34 @@ pub fn is_protected(name: &str, host: Host, config: &PruneConfig) -> bool {
         "WebSearch",
     ];
     PROTECTED.contains(&name)
-        || matches!(host, Host::Opencode) && ["skill", "task"].contains(&name)
-        || matches!(host, Host::Pi) && ["read", "bash", "edit", "write"].contains(&name)
-        || name.starts_with("mcp__headroom__")
-        || config.superorchestrator_adapter_enabled && name.starts_with("mcp__superorchestrator__")
+        || matches!(host, Host::Opencode)
+            && ["skill", "task", "read", "write", "question"].contains(&name)
+        || matches!(host, Host::Pi)
+            && ["read", "bash", "edit", "write", "tool_search"].contains(&name)
+        || matches!(host, Host::Cursor)
+            && [
+                "Shell",
+                "run_terminal_cmd",
+                "edit_file",
+                "list_dir",
+                "file_search",
+                "grep_search",
+                "ask_question",
+            ]
+            .contains(&name)
+        || server_tool(name, host, "headroom")
+        || config.superorchestrator_adapter_enabled && server_tool(name, host, "superorchestrator")
         || config.protect.iter().any(|p| {
             p.strip_suffix('*')
                 .map_or(name == p, |prefix| name.starts_with(prefix))
         })
 }
+fn server_tool(name: &str, host: Host, server: &str) -> bool {
+    name.starts_with(&format!("mcp__{server}__"))
+        || host == Host::Opencode && name.starts_with(&format!("{server}_"))
+        || host == Host::Cursor && name.starts_with(&format!("Mcp({server}:"))
+}
+
 /// Whether an unused streak meets either threshold (SPEC 4.3).
 #[must_use]
 pub fn eligible(evidence: &ToolEvidence, config: &PruneConfig) -> bool {
