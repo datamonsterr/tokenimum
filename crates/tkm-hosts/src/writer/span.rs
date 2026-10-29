@@ -184,6 +184,12 @@ pub(super) fn append_member(text: &str, node: &Node, key: &str, value: &Value) -
     )
 }
 
+pub(super) fn replace_value(text: &str, node: &Node, value: &Value) -> String {
+    let mut changed = text.to_owned();
+    changed.replace_range(node.range.clone(), &value.to_string());
+    changed
+}
+
 pub(super) fn append_element(text: &str, node: &Node, value: &Value) -> String {
     let last = node
         .elements

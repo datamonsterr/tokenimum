@@ -6,9 +6,14 @@
 //! are synchronous: the daemon runs log readers and installers on blocking
 //! workers, while payload mapping and reply rendering stay in memory.
 
+pub mod agy;
 pub mod claude;
+pub mod codewhale;
 pub mod codex;
+pub mod cursor;
 pub mod digest;
+pub mod kimi;
+pub mod probe;
 pub mod writer;
 
 use std::io;
@@ -18,6 +23,18 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tkm_core::model::{HookEvent, RepoKey, Session};
 use tkm_proto::{Host, ReplyAction, Request};
+
+/// Environment variables `tkm-hook` copies into `Request::env` for `host` (ADR 0020).
+#[must_use]
+pub fn env_markers(host: Host) -> &'static [&'static str] {
+    match host {
+        Host::Agy => agy::ENV_MARKERS,
+        Host::Cursor => cursor::ENV_MARKERS,
+        Host::Kimi => kimi::ENV_MARKERS,
+        Host::Deepseek => codewhale::ENV_MARKERS,
+        _ => &[],
+    }
+}
 
 /// Resolved log source and identity supplied to a host session reader.
 ///
