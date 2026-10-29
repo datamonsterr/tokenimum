@@ -2,7 +2,6 @@
 
 #[cfg(unix)]
 use std::collections::BTreeMap;
-use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -73,7 +72,7 @@ impl Observer<'_, '_> {
                 (Host::Pi, true) => "session_shutdown",
                 (Host::Opencode, false) => "session.created",
                 (Host::Opencode, true) => "session.deleted",
-                (Host::Agy, true) => return,
+                (Host::Agy, true) | (_, _) => return,
             };
             let payload = match plan.host {
                 Host::Agy => serde_json::json!({"conversationId": plan.session_id}),
@@ -114,6 +113,7 @@ fn program(host: Host, path: &std::ffi::OsStr) -> Option<PathBuf> {
         Host::Deepseek => &["codewhale", "deepseek"],
         Host::Opencode => &["opencode"],
         Host::Pi => &["pi"],
+        _ => return None,
     };
     std::env::split_paths(path).find_map(|dir| {
         names
