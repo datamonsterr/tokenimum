@@ -119,7 +119,7 @@ CREATE TABLE installs (
 ";
 
 /// Migrations in schema version order.
-pub(crate) const MIGRATIONS: &[&str] = &[V001, V002, V003, V004, V005, V006, V007, V008];
+pub(crate) const MIGRATIONS: &[&str] = &[V001, V002, V003, V004, V005, V006, V007, V008, V009];
 
 /// Distinct judged turns and the first decision timestamp survive daemon restarts.
 pub(crate) const V005: &str = r"
@@ -264,7 +264,7 @@ mod report_schema_tests {
         let version: i64 = conn
             .pragma_query_value(None, "user_version", |row| row.get(0))
             .unwrap();
-        assert_eq!(version, 8);
+        assert_eq!(version, 9);
         let legacy = store
             .get_fact(&tkm_core::model::RepoKey("legacy".into()), "f")
             .unwrap()
@@ -296,5 +296,43 @@ mod report_schema_tests {
                 "{table}.{column}"
             );
         }
+    }
+}
+
+/// First eligible observation; unknown historical readiness is initialized on observation.
+pub(crate) const V009: &str = r"
+ALTER TABLE tool_evidence ADD COLUMN ready_since INTEGER;
+";
+
+#[cfg(test)]
+mod prune_migration_tests {
+    use crate::Store;
+    use tkm_core::model::{Host, RepoKey};
+
+    #[test]
+    fn v008_upgrade_preserves_evidence_with_unknown_ready_time() {
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        for migration in &super::MIGRATIONS[..8] {
+            conn.execute_batch(migration).unwrap();
+        }
+        conn.pragma_update(None, "user_version", 8).unwrap();
+        conn.execute_batch("INSERT INTO repos VALUES ('legacy','legacy',1,2,4); INSERT INTO tool_evidence VALUES ('legacy','cursor','unused',10,2,NULL);").unwrap();
+        let store = Store::initialize(conn, std::time::Duration::from_millis(100)).unwrap();
+        let repo = RepoKey("legacy".into());
+        assert_eq!(
+            store
+                .get_tool_evidence(&repo, Host::Cursor, "unused")
+                .unwrap()
+                .unwrap()
+                .prompts_unused,
+            10
+        );
+        assert_eq!(
+            store
+                .prune_ready_since(&repo, Host::Cursor, "unused")
+                .unwrap(),
+            None
+        );
+        assert_eq!(store.get_repo(&repo).unwrap().unwrap().delegated_runs, 4);
     }
 }
