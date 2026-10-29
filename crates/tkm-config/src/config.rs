@@ -1,5 +1,46 @@
 //! Layered configuration and file editing.
 use std::{collections::BTreeMap, path::PathBuf};
+/// A configuration file or value could not be read or validated.
+#[derive(Debug, thiserror::Error)]
+pub enum ConfigError {
+    /// File access failed.
+    #[error("{path}: {source}", path = .path.display())]
+    Io {
+        /// File involved in the operation.
+        path: PathBuf,
+        /// Underlying I/O failure.
+        #[source]
+        source: std::io::Error,
+    },
+    /// TOML syntax was invalid.
+    #[error("{path}: {source}", path = .path.display())]
+    Parse {
+        /// File containing invalid TOML.
+        path: PathBuf,
+        /// Underlying parse failure.
+        #[source]
+        source: toml_edit::TomlError,
+    },
+    /// The requested key is not registered.
+    #[error("unknown key: {0}")]
+    UnknownKey(String),
+    /// A registered key has an invalid value.
+    #[error("invalid value for {key}: {value}: {reason}")]
+    InvalidValue {
+        /// Registered key.
+        key: String,
+        /// Supplied value.
+        value: String,
+        /// Why validation failed.
+        reason: String,
+    },
+    /// An untrusted repository tried to set a restricted value.
+    #[error("repository cannot set {key}")]
+    RestrictedInRepo {
+        /// Restricted key.
+        key: String,
+    },
+}
 /// Configuration source, ordered from lowest to highest priority.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Layer {
@@ -69,13 +110,13 @@ impl LoadInputs {
     }
 }
 /// Resolved values and diagnostics.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Default)]
 pub struct EffectiveConfig {
     values: BTreeMap<String, (Value, Layer)>,
     /// Ignored untrusted entries.
     pub ignored: Vec<Ignored>,
     /// Non-fatal validation errors.
-    pub errors: Vec<String>,
+    pub errors: Vec<ConfigError>,
 }
 impl EffectiveConfig {
     /// Look up a typed value.
@@ -502,71 +543,11 @@ fn registry() -> Vec<Key> {
     }
     keys
 }
-fn parse_text(key: &Key, raw: &str) -> Result<Value, String> {
-    let bad = || format!("invalid value for {}: {raw}", key.name);
-    match key.kind {
-        Kind::Bool => raw.parse().map(Value::Bool).map_err(|_| bad()),
-        Kind::Int => raw
-            .parse::<i64>()
-            .ok()
-            .filter(|v| *v >= 0)
-            .map(Value::Int)
-            .ok_or_else(bad),
-        Kind::Float(min, max) => raw
-            .parse::<f64>()
-            .ok()
-            .filter(|v| v.is_finite() && *v >= min && *v <= max)
-            .map(Value::Float)
-            .ok_or_else(bad),
-        Kind::String => Ok(Value::String(raw.to_owned())),
-        Kind::Enum(options) => {
-            if options.contains(&raw) {
-                Ok(Value::String(raw.to_owned()))
-            } else {
-                Err(bad())
-            }
-        }
-        Kind::List => {
-            let item = raw.parse::<toml_edit::Value>().map_err(|_| bad())?;
-            let arr = item.as_array().ok_or_else(bad)?;
-            arr.iter()
-                .map(|v| v.as_str().map(str::to_owned).ok_or_else(bad))
-                .collect::<Result<Vec<_>, _>>()
-                .map(Value::List)
-        }
-    }
+fn parse_text(key: &Key, raw: &str) -> Result<Value, ConfigError> {
+    unimplemented!()
 }
-fn parse_item(key: &Key, item: &toml_edit::Item) -> Result<Value, String> {
-    let bad = || format!("wrong type or invalid value for {}", key.name);
-    match key.kind {
-        Kind::Bool => item.as_bool().map(Value::Bool).ok_or_else(bad),
-        Kind::Int => item
-            .as_integer()
-            .filter(|v| *v >= 0)
-            .map(Value::Int)
-            .ok_or_else(bad),
-        Kind::Float(min, max) => item
-            .as_float()
-            .filter(|v| v.is_finite() && *v >= min && *v <= max)
-            .map(Value::Float)
-            .ok_or_else(bad),
-        Kind::String => item
-            .as_str()
-            .map(|v| Value::String(v.to_owned()))
-            .ok_or_else(bad),
-        Kind::Enum(options) => item
-            .as_str()
-            .filter(|v| options.contains(v))
-            .map(|v| Value::String(v.to_owned()))
-            .ok_or_else(bad),
-        Kind::List => item
-            .as_array()
-            .ok_or_else(bad)?
-            .iter()
-            .map(|v| v.as_str().map(str::to_owned).ok_or_else(bad))
-            .collect::<Result<Vec<_>, _>>()
-            .map(Value::List),
-    }
+fn parse_item(key: &Key, item: &toml_edit::Item) -> Result<Value, ConfigError> {
+    unimplemented!()
 }
 fn preset(name: &str) -> &'static [(&'static str, &'static str)] {
     match name {
@@ -633,127 +614,15 @@ fn flatten(
         }
     }
 }
-fn read_file(path: &std::path::Path) -> Result<Vec<(String, toml_edit::Item)>, String> {
-    let content = match std::fs::read_to_string(path) {
-        Ok(s) => s,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
-        Err(e) => return Err(format!("{}: {e}", path.display())),
-    };
-    let document = content
-        .parse::<toml_edit::DocumentMut>()
-        .map_err(|e| format!("{}: {e}", path.display()))?;
-    let mut result = Vec::new();
-    flatten(document.as_table(), "", &mut result);
-    Ok(result)
+fn read_file(path: &std::path::Path) -> Result<Vec<(String, toml_edit::Item)>, ConfigError> {
+    unimplemented!()
 }
 /// Load and validate all layers. Malformed files return an error with their path.
 ///
 /// # Errors
 /// Returns an error for unreadable or malformed files.
-pub fn load(inputs: &LoadInputs) -> Result<EffectiveConfig, String> {
-    let keys = registry();
-    let mut config = EffectiveConfig::default();
-    for key in &keys {
-        let value = if key.name == "loop.escalate_command" {
-            Value::Unset
-        } else {
-            parse_text(key, key.default)?
-        };
-        config
-            .values
-            .insert(key.name.into(), (value, Layer::Default));
-    }
-    let global = inputs
-        .env
-        .iter()
-        .rev()
-        .find(|(k, _)| k == "TKM_CONFIG")
-        .map_or_else(|| inputs.global_path.clone(), |(_, v)| PathBuf::from(v));
-    let mut layers = vec![(Layer::Global, read_file(&global)?)];
-    if let Some(root) = &inputs.repo_root {
-        layers.push((Layer::Repo, read_file(&root.join(".tokenimum.toml"))?));
-        layers.push((
-            Layer::RepoLocal,
-            read_file(&root.join(".tokenimum.local.toml"))?,
-        ));
-    }
-    let mut entries: Vec<(Layer, String, Result<Value, String>)> = Vec::new();
-    for (layer, items) in layers {
-        for (name, item) in items {
-            let parsed = keys.iter().find(|k| k.name == name).map_or_else(
-                || Err(format!("unknown key: {name}")),
-                |key| parse_item(key, &item),
-            );
-            entries.push((layer, name, parsed));
-        }
-    }
-    for (name, value) in &inputs.env {
-        if !name.starts_with("TKM_") || name == "TKM_CONFIG" || name == "TKM_DISABLE" {
-            continue;
-        }
-        if let Some(key) = keys
-            .iter()
-            .find(|key| format!("TKM_{}", key.name.replace('.', "_").to_uppercase()) == *name)
-        {
-            entries.push((Layer::Env, key.name.into(), parse_text(key, value)));
-        } else {
-            config
-                .errors
-                .push(format!("unknown environment variable: {name}"));
-        }
-    }
-    for flag in &inputs.flags {
-        if let Some((name, value)) = flag.split_once('=') {
-            let parsed = keys.iter().find(|k| k.name == name).map_or_else(
-                || Err(format!("unknown key: {name}")),
-                |key| parse_text(key, value),
-            );
-            entries.push((Layer::Flags, name.into(), parsed));
-        } else {
-            config.errors.push(format!("invalid flag: {flag}"));
-        }
-    }
-    let selected = entries
-        .iter()
-        .rev()
-        .find_map(|(layer, key, value)| {
-            if key == "preset" {
-                if let Ok(Value::String(name)) = value {
-                    Some((name.as_str(), *layer))
-                } else {
-                    None
-                }
-            } else {
-                None
-            }
-        })
-        .unwrap_or(("balanced", Layer::Default));
-    for (name, raw) in preset(selected.0) {
-        if let Some(key) = keys.iter().find(|key| key.name == *name) {
-            apply(
-                &mut config,
-                key,
-                parse_text(key, raw)?,
-                Layer::Preset,
-                if matches!(selected.1, Layer::Repo | Layer::RepoLocal) {
-                    Some(selected.1)
-                } else {
-                    None
-                },
-            );
-        }
-    }
-    for (layer, name, value) in entries {
-        match value {
-            Ok(value) => {
-                if let Some(key) = keys.iter().find(|key| key.name == name) {
-                    apply(&mut config, key, value, layer, None);
-                }
-            }
-            Err(error) => config.errors.push(error),
-        }
-    }
-    Ok(config)
+pub fn load(inputs: &LoadInputs) -> Result<EffectiveConfig, ConfigError> {
+    unimplemented!()
 }
 /// Check whether a process environment disables tokenimum.
 #[must_use]
@@ -774,20 +643,8 @@ impl ConfigFile {
     ///
     /// # Errors
     /// Returns an error if the file cannot be read or parsed.
-    pub fn load(path: PathBuf, layer: Layer) -> Result<Self, String> {
-        let content = match std::fs::read_to_string(&path) {
-            Ok(s) => s,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
-            Err(e) => return Err(format!("{}: {e}", path.display())),
-        };
-        let document = content
-            .parse::<toml_edit::DocumentMut>()
-            .map_err(|e| format!("{}: {e}", path.display()))?;
-        Ok(Self {
-            path,
-            layer,
-            document,
-        })
+    pub fn load(path: PathBuf, layer: Layer) -> Result<Self, ConfigError> {
+        unimplemented!()
     }
     /// Retrieve a value as TOML text.
     #[must_use]
@@ -802,82 +659,22 @@ impl ConfigFile {
     ///
     /// # Errors
     /// Returns an error for unknown, invalid, or disallowed values.
-    pub fn set(&mut self, key: &str, raw: &str) -> Result<(), String> {
-        let keys = registry();
-        let definition = keys
-            .iter()
-            .find(|k| k.name == key)
-            .ok_or_else(|| format!("unknown key: {key}"))?;
-        let normalized = if let Ok(value) = raw.parse::<toml_edit::Value>() {
-            if let Some(s) = value.as_str() {
-                s.to_owned()
-            } else {
-                raw.to_owned()
-            }
-        } else {
-            raw.to_owned()
-        };
-        let value = parse_text(definition, &normalized)?;
-        if matches!(self.layer, Layer::Repo | Layer::RepoLocal) && restricted(definition, &value) {
-            return Err(format!("repository cannot set {key}"));
-        }
-        let item = match value {
-            Value::Bool(v) => toml_edit::value(v),
-            Value::Int(v) => toml_edit::value(v),
-            Value::Float(v) => toml_edit::value(v),
-            Value::String(v) => toml_edit::value(v),
-            Value::List(_) => raw.parse::<toml_edit::Item>().map_err(|e| format!("{e}"))?,
-            Value::Unset => return Err("cannot set unset value".into()),
-        };
-        let mut parts = key.split('.').peekable();
-        let mut table = self.document.as_table_mut();
-        while let Some(part) = parts.next() {
-            if parts.peek().is_none() {
-                table.insert(part, item);
-                break;
-            }
-            if !table.contains_key(part) {
-                table.insert(part, toml_edit::Item::Table(toml_edit::Table::new()));
-            }
-            table = table
-                .get_mut(part)
-                .and_then(toml_edit::Item::as_table_mut)
-                .ok_or_else(|| format!("{part} is not a table"))?;
-        }
-        Ok(())
+    pub fn set(&mut self, key: &str, raw: &str) -> Result<(), ConfigError> {
+        unimplemented!()
     }
     /// Remove a dotted key.
     ///
     /// # Errors
     /// Returns an error for an unknown key.
-    pub fn unset(&mut self, key: &str) -> Result<(), String> {
-        if !registry().iter().any(|k| k.name == key) {
-            return Err(format!("unknown key: {key}"));
-        }
-        let mut parts = key.split('.').peekable();
-        let mut table = self.document.as_table_mut();
-        while let Some(part) = parts.next() {
-            if parts.peek().is_none() {
-                table.remove(part);
-                break;
-            }
-            match table.get_mut(part).and_then(toml_edit::Item::as_table_mut) {
-                Some(next) => table = next,
-                None => return Ok(()),
-            }
-        }
-        Ok(())
+    pub fn unset(&mut self, key: &str) -> Result<(), ConfigError> {
+        unimplemented!()
     }
     /// Save the document to its layer file.
     ///
     /// # Errors
     /// Returns an error if the destination cannot be written.
-    pub fn save(&self) -> Result<(), String> {
-        if let Some(parent) = self.path.parent() {
-            std::fs::create_dir_all(parent).map_err(|e| format!("{}: {e}", parent.display()))?;
-        }
-        std::fs::write(&self.path, self.document.to_string())
-            .map_err(|e| format!("{}: {e}", self.path.display()))
+    pub fn save(&self) -> Result<(), ConfigError> {
+        unimplemented!()
     }
 }
 /// Describe a registered key and its effective source.

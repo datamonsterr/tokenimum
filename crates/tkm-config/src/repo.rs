@@ -8,6 +8,23 @@ use std::{
 };
 use tkm_core::model::RepoKey;
 
+/// Strategy used to derive a repository identity.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IdentitySource {
+    /// A normalized remote URL.
+    Remote,
+    /// The main checkout's real path.
+    Path,
+    /// The starting directory's real path.
+    Dir,
+}
+impl IdentitySource {
+    /// Return the stable textual spelling of this strategy.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        unimplemented!()
+    }
+}
 /// The checkout and its shared identity.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RepoIdentity {
@@ -20,7 +37,7 @@ pub struct RepoIdentity {
     /// Normalized remote, if present.
     pub remote: Option<String>,
     /// Identity strategy: `remote`, `path`, or `dir`.
-    pub how: &'static str,
+    pub how: IdentitySource,
 }
 fn gitdir(dot: &Path) -> Option<PathBuf> {
     let content = fs::read_to_string(dot).ok()?;
@@ -131,53 +148,5 @@ pub fn normalize_remote(url: &str) -> String {
 /// Resolve a checkout identity from explicit start, ceiling and home inputs.
 #[must_use]
 pub fn repo_identity(start: &Path, ceilings: &str, home: Option<&Path>) -> RepoIdentity {
-    let found = find_repo_root(start, ceilings, home);
-    let root = found
-        .clone()
-        .unwrap_or_else(|| fs::canonicalize(start).unwrap_or_else(|_| start.to_path_buf()));
-    let remote = found
-        .as_ref()
-        .and_then(|p| origin_url(p))
-        .map(|s| normalize_remote(&s))
-        .filter(|s| !s.is_empty());
-    if let Some(remote) = remote {
-        let label = remote
-            .rsplit('/')
-            .take(2)
-            .collect::<Vec<_>>()
-            .into_iter()
-            .rev()
-            .collect::<Vec<_>>()
-            .join("/");
-        return RepoIdentity {
-            root,
-            key: RepoKey(remote.clone()),
-            label,
-            remote: Some(remote),
-            how: "remote",
-        };
-    }
-    let path = found
-        .as_ref()
-        .and_then(|r| common_dir(r))
-        .and_then(|c| {
-            if c.file_name().is_some_and(|n| n == ".git") {
-                c.parent().map(Path::to_path_buf)
-            } else {
-                None
-            }
-        })
-        .unwrap_or_else(|| root.clone());
-    let path = fs::canonicalize(&path).unwrap_or(path);
-    let label = path
-        .file_name()
-        .map_or_else(|| "repo".to_owned(), |s| s.to_string_lossy().into_owned());
-    let how = if found.is_some() { "path" } else { "dir" };
-    RepoIdentity {
-        root,
-        key: RepoKey(format!("{how}:{}", path.display())),
-        label,
-        remote: None,
-        how,
-    }
+    unimplemented!()
 }

@@ -5,6 +5,8 @@ use std::{
     path::{Path, PathBuf},
     time::{SystemTime, UNIX_EPOCH},
 };
+/// Default error-log rotation threshold, in bytes.
+pub const ERRORS_LOG_MAX_BYTES: u64 = 5 * 1024 * 1024;
 /// Locations used by tokenimum.
 #[derive(Debug, Clone)]
 pub struct Paths {
@@ -111,6 +113,11 @@ impl ErrorLog {
     #[must_use]
     pub fn new(path: PathBuf, limit: u64) -> Self {
         Self { path, limit }
+    }
+    /// Create an error log using the standard path and rotation limit.
+    #[must_use]
+    pub fn for_paths(paths: &Paths) -> Self {
+        unimplemented!()
     }
     /// Append one timestamped line, rotating an existing full file first.
     ///

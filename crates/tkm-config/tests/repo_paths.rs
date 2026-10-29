@@ -6,8 +6,8 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 use tkm_config::{
-    paths::{ErrorLog, Paths, secure_socket},
-    repo::{find_repo_root, is_git_entry, normalize_remote, repo_identity},
+    paths::{ERRORS_LOG_MAX_BYTES, ErrorLog, Paths, secure_socket},
+    repo::{IdentitySource, find_repo_root, is_git_entry, normalize_remote, repo_identity},
 };
 static NEXT: AtomicU64 = AtomicU64::new(0);
 struct Temp(PathBuf);
@@ -128,5 +128,43 @@ fn runtime_directory_and_socket_have_private_modes() {
     assert_eq!(
         fs::metadata(paths.socket).unwrap().permissions().mode() & 0o777,
         0o600
+    );
+}
+
+#[test]
+fn repository_identity_source_is_typed() {
+    let t = Temp::new();
+    let main = t.0.join("main");
+    checkout(&main, Some("https://github.com/owner/repo"));
+    assert_eq!(repo_identity(&main, "", None).how, IdentitySource::Remote);
+    assert_eq!(IdentitySource::Remote.as_str(), "remote");
+    fs::remove_file(main.join(".git/config")).unwrap();
+    assert_eq!(repo_identity(&main, "", None).how, IdentitySource::Path);
+    assert_eq!(IdentitySource::Path.as_str(), "path");
+    assert_eq!(repo_identity(&t.0, "", None).how, IdentitySource::Dir);
+    assert_eq!(IdentitySource::Dir.as_str(), "dir");
+}
+#[test]
+fn errors_log_default_limit_is_5_mib() {
+    let t = Temp::new();
+    let paths = Paths::from_dirs(&t.0, None, None, None);
+    fs::create_dir_all(&paths.data_dir).unwrap();
+    assert_eq!(ERRORS_LOG_MAX_BYTES, 5 * 1024 * 1024);
+    fs::write(
+        &paths.errors_log,
+        vec![b'x'; usize::try_from(ERRORS_LOG_MAX_BYTES).unwrap()],
+    )
+    .unwrap();
+    ErrorLog::for_paths(&paths).append("next").unwrap();
+    assert_eq!(
+        fs::metadata(paths.data_dir.join("errors.log.1"))
+            .unwrap()
+            .len(),
+        ERRORS_LOG_MAX_BYTES
+    );
+    assert!(
+        fs::read_to_string(&paths.errors_log)
+            .unwrap()
+            .contains("next")
     );
 }

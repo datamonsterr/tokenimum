@@ -6,7 +6,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 use tkm_config::config::{
-    ConfigFile, Layer, LoadInputs, diff_from_preset, explain, is_disabled, load,
+    ConfigError, ConfigFile, Layer, LoadInputs, diff_from_preset, explain, is_disabled, load,
 };
 static NEXT: AtomicU64 = AtomicU64::new(0);
 struct Temp(PathBuf);
@@ -171,7 +171,9 @@ fn edit_preserves_comments_explains_and_diffs() {
     assert!(explain(&c, "loop.mode").unwrap().contains("redirect"));
     assert!(diff_from_preset(&c).is_empty());
     let mut repo = ConfigFile::load(t.0.join(".tokenimum.toml"), Layer::Repo).unwrap();
-    assert!(repo.set("prune.mode", "apply").is_err());
+    assert!(
+        matches!(repo.set("prune.mode", "apply"), Err(ConfigError::RestrictedInRepo { key }) if key == "prune.mode")
+    );
 }
 
 fn restricted_key_both_repo_layers(key: &str, raw: &str) {
@@ -180,6 +182,15 @@ fn restricted_key_both_repo_layers(key: &str, raw: &str) {
         let i = inputs(&t);
         fs::write(t.0.join(name), format!("{key} = {raw}\n")).unwrap();
         let c = load(&i).unwrap();
+        let layer = if name == ".tokenimum.toml" {
+            Layer::Repo
+        } else {
+            Layer::RepoLocal
+        };
+        let mut file = ConfigFile::load(t.0.join(name), layer).unwrap();
+        assert!(
+            matches!(file.set(key, raw), Err(ConfigError::RestrictedInRepo { key: rejected }) if rejected == key)
+        );
         assert!(c.ignored.iter().any(|entry| entry.key == key));
         assert!(!matches!(
             c.source(key),
@@ -239,11 +250,7 @@ fn malformed_global_file_names_its_path() {
     let t = Temp::new();
     let i = inputs(&t);
     fs::write(&i.global_path, "[broken\n").unwrap();
-    assert!(
-        load(&i)
-            .unwrap_err()
-            .contains(i.global_path.to_string_lossy().as_ref())
-    );
+    assert!(matches!(load(&i), Err(ConfigError::Parse { path, .. }) if path == i.global_path));
 }
 #[test]
 fn preset_overrides_include_each_specified_value() {
@@ -287,4 +294,60 @@ fn preset_overrides_include_each_specified_value() {
     let mut i = inputs(&t);
     i.flags.push("preset=offline".into());
     assert_eq!(load(&i).unwrap().get_str("prune.mode"), Some("propose"));
+}
+
+#[test]
+fn float_keys_accept_integers() {
+    let t = Temp::new();
+    let mut i = inputs(&t);
+    fs::write(
+        &i.global_path,
+        "[facts]\nfire_gate=1\n[decide]\nbudget_daily_usd=1\n",
+    )
+    .unwrap();
+    let c = load(&i).unwrap();
+    assert_eq!(c.get_float("facts.fire_gate"), Some(1.0));
+    assert_eq!(c.get_float("decide.budget_daily_usd"), Some(1.0));
+    assert!(c.errors.is_empty());
+    i.env.push(("TKM_FACTS_FIRE_GATE".into(), "0".into()));
+    i.flags.push("decide.budget_daily_usd=2".into());
+    let c = load(&i).unwrap();
+    assert_eq!(c.get_float("facts.fire_gate"), Some(0.0));
+    assert_eq!(c.get_float("decide.budget_daily_usd"), Some(2.0));
+    let mut f = ConfigFile::load(i.global_path.clone(), Layer::Global).unwrap();
+    f.set("facts.fire_gate", "1").unwrap();
+    f.save().unwrap();
+    assert_eq!(
+        load(&inputs(&t)).unwrap().get_float("facts.fire_gate"),
+        Some(1.0)
+    );
+}
+#[test]
+fn errors_identify_unknown_invalid_restricted_and_io() {
+    let t = Temp::new();
+    let mut i = inputs(&t);
+    i.flags = vec!["bad.key=1".into(), "facts.fire_gate=2".into()];
+    let c = load(&i).unwrap();
+    assert!(
+        c.errors
+            .iter()
+            .any(|e| matches!(e, ConfigError::UnknownKey(key) if key == "bad.key"))
+    );
+    assert!(
+        c.errors.iter().any(
+            |e| matches!(e, ConfigError::InvalidValue { key, .. } if key == "facts.fire_gate")
+        )
+    );
+    for layer in [Layer::Repo, Layer::RepoLocal] {
+        let mut f = ConfigFile::load(t.0.join("file"), layer).unwrap();
+        assert!(
+            matches!(f.set("decide.api_key_path", "other"), Err(ConfigError::RestrictedInRepo { key }) if key == "decide.api_key_path")
+        );
+        assert!(
+            matches!(f.unset("bad.key"), Err(ConfigError::UnknownKey(key)) if key == "bad.key")
+        );
+    }
+    let mut i = inputs(&t);
+    i.global_path = t.0.clone();
+    assert!(matches!(load(&i), Err(ConfigError::Io { path, .. }) if path == t.0));
 }
