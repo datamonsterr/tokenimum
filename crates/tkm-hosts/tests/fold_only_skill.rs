@@ -98,45 +98,67 @@ fn render_has_versioned_marker_after_frontmatter() {
 }
 
 #[test]
-fn skill_path_user_scope_per_harness() {
+fn every_harness_has_a_documented_skill_path() {
     let home = Path::new("/home/user/.agent");
-    let expected = home.join("skills/tokenimum/SKILL.md");
-    assert_eq!(skill_path(Host::Claude, home, None), Some(expected.clone()));
-    assert_eq!(
-        skill_path(Host::Opencode, home, None),
-        Some(expected.clone())
-    );
-    assert_eq!(skill_path(Host::Kimi, home, None), Some(expected));
-    for host in [
-        Host::Pi,
-        Host::Codex,
-        Host::Agy,
-        Host::Cursor,
-        Host::Deepseek,
+    let repo = Path::new("/home/user/project");
+    for (host, project) in [
+        (Host::Claude, ".claude/skills"),
+        (Host::Codex, ".agents/skills"),
+        (Host::Agy, ".agents/skills"),
+        (Host::Cursor, ".cursor/skills"),
+        (Host::Kimi, ".kimi/skills"),
+        (Host::Deepseek, ".codewhale/skills"),
+        (Host::Opencode, ".opencode/skills"),
+        (Host::Pi, ".agents/skills"),
     ] {
-        assert_eq!(skill_path(host, home, None), None, "{host:?}");
+        assert_eq!(
+            skill_path(host, home, Some(repo)),
+            Some(repo.join(project).join("tokenimum/SKILL.md")),
+            "{host:?}"
+        );
     }
+    for host in [
+        Host::Claude,
+        Host::Codex,
+        Host::Cursor,
+        Host::Kimi,
+        Host::Deepseek,
+        Host::Opencode,
+    ] {
+        assert_eq!(
+            skill_path(host, home, None),
+            Some(home.join("skills/tokenimum/SKILL.md")),
+            "{host:?}"
+        );
+    }
+    assert_eq!(
+        skill_path(Host::Agy, home, None),
+        Some(home.join("antigravity-cli/skills/tokenimum/SKILL.md"))
+    );
 }
 
 #[test]
-fn skill_path_project_scope_per_harness() {
-    let home = Path::new("/home/user/.agent");
-    let repo = Path::new("/home/user/project");
-    let rel = |dir: &str| repo.join(dir).join("tokenimum/SKILL.md");
-    assert_eq!(
-        skill_path(Host::Claude, home, Some(repo)),
-        Some(rel(".claude/skills"))
-    );
-    assert_eq!(
-        skill_path(Host::Opencode, home, Some(repo)),
-        Some(rel(".opencode/skills"))
-    );
-    assert_eq!(
-        skill_path(Host::Pi, home, Some(repo)),
-        Some(rel(".agents/skills"))
-    );
-    assert_eq!(skill_path(Host::Kimi, home, Some(repo)), None);
-    assert_eq!(skill_path(Host::Codex, home, Some(repo)), None);
+fn installs_read_only_skill_for_each_harness() {
+    for host in [
+        Host::Claude,
+        Host::Codex,
+        Host::Agy,
+        Host::Cursor,
+        Host::Kimi,
+        Host::Deepseek,
+        Host::Opencode,
+        Host::Pi,
+    ] {
+        let scratch = Scratch::new();
+        git(&scratch.0, &["init", "-q"]);
+        let report = install(host, &scratch.0, Some(&scratch.0), SkillOptions::default()).unwrap();
+        assert_eq!(report.changed_files.len(), 1, "{host:?}");
+        let text = fs::read_to_string(&report.changed_files[0]).unwrap();
+        assert_eq!(text, render(host));
+        assert!(text.contains("tkm facts --brief"));
+        assert!(text.contains("tkm why"));
+        assert!(!text.to_lowercase().contains("improve"));
+    }
 }
 
 #[test]
@@ -178,15 +200,6 @@ fn install_project_scope_uses_repo_root() {
     install(Host::Pi, &home, Some(&repo), SkillOptions::default()).unwrap();
     assert!(repo.join(".agents/skills/tokenimum/SKILL.md").is_file());
     assert!(!home.exists());
-}
-
-#[test]
-fn install_unverified_harness_is_report_only() {
-    let scratch = Scratch::new();
-    let report = install(Host::Cursor, &scratch.0, None, SkillOptions::default()).unwrap();
-    assert!(report.changed_files.is_empty(), "unexpected report");
-    assert!(!report.instructions.is_empty(), "unexpected report");
-    assert_eq!(fs::read_dir(&scratch.0).unwrap().count(), 0);
 }
 
 #[test]
