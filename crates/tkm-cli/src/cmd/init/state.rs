@@ -36,6 +36,7 @@ pub(crate) struct Manifest {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
+#[allow(clippy::struct_excessive_bools)] // Independent recovery facts preserve manifest compatibility.
 pub(crate) struct ServiceRecord {
     pub root: PathBuf,
     pub path: PathBuf,
@@ -46,6 +47,9 @@ pub(crate) struct ServiceRecord {
     /// Startup was attempted but neither a service manager nor a detached child started.
     #[serde(default)]
     pub start_failed: bool,
+    /// Registration history survives later failed or detached startup attempts.
+    #[serde(default)]
+    pub manager_registered: bool,
     pub directories: Vec<PathBuf>,
 }
 
@@ -145,7 +149,14 @@ pub(crate) fn metadata(record: &InstallRecord) -> Result<Manifest, CliError> {
         .iter()
         .find_map(|id| id.strip_prefix(MANIFEST_PREFIX))
     {
-        Some(json) => serde_json::from_str(json).map_err(failure),
+        Some(json) => {
+            let mut manifest: Manifest = serde_json::from_str(json).map_err(failure)?;
+            if let Some(service) = &mut manifest.service {
+                // Older manifests encode successful managed startup in these flags.
+                service.manager_registered |= !service.detached && !service.start_failed;
+            }
+            Ok(manifest)
+        }
         None if record.entry_ids.is_empty() => Ok(Manifest::default()),
         None => Ok(Manifest {
             mode: "hooks".into(),

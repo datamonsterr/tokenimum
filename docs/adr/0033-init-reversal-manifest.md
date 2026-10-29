@@ -30,7 +30,10 @@ Service metadata records successful detached fallback startup. A managed stop
 failure returns failure and retains an installs recovery row. A detached daemon
 has no pid file in tkmd; when its monitor reports running, uninstall reports
 `pkill -x tkmd` and retains recovery state until the person stops it. It never
-kills an arbitrary process. An absent detached daemon requires no manager call.
+kills an arbitrary process. Service-manager registration history survives repeated
+init attempts, so uninstall permits managerless cleanup only when no registration
+was recorded and otherwise fails with recovery state intact if the manager is
+unavailable.
 
 ## Consequences
 

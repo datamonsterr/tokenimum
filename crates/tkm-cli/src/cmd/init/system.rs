@@ -59,6 +59,7 @@ pub(crate) fn plan(ctx: &Ctx<'_>) -> Result<ServiceRecord, CliError> {
         owned,
         detached: false,
         start_failed: false,
+        manager_registered: false,
         directories,
     })
 }
@@ -116,7 +117,10 @@ pub(crate) fn start(ctx: &mut Ctx<'_>, service: &mut ServiceRecord) -> Result<()
     };
     if let Some(program) = state::executable(ctx, manager) {
         let started = if cfg!(target_os = "macos") {
-            bounded_status(ctx, &program, &["load".as_ref(), service.path.as_os_str()])?
+            let loaded =
+                bounded_status(ctx, &program, &["load".as_ref(), service.path.as_os_str()])?;
+            service.manager_registered |= loaded;
+            loaded
         } else {
             let reload = bounded_status(
                 ctx,
@@ -132,6 +136,7 @@ pub(crate) fn start(ctx: &mut Ctx<'_>, service: &mut ServiceRecord) -> Result<()
                     "tkmd.service".as_ref(),
                 ],
             )?;
+            service.manager_registered |= enable;
             let start = bounded_status(
                 ctx,
                 &program,
@@ -194,7 +199,9 @@ pub(crate) fn stop(ctx: &mut Ctx<'_>, service: &ServiceRecord) -> Result<(), Cli
                 "detached tkmd is running; stop it with `pkill -x tkmd`, then re-run tkm uninstall",
             ));
         }
-        return Ok(());
+        if !service.manager_registered {
+            return Ok(());
+        }
     }
     if let Some(program) = program {
         let stopped = if cfg!(target_os = "macos") {
