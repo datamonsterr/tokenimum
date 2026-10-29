@@ -105,7 +105,7 @@ async fn failed_http_is_fail_open_and_retries_next_day() {
     assert_eq!(decider.active_models(), ["test/paid-20261029"]);
     daemon.reprobe_models().await;
     assert_eq!(hits.load(Ordering::SeqCst), 1);
-    clock.advance(Duration::from_secs(86_400));
+    clock.advance(Duration::from_hours(24));
     daemon.reprobe_models().await;
     assert_eq!(hits.load(Ordering::SeqCst), 2);
     assert!(!env.store().free_model_probes().unwrap()[0].succeeded);

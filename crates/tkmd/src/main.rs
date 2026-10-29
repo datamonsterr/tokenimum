@@ -123,7 +123,7 @@ async fn main() -> ExitCode {
             if let Err(error) = tkm_decide::pricing::refresh_file(&pricing_path, now).await {
                 tracing::warn!(%error, "pricing refresh failed; retaining previous table");
             }
-            tokio::time::sleep(std::time::Duration::from_secs(86_400)).await;
+            tokio::time::sleep(std::time::Duration::from_hours(24)).await;
         }
     });
     let mut options = DaemonOptions::new(paths.clone());
