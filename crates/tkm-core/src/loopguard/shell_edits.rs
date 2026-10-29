@@ -8,6 +8,7 @@ pub fn shell_edit_targets(command: &str) -> Vec<String> {
     let command = shell_script(command);
     let (shell, bodies) = split_heredocs(&command);
     let (commands, writes) = commands(&shell);
+    let patch_files = pattern!(r"(?m)^\*\*\* (?:Update|Add|Delete) File:\s*(.+?)\s*$");
     let mut found: Vec<String> = writes.into_iter().filter(|s| source_file(s)).collect();
     for mut words in commands {
         while words.first().is_some_and(|s| prefix(s)) {
@@ -27,12 +28,11 @@ pub fn shell_edit_targets(command: &str) -> Vec<String> {
             ),
             "apply_patch" => {
                 let patch = format!("{}\n{}", bodies.join("\n"), words[1..].join(" "));
-                let targets: Vec<String> =
-                    pattern!(r"(?m)^\*\*\* (?:Update|Add|Delete) File:\s*(.+?)\s*$")
-                        .into_iter()
-                        .flat_map(|re| re.captures_iter(&patch))
-                        .filter_map(|c| c.get(1).map(|m| m.as_str().to_owned()))
-                        .collect();
+                let targets: Vec<String> = patch_files
+                    .into_iter()
+                    .flat_map(|re| re.captures_iter(&patch))
+                    .filter_map(|c| c.get(1).map(|m| m.as_str().to_owned()))
+                    .collect();
                 if targets.is_empty() {
                     found.push("(patch)".into());
                 } else {
@@ -144,6 +144,7 @@ fn inplace_files(words: &[String], perl: bool) -> Vec<String> {
 fn split_heredocs(command: &str) -> (String, Vec<String>) {
     let (mut shell, mut bodies, mut body) = (Vec::new(), Vec::new(), Vec::new());
     let mut tag: Option<String> = None;
+    let heredoc_start = pattern!(r#"<<-?\s*['"]?([A-Za-z_]\w*)['"]?"#);
     for line in command.split('\n') {
         if let Some(end) = &tag {
             if line.trim() == end {
@@ -156,7 +157,7 @@ fn split_heredocs(command: &str) -> (String, Vec<String>) {
             continue;
         }
         shell.push(line);
-        tag = pattern!(r#"<<-?\s*['"]?([A-Za-z_]\w*)['"]?"#)
+        tag = heredoc_start
             .and_then(|re| re.captures(line))
             .and_then(|c| c.get(1).map(|m| m.as_str().to_owned()));
     }
@@ -257,17 +258,16 @@ pub(super) fn tokens(text: &str) -> Option<Vec<Token>> {
 }
 
 pub(super) fn shell_script(command: &str) -> String {
-    if let Some(parts) = tokens(command) {
-        if parts.len() >= 3
-            && matches!(
-                basename(&parts[0].text),
-                "sh" | "bash" | "zsh" | "dash" | "ksh"
-            )
-            && parts[1].text.starts_with('-')
-            && parts[1].text.contains('c')
-        {
-            return parts[2].text.clone();
-        }
+    if let Some(parts) = tokens(command)
+        && parts.len() >= 3
+        && matches!(
+            basename(&parts[0].text),
+            "sh" | "bash" | "zsh" | "dash" | "ksh"
+        )
+        && parts[1].text.starts_with('-')
+        && parts[1].text.contains('c')
+    {
+        return parts[2].text.clone();
     }
     command.to_owned()
 }
@@ -294,12 +294,11 @@ fn commands(shell: &str) -> (Vec<Vec<String>>, Vec<String>) {
                 {
                     current.pop();
                 }
-                if let Some(operand) = items.next() {
-                    if !operand.operator
-                        && matches!(t.text.as_str(), ">" | ">>" | ">|" | "&>" | "&>>")
-                    {
-                        writes.push(operand.text);
-                    }
+                if let Some(operand) = items.next()
+                    && !operand.operator
+                    && matches!(t.text.as_str(), ">" | ">>" | ">|" | "&>" | "&>>")
+                {
+                    writes.push(operand.text);
                 }
             } else if !current.is_empty() {
                 cmds.push(std::mem::take(&mut current));
@@ -338,6 +337,7 @@ fn py_writes(text: &str) -> Vec<String> {
         variables.extend(re.captures_iter(text).map(|c| c[1].to_owned()));
     }
     let mut seen = Vec::new();
+    let literals = pattern!(r#"['"]([^'"\n]+)['"]"#);
     for var in variables {
         if seen.contains(&var) {
             continue;
@@ -355,12 +355,11 @@ fn py_writes(text: &str) -> Vec<String> {
             r"\bfor\s+{}\s+in\s+[\[(]([^\])]*?)[\])]",
             regex::escape(&var)
         );
-        if let Ok(re) = regex::Regex::new(&loop_pattern) {
-            if let Some(c) = re.captures(text) {
-                if let Some(literals) = pattern!(r#"['"]([^'"\n]+)['"]"#) {
-                    paths.extend(literals.captures_iter(&c[1]).map(|c| c[1].to_owned()));
-                }
-            }
+        if let Ok(re) = regex::Regex::new(&loop_pattern)
+            && let Some(c) = re.captures(text)
+            && let Some(literals) = literals
+        {
+            paths.extend(literals.captures_iter(&c[1]).map(|c| c[1].to_owned()));
         }
         if paths.len() == before {
             paths.push("(script)".into());

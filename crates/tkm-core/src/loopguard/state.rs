@@ -65,16 +65,14 @@ impl SpiralState {
         } else {
             failed != Some(false)
         };
-        if can_fail {
-            if let Some(line) = verification::error_line(&call.output_digest) {
-                self.error_outputs = self.error_outputs.saturating_add(1);
-                let signature = failure_signature(line);
-                let count = self.fail_sigs.entry(signature).or_default();
-                if *count > 0 {
-                    self.repeated_fail_sigs = self.repeated_fail_sigs.saturating_add(1);
-                }
-                *count = count.saturating_add(1);
+        if can_fail && let Some(line) = verification::error_line(&call.output_digest) {
+            self.error_outputs = self.error_outputs.saturating_add(1);
+            let signature = failure_signature(line);
+            let count = self.fail_sigs.entry(signature).or_default();
+            if *count > 0 {
+                self.repeated_fail_sigs = self.repeated_fail_sigs.saturating_add(1);
             }
+            *count = count.saturating_add(1);
         }
     }
     /// Maximum edits to a basename.
