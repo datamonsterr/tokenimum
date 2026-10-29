@@ -1,10 +1,11 @@
 #![forbid(unsafe_code)]
-#![cfg(unix)]
+#![cfg(target_os = "linux")] // These real-binary fixtures assert Linux XDG path semantics.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod support_init;
 
 use std::fs;
+use std::os::unix::fs::PermissionsExt;
 use support_init::{Fixture, HOMES, snapshot, stdout};
 
 #[test]
@@ -246,7 +247,6 @@ fn init_reuses_key_file_and_writes_selected_preset() {
     let path = tkm_decide::key::default_key_file(&fixture.home);
     fs::create_dir_all(path.parent().unwrap()).unwrap();
     fs::write(&path, "OPENROUTER_API_KEY=fixture-reused-secret\n").unwrap();
-    use std::os::unix::fs::PermissionsExt;
     fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
     let before = fs::read(&path).unwrap();
     let output = fixture.run(&["init", "--yes", "--only", "claude", "--preset", "observe"]);

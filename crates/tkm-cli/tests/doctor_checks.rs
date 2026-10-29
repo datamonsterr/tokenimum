@@ -1,5 +1,5 @@
 #![forbid(unsafe_code)]
-#![cfg(unix)]
+#![cfg(target_os = "linux")] // These real-binary fixtures assert Linux XDG path semantics.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod support_init;
