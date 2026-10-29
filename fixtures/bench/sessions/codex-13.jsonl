@@ -1,0 +1,5 @@
+{"type":"session_meta","payload":{"id":"codex-13","cwd":"/synthetic/repo"}}
+{"type":"event_msg","payload":{"type":"task_started"}}
+{"type":"event_msg","payload":{"type":"item_completed","item":{"type":"UserMessage","content":[{"type":"text","text":"Please update a parser in the example project."}]}}}
+{"type":"event_msg","payload":{"type":"item_completed","item":{"type":"CommandExecution","command":"cargo fmt --check","exit_code":1,"status":"failed","aggregated_output":"synthetic failure"}}}
+{"type":"event_msg","payload":{"type":"turn_aborted"}}

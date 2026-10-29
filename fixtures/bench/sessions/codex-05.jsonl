@@ -1,0 +1,5 @@
+{"type":"session_meta","payload":{"id":"codex-05","cwd":"/synthetic/repo"}}
+{"type":"event_msg","payload":{"type":"task_started"}}
+{"type":"event_msg","payload":{"type":"item_completed","item":{"type":"UserMessage","content":[{"type":"text","text":"Please validate a command in the example project."}]}}}
+{"type":"event_msg","payload":{"type":"item_completed","item":{"type":"CommandExecution","command":"cargo test sample","exit_code":1,"status":"failed","aggregated_output":"synthetic failure"}}}
+{"type":"event_msg","payload":{"type":"turn_aborted"}}

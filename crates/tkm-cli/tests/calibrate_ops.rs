@@ -116,15 +116,15 @@ fn fixture_outcomes_fit_precision_and_authorize_only_at_target() {
     let records = store.list_calibration().unwrap();
     assert!(!records.is_empty());
     let gate = tkmd::decider::StoreCalibration::default();
-    gate.refresh(&records);
-    for row in records {
+    for row in &records {
+        gate.refresh(&records);
         assert!(row.sample_count >= 30 && row.precision >= 0.9);
         let key = tkm_decide::calibrate::CalibrationKey {
             model_version: row.model_version.clone(),
             purpose: row.purpose.clone(),
         };
         assert!(tkm_decide::calibrate::CalibrationStore::get(&gate, &key).is_some());
-        let mut below = row;
+        let mut below = row.clone();
         below.precision = 0.899;
         gate.refresh(&[below]);
         assert!(tkm_decide::calibrate::CalibrationStore::get(&gate, &key).is_none());
