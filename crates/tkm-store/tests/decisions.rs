@@ -163,8 +163,8 @@ fn unknown_decision_cost_round_trips_as_null() {
 
 #[test]
 fn shadow_window_persists_first_decision_and_distinct_judged_turns() {
-    let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("shadow.sqlite");
+    let path = std::env::temp_dir().join(format!("tkm-shadow-{}.sqlite", std::process::id()));
+    let _ = std::fs::remove_file(&path);
     let key = tkm_store::SessionKey {
         host: tkm_core::model::Host::Claude,
         agent_home: "/home/test".into(),
@@ -184,4 +184,6 @@ fn shadow_window_persists_first_decision_and_distinct_judged_turns() {
         .record_judged_turn(&key, 1, tkm_core::model::Timestamp(3_000))
         .unwrap();
     assert_eq!(store.shadow_window().unwrap(), Some((1_000, 2)));
+    drop(store);
+    let _ = std::fs::remove_file(path);
 }

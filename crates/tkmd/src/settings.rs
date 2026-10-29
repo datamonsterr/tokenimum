@@ -85,6 +85,10 @@ pub struct Settings {
     pub superorchestrator_mode: tkm_integrations::detect::Mode,
     /// Local cache-aware model prices.
     pub pricing: tkm_core::ledger::PriceTable,
+    /// Minimum elapsed days in the initial shadow window.
+    pub shadow_days: u64,
+    /// Minimum distinct judged turns in the initial shadow window.
+    pub shadow_turns: u64,
     /// Decision client settings.
     pub decide: DecideConfig,
     /// How long `prompt` waits for relevance scoring before using the cached default block.
@@ -114,6 +118,8 @@ impl Default for Settings {
             prune: PruneConfig::default(),
             otherskill_mode: tkm_integrations::detect::Mode::Auto,
             superorchestrator_mode: tkm_integrations::detect::Mode::Auto,
+            shadow_days: 14,
+            shadow_turns: 200,
             decide: DecideConfig::default(),
             pricing: tkm_core::ledger::PriceTable::default(),
             relevance_timeout_ms: 1_200,
@@ -269,6 +275,12 @@ impl Settings {
             _ => PruneMode::Propose,
         };
 
+        if let Some(v) = unsigned(config, "calibration.shadow_days") {
+            out.shadow_days = v;
+        }
+        if let Some(v) = unsigned(config, "calibration.shadow_turns") {
+            out.shadow_turns = v;
+        }
         if let Some(v) = config.get_bool("decide.enabled") {
             out.decide.enabled = v;
         }

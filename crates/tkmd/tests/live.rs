@@ -27,6 +27,8 @@ fn calibrate(env: &Env, daemon: &tkmd::daemon::Daemon) {
 fn redirect_settings() -> Settings {
     Settings {
         loop_mode: LoopMode::Redirect,
+        shadow_days: 0,
+        shadow_turns: 0,
         ..Settings::default()
     }
 }

@@ -783,6 +783,7 @@ impl Daemon {
                                 repo: session.repo.clone(),
                                 key: session.key.clone(),
                                 seq: turn_seq_now,
+                                turn_idx: turn.idx,
                                 request: judge,
                                 prompt: turn.prompt.clone(),
                                 calls: turn.calls.clone(),

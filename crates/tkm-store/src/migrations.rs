@@ -119,7 +119,19 @@ CREATE TABLE installs (
 ";
 
 /// Migrations in schema version order.
-pub(crate) const MIGRATIONS: &[&str] = &[V001, V002, V003, V004];
+pub(crate) const MIGRATIONS: &[&str] = &[V001, V002, V003, V004, V005];
+
+/// Distinct judged turns and the first decision timestamp survive daemon restarts.
+pub(crate) const V005: &str = r"
+CREATE TABLE shadow_judgments (
+    host TEXT NOT NULL,
+    agent_home TEXT NOT NULL,
+    session_id TEXT NOT NULL,
+    turn_idx INTEGER NOT NULL,
+    judged_at INTEGER NOT NULL,
+    PRIMARY KEY(host, agent_home, session_id, turn_idx)
+);
+";
 
 /// Nullable reporting context; historical rows deliberately retain unknown times.
 pub(crate) const V004: &str = r"
@@ -219,7 +231,7 @@ mod report_schema_tests {
         let version: i64 = conn
             .pragma_query_value(None, "user_version", |row| row.get(0))
             .unwrap();
-        assert_eq!(version, 4);
+        assert_eq!(version, 5);
         let legacy = store
             .get_fact(&tkm_core::model::RepoKey("legacy".into()), "f")
             .unwrap()
