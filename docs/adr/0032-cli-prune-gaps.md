@@ -18,3 +18,6 @@ checks the available repository idle timestamp before applying changes.
 
 Only Claude currently has an ownership-aware deny writer. Other hosts remain proposal-only until
 host-specific writers are available.
+
+Calibration currently fits the loop stuck threshold from at least 20 labelled decisions. Facts
+and relevance lack defined label contracts and are reported unavailable until those are specified.
