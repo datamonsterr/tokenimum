@@ -1,0 +1,6 @@
+{
+  "event": "message_submit",
+  "session_id": "sess_8f3a1b2c",
+  "workspace": "/home/user/project",
+  "text": "Please fix the failing unit test"
+}

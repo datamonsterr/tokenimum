@@ -1,0 +1,15 @@
+# Codewhale configuration file with foreign settings and comments
+[general]
+theme = "dark"
+
+[hooks]
+enabled = true
+default_timeout_secs = 30
+
+# User-defined foreign hook for security auditing
+[[hooks.hooks]]
+event = "tool_call_before"
+command = "security-auditor --strict"
+name = "security-check"
+timeout_secs = 5
+continue_on_error = false
