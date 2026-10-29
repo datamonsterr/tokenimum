@@ -19,8 +19,8 @@ pub struct SkillReport {
 }
 /// Fold one complete session. Callers keep one report per repository and fold
 /// each session once. A `Skill` or `skill` call counts only when its digest
-/// contains an exact catalog skill name as a word (including `-`, `_`, `:`,
-/// and `/` in names); ambiguous or missing digests do not count.
+/// is a single-field JSON object with a `skill` string matching a catalog name.
+/// Other and ambiguous digest forms are ignored.
 pub fn fold_skills(report: &mut SkillReport, session: &Session) {
     if session.partial {
         return;
@@ -39,15 +39,19 @@ pub fn fold_skills(report: &mut SkillReport, session: &Session) {
         if !["Skill", "skill"].contains(&call.tool.as_str()) {
             continue;
         }
-        for word in call
-            .args_digest
-            .split(|c: char| !(c.is_alphanumeric() || matches!(c, '-' | '_' | ':' | '/')))
+        let Ok(pattern) =
+            regex::Regex::new(r#"^\s*\{\s*"skill"\s*:\s*"([A-Za-z0-9_:/.-]+)"\s*\}\s*$"#)
+        else {
+            return;
+        };
+        if let Some(name) = pattern
+            .captures(&call.args_digest)
+            .and_then(|captures| captures.get(1))
         {
-            if names.contains(word) {
-                if let Some(item) = report.skills.get_mut(word) {
+            if names.contains(name.as_str()) {
+                if let Some(item) = report.skills.get_mut(name.as_str()) {
                     item.invocations = item.invocations.saturating_add(1);
                 }
-                break;
             }
         }
     }

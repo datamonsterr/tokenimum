@@ -1,3 +1,5 @@
+// Portions ported from microsoft/TokenEconomizer (tokeneconomizer/plugin/denylist.py),
+// Copyright (c) Microsoft Corporation, licensed under the Apache License, Version 2.0.
 //! Pure per-checkout deny-list ownership plans.
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
@@ -17,29 +19,64 @@ pub struct DenyDelta {
     /// Owned rules to remove.
     pub remove: BTreeSet<String>,
 }
-/// Plan automatic application and update ownership.
+/// Plan automatic application and update ownership. Persist state only after the
+/// adapter successfully applies the delta; checkout identity is caller-supplied.
 pub fn apply(
-    _state: &mut DenyState,
-    _checkout: &str,
-    _current: &BTreeSet<String>,
-    _requested: &BTreeSet<String>,
+    state: &mut DenyState,
+    checkout: &str,
+    current: &BTreeSet<String>,
+    requested: &BTreeSet<String>,
 ) -> DenyDelta {
-    DenyDelta::default()
+    let kept = state.kept.get(checkout);
+    let add: BTreeSet<_> = requested
+        .iter()
+        .filter(|name| !current.contains(*name) && !kept.is_some_and(|items| items.contains(*name)))
+        .cloned()
+        .collect();
+    state
+        .applied
+        .entry(checkout.to_owned())
+        .or_default()
+        .extend(add.iter().cloned());
+    DenyDelta {
+        add,
+        remove: BTreeSet::new(),
+    }
 }
-/// Restore owned rules and remember restored entries as kept.
+/// Restore requested owned rules and remember them as kept. Foreign rules are untouched.
+/// Persist state only after the adapter successfully applies the delta.
 pub fn restore(
-    _state: &mut DenyState,
-    _checkout: &str,
-    _current: &BTreeSet<String>,
-    _requested: &BTreeSet<String>,
+    state: &mut DenyState,
+    checkout: &str,
+    current: &BTreeSet<String>,
+    requested: &BTreeSet<String>,
 ) -> DenyDelta {
-    DenyDelta::default()
+    let owned = state.applied.entry(checkout.to_owned()).or_default();
+    let targets: BTreeSet<_> = owned.intersection(requested).cloned().collect();
+    let remove = targets.intersection(current).cloned().collect();
+    for name in &targets {
+        owned.remove(name);
+    }
+    state
+        .kept
+        .entry(checkout.to_owned())
+        .or_default()
+        .extend(targets);
+    DenyDelta {
+        add: BTreeSet::new(),
+        remove,
+    }
 }
-/// Change persistent keep overrides.
+/// Change persistent keep overrides; removals take precedence over additions.
 pub fn set_kept(
-    _state: &mut DenyState,
-    _checkout: &str,
-    _add: &BTreeSet<String>,
-    _remove: &BTreeSet<String>,
+    state: &mut DenyState,
+    checkout: &str,
+    add: &BTreeSet<String>,
+    remove: &BTreeSet<String>,
 ) {
+    let kept = state.kept.entry(checkout.to_owned()).or_default();
+    kept.extend(add.iter().cloned());
+    for name in remove {
+        kept.remove(name);
+    }
 }

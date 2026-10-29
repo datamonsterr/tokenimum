@@ -10,7 +10,7 @@ pub mod skills;
 
 use crate::model::{Host, RepoKey, Session, Timestamp, ToolKind};
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 /// Pruning mode.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -79,13 +79,16 @@ pub struct PruneEvidence {
     pub repo_key: Option<RepoKey>,
     /// Host identity fixed by the first complete session.
     pub host: Option<Host>,
+    /// Tool names ever invoked, including calls absent from a catalog.
+    #[serde(default)]
+    pub used_tools: BTreeSet<String>,
     /// Tools and their unused streaks.
     pub tools: BTreeMap<String, ToolEvidence>,
 }
 /// Fold a completed session in chronological order. State binds to the first complete session’s repository and host; mismatched
 /// and partial sessions are ignored. Callers fold each session once in chronological order.
 pub fn fold(state: &mut PruneEvidence, session: &Session) {
-    if session.partial {
+    if session.partial || session.turns.is_empty() {
         return;
     }
     if state
@@ -107,41 +110,36 @@ pub fn fold(state: &mut PruneEvidence, session: &Session) {
     for name in &loaded {
         state.tools.entry((*name).to_owned()).or_default();
     }
-    for turn in &session.turns {
-        let used: std::collections::BTreeSet<_> =
-            turn.calls.iter().map(|call| call.tool.as_str()).collect();
-        for (name, e) in &mut state.tools {
-            if used.contains(name.as_str()) {
-                e.prompts = 0;
-                e.sessions = 0;
-                e.used_prompts = e.used_prompts.saturating_add(1);
-            } else if loaded.contains(name.as_str()) {
-                e.prompts = e.prompts.saturating_add(1);
-            }
-            if loaded.contains(name.as_str()) {
-                e.loaded_prompts = e.loaded_prompts.saturating_add(1);
-            }
-        }
-    }
+    let used: BTreeSet<_> = session
+        .turns
+        .iter()
+        .flat_map(|turn| &turn.calls)
+        .map(|call| call.tool.as_str())
+        .collect();
+    state
+        .used_tools
+        .extend(used.iter().map(|name| (*name).to_owned()));
     for (name, e) in &mut state.tools {
-        let used = session
+        let count = session
             .turns
             .iter()
-            .flat_map(|turn| &turn.calls)
-            .any(|call| call.tool == *name);
-        if used {
+            .filter(|turn| turn.calls.iter().any(|call| call.tool == *name))
+            .count();
+        let count = u64::try_from(count).unwrap_or(u64::MAX);
+        e.used_prompts = e.used_prompts.saturating_add(count);
+        if used.contains(name.as_str()) {
             e.used_sessions = e.used_sessions.saturating_add(1);
+            e.prompts = 0;
+            e.sessions = 0;
+        } else if loaded.contains(name.as_str()) {
+            let prompts = u64::try_from(session.turns.len()).unwrap_or(u64::MAX);
+            e.prompts = e.prompts.saturating_add(prompts);
+            e.sessions = e.sessions.saturating_add(1);
         }
         if loaded.contains(name.as_str()) {
+            let prompts = u64::try_from(session.turns.len()).unwrap_or(u64::MAX);
+            e.loaded_prompts = e.loaded_prompts.saturating_add(prompts);
             e.loaded_sessions = e.loaded_sessions.saturating_add(1);
-            if !used
-                || session
-                    .turns
-                    .last()
-                    .is_some_and(|turn| !turn.calls.iter().any(|call| call.tool == *name))
-            {
-                e.sessions = e.sessions.saturating_add(1);
-            }
         }
     }
 }
@@ -229,14 +227,16 @@ pub fn effective_mode(
     last_delegated_run: Option<Timestamp>,
     now: Timestamp,
 ) -> PruneMode {
+    if matches!(config.mode, PruneMode::Propose | PruneMode::Apply)
+        && !matches!(
+            host,
+            Host::Claude | Host::Cursor | Host::Opencode | Host::Pi
+        )
+    {
+        return PruneMode::Report;
+    }
     if config.mode != PruneMode::Apply {
         return config.mode;
-    }
-    if !matches!(
-        host,
-        Host::Claude | Host::Cursor | Host::Opencode | Host::Pi
-    ) {
-        return PruneMode::Report;
     }
     if config.superorchestrator_adapter_enabled
         && last_delegated_run.is_some_and(|last| {
@@ -277,7 +277,10 @@ pub fn decide(
         return result;
     }
     for (name, evidence) in &state.tools {
-        if eligible(evidence, config) {
+        if eligible(evidence, config)
+            && evidence.used_sessions == 0
+            && !state.used_tools.contains(name)
+        {
             if is_protected(name, host, config) {
                 result.protected_skipped.push(name.clone());
             } else {
