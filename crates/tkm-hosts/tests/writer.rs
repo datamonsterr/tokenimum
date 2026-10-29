@@ -67,11 +67,12 @@ fn shell_handler_ownership_is_host_specific_and_mixed_groups_survive() {
     writer::install_hooks(&temp.0, &path, "codex", &hooks, false).unwrap();
     let bytes = fs::read(&path).unwrap();
     assert!(String::from_utf8_lossy(&bytes).contains("additionalContextLimit"));
-    assert!(
+    assert_eq!(
         writer::install_hooks(&temp.0, &path, "codex", &hooks, false)
             .unwrap()
             .changed_files
-            .is_empty()
+            .len(),
+        0
     );
     writer::uninstall_hooks(&temp.0, &path, "codex", false).unwrap();
     assert_eq!(fs::read_to_string(&path).unwrap(), original);
@@ -94,15 +95,16 @@ fn prune_owned_set_preserves_person_rules_and_excludes_once() {
     let result = update_deny(&temp.0, &BTreeSet::new(), &desired, false).unwrap();
     assert_eq!(result.owned, set(&["UnusedTool", "mcp__unused__*"]));
     let first = fs::read(&path).unwrap();
-    assert!(
+    assert_eq!(
         update_deny(&temp.0, &result.owned, &desired, false)
             .unwrap()
             .changed_files
-            .is_empty()
+            .len(),
+        0
     );
     assert_eq!(fs::read(&path).unwrap(), first);
     let result = update_deny(&temp.0, &result.owned, &BTreeSet::new(), false).unwrap();
-    assert!(result.owned.is_empty());
+    assert_eq!(result.owned.len(), 0);
     let value: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
     assert_eq!(
         value["permissions"]["deny"],
@@ -131,7 +133,7 @@ fn prune_refuses_tracked_settings_and_dry_run_has_no_writes() {
     }
     let desired = set(&["UnusedTool"]);
     let result = update_deny(&temp.0, &BTreeSet::new(), &desired, true).unwrap();
-    assert!(!result.changed_files.is_empty());
+    assert_ne!(result.changed_files.len(), 0);
     assert!(!temp.0.join(".claude").exists());
     let path = temp.0.join(".claude/settings.local.json");
     fs::create_dir_all(path.parent().unwrap()).unwrap();
@@ -177,11 +179,12 @@ fn foreign_empty_hooks_and_invalid_documents_are_never_rewritten() {
     let temp = Scratch::new();
     let path = temp.0.join("settings.json");
     fs::write(&path, "{ \"hooks\" : {} }\r\n").unwrap();
-    assert!(
+    assert_eq!(
         writer::uninstall_hooks(&temp.0, &path, "claude", false)
             .unwrap()
             .changed_files
-            .is_empty()
+            .len(),
+        0
     );
     assert_eq!(fs::read_to_string(&path).unwrap(), "{ \"hooks\" : {} }\r\n");
     for text in ["{", "[]", "{\"hooks\":false}"] {
@@ -259,4 +262,67 @@ fn prune_exclude_path_supports_linked_git_worktrees() {
             .any(|line| line == "/.claude/settings.local.json")
     );
     assert!(linked.join(".claude/settings.local.json").exists());
+}
+
+#[test]
+fn shell_comments_newlines_and_expansions_never_establish_ownership() {
+    for command in [
+        "tkm-hook --host claude # --host codex",
+        "tkm-hook --host claude\ntkm-hook --host codex",
+        "tkm-hook --host claude\r\n--host codex",
+        "tkm-hook --host claude $(echo --host codex)",
+        "tkm-hook --host claude * --host codex",
+        "tkm-hook --host claude {x,y} --host codex",
+        "tkm-hook --host claude \"$HOST\" --host codex",
+        "tkm-hook --host claude ? --host codex",
+    ] {
+        for host in ["claude", "codex"] {
+            assert!(
+                !writer::owns_handler(&json!({"command":command}), host),
+                "{command}: {host}"
+            );
+        }
+    }
+}
+
+#[test]
+fn uninstall_without_backup_keeps_preexisting_owned_only_file() {
+    let temp = Scratch::new();
+    let path = temp.0.join("settings.json");
+    fs::write(
+        &path,
+        r#"{"hooks":{"Stop":[{"hooks":[{"command":"tkm-hook --host claude --event turn_end"}]}]}}"#,
+    )
+    .unwrap();
+    writer::uninstall_hooks(&temp.0, &path, "claude", false).unwrap();
+    let value: Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+    assert_eq!(value, json!({}));
+}
+
+#[cfg(unix)]
+#[test]
+fn prune_refuses_symlink_to_git_tracked_target() {
+    let temp = Scratch::new();
+    if !init_git(&temp) {
+        return;
+    }
+    let target = temp.0.join("tracked.json");
+    fs::write(&target, b"{}").unwrap();
+    assert!(
+        Command::new("git")
+            .current_dir(&temp.0)
+            .args(["add", "tracked.json"])
+            .status()
+            .unwrap()
+            .success()
+    );
+    fs::create_dir_all(temp.0.join(".claude")).unwrap();
+    let path = temp.0.join(".claude/settings.local.json");
+    std::os::unix::fs::symlink("../tracked.json", &path).unwrap();
+    assert!(matches!(
+        update_deny(&temp.0, &BTreeSet::new(), &set(&["UnusedTool"]), false),
+        Err(AdapterError::UnsafeTarget { .. })
+    ));
+    assert_eq!(fs::read(target).unwrap(), b"{}");
+    assert!(!temp.0.join(".claude/settings.local.json.tkm-bak").exists());
 }

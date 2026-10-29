@@ -10,7 +10,7 @@ fn number(text: &str, range: std::ops::Range<usize>) -> Option<i64> {
     digits.parse().ok()
 }
 
-pub(super) fn parse(text: &str) -> Option<Timestamp> {
+pub(crate) fn parse(text: &str) -> Option<Timestamp> {
     let bytes = text.as_bytes();
     if bytes.get(4) != Some(&b'-')
         || bytes.get(7) != Some(&b'-')
@@ -42,7 +42,7 @@ pub(super) fn parse(text: &str) -> Option<Timestamp> {
         return None;
     }
     let mut cursor = 19;
-    let mut milliseconds = 0;
+    let mut milliseconds = 0_i64;
     if bytes.get(cursor) == Some(&b'.') {
         cursor += 1;
         let start = cursor;
@@ -53,12 +53,12 @@ pub(super) fn parse(text: &str) -> Option<Timestamp> {
             return None;
         }
         for offset in 0..3 {
-            milliseconds *= 10;
+            milliseconds = milliseconds.checked_mul(10)?;
             if let Some(digit) = bytes
                 .get(start + offset)
                 .filter(|_| start + offset < cursor)
             {
-                milliseconds += i64::from(*digit - b'0');
+                milliseconds = milliseconds.checked_add(i64::from(*digit - b'0'))?;
             }
         }
     }
@@ -72,20 +72,81 @@ pub(super) fn parse(text: &str) -> Option<Timestamp> {
             if hours > 23 || minutes > 59 {
                 return None;
             }
-            (hours * 3600 + minutes * 60) * if *sign == b'+' { 1 } else { -1 }
+            hours
+                .checked_mul(3600)?
+                .checked_add(minutes.checked_mul(60)?)?
+                .checked_mul(if *sign == b'+' { 1 } else { -1 })?
         }
         _ => return None,
     };
-    // Gregorian civil date to days since Unix epoch (400-year eras).
-    let y = year - i64::from(month <= 2);
-    let era = y.div_euclid(400);
-    let year_of_era = y - era * 400;
-    let m = month + if month > 2 { -3 } else { 9 };
-    let day_of_year = (153 * m + 2) / 5 + day - 1;
-    let days = era * 146_097 + year_of_era * 365 + year_of_era / 4 - year_of_era / 100
-        + day_of_year
-        - 719_468;
+    let days = unix_days(year, month, day)?;
+    let seconds = days
+        .checked_mul(86_400)?
+        .checked_add(hour.checked_mul(3600)?)?
+        .checked_add(minute.checked_mul(60)?)?
+        .checked_add(second)?
+        .checked_sub(offset)?;
     Some(Timestamp(
-        ((days * 24 + hour) * 60 * 60 + minute * 60 + second - offset) * 1000 + milliseconds,
+        seconds.checked_mul(1000)?.checked_add(milliseconds)?,
     ))
+}
+
+/// Gregorian civil date to days since Unix epoch (400-year eras).
+fn unix_days(year: i64, month: i64, day: i64) -> Option<i64> {
+    let y = year.checked_sub(i64::from(month <= 2))?;
+    let era = y.div_euclid(400);
+    let year_of_era = y.checked_sub(era.checked_mul(400)?)?;
+    let m = month.checked_add(if month > 2 { -3 } else { 9 })?;
+    let day_of_year = 153_i64
+        .checked_mul(m)?
+        .checked_add(2)?
+        .checked_div(5)?
+        .checked_add(day)?
+        .checked_sub(1)?;
+    era.checked_mul(146_097)?
+        .checked_add(year_of_era.checked_mul(365)?)?
+        .checked_add(year_of_era / 4)?
+        .checked_sub(year_of_era / 100)?
+        .checked_add(day_of_year)?
+        .checked_sub(719_468)
+}
+
+#[cfg(test)]
+mod timestamp_review_tests {
+    #[test]
+    fn timestamps_reject_overflow_and_out_of_range_fields() {
+        for text in [
+            "2026-02-29T00:00:00Z",
+            "2026-04-31T00:00:00Z",
+            "2026-10-29T24:00:00Z",
+            "2026-10-29T00:60:00Z",
+            "2026-10-29T00:00:60Z",
+            "2026-10-29T00:00:00+24:00",
+            "2026-10-29T00:00:00+01:60",
+            "2026-10-29T00:00:00+9223372036854775807:00",
+            "9223372036854775807-10-29T00:00:00Z",
+            "2026-10-29T00:00:00.Z",
+        ] {
+            assert_eq!(super::parse(text), None, "{text}");
+        }
+    }
+
+    #[test]
+    fn timestamps_accept_leap_days_offsets_and_fractional_boundaries() {
+        use tkm_core::model::Timestamp;
+        assert_eq!(
+            super::parse("1970-01-01T01:00:00.125+01:00"),
+            Some(Timestamp(125))
+        );
+        assert_eq!(
+            super::parse("1969-12-31T23:59:59.9999Z"),
+            Some(Timestamp(-1))
+        );
+        assert_eq!(
+            super::parse("2000-02-29T00:00:00Z"),
+            Some(Timestamp(951_782_400_000))
+        );
+        assert!(super::parse("0000-01-01T00:00:00Z").is_some());
+        assert!(super::parse("9999-12-31T23:59:59.999Z").is_some());
+    }
 }

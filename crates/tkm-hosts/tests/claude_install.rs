@@ -49,7 +49,7 @@ fn assert_round_trip(original: &[u8]) {
     fs::write(&path, original).unwrap();
     let adapter = ClaudeAdapter::new();
     let report = adapter.install(&context).unwrap();
-    assert!(report.instructions.is_empty());
+    assert_eq!(report.instructions.len(), 0);
     assert_eq!(report.changed_files, vec![path.clone(), backup.clone()]);
     assert_eq!(fs::read(&backup).unwrap(), original);
     let installed = fs::read(&path).unwrap();
@@ -77,18 +77,12 @@ fn assert_round_trip(original: &[u8]) {
             matches!(event, "PostToolUse" | "PostToolUseFailure").then_some("*")
         );
     }
-    assert!(adapter.install(&context).unwrap().changed_files.is_empty());
+    assert_eq!(adapter.install(&context).unwrap().changed_files.len(), 0);
     assert_eq!(fs::read(&path).unwrap(), installed);
     adapter.uninstall(&context).unwrap();
     assert_eq!(fs::read(&path).unwrap(), original);
     assert!(!backup.exists());
-    assert!(
-        adapter
-            .uninstall(&context)
-            .unwrap()
-            .changed_files
-            .is_empty()
-    );
+    assert_eq!(adapter.uninstall(&context).unwrap().changed_files.len(), 0);
 }
 #[test]
 fn fixture_install_preserves_foreign_bytes_backup_idempotence_and_restore() {
@@ -117,11 +111,17 @@ fn dry_run_writes_nothing_and_missing_settings_are_deleted_on_uninstall() {
     let adapter = ClaudeAdapter::new();
     let mut context = temp.context();
     context.dry_run = true;
-    assert!(!adapter.install(&context).unwrap().changed_files.is_empty());
+    assert_ne!(adapter.install(&context).unwrap().changed_files.len(), 0);
     assert!(!temp.0.join("settings.json").exists());
     assert_eq!(fs::read_dir(&temp.0).unwrap().count(), 0);
     context.dry_run = false;
     adapter.install(&context).unwrap();
+    assert_eq!(
+        fs::read(temp.0.join("settings.json.tkm-bak"))
+            .unwrap()
+            .len(),
+        0
+    );
     let bytes = fs::read(temp.0.join("settings.json")).unwrap();
     context.dry_run = true;
     adapter.uninstall(&context).unwrap();
@@ -129,6 +129,7 @@ fn dry_run_writes_nothing_and_missing_settings_are_deleted_on_uninstall() {
     context.dry_run = false;
     adapter.uninstall(&context).unwrap();
     assert!(!temp.0.join("settings.json").exists());
+    assert!(!temp.0.join("settings.json.tkm-bak").exists());
 }
 #[cfg(unix)]
 #[test]
@@ -180,6 +181,7 @@ fn repo_scope_uses_local_settings() {
     ClaudeAdapter::new().install(&context).unwrap();
     assert!(temp.0.join(".claude/settings.local.json").exists());
     assert!(!temp.0.join("settings.json").exists());
+    assert!(!temp.0.join("settings.json.tkm-bak").exists());
 }
 
 #[cfg(unix)]

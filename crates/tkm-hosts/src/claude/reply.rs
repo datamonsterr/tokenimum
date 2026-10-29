@@ -7,7 +7,7 @@ pub(super) fn render(request: &Request, action: &ReplyAction) -> String {
     if !matches!(super::map::map_event(request), Ok(Some(_))) {
         return String::new();
     }
-    let Ok(event) = super::map::native_event(request) else {
+    let Ok(event) = super::native_event(request) else {
         return String::new();
     };
     if event == "SessionEnd" {

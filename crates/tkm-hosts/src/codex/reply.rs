@@ -1,6 +1,6 @@
 //! Host-shaped stdout for Codex hooks (ADR 0011, "Replies"); no I/O.
 
-use tkm_proto::{EventKind, ReplyAction, Request};
+use tkm_proto::{ReplyAction, Request};
 
 const MAX_REPLY_CHARS: usize = 10_000;
 
@@ -26,17 +26,6 @@ impl Native {
         }
     }
 
-    fn from_kind(kind: EventKind) -> Self {
-        match kind {
-            EventKind::SessionStart => Self::SessionStart,
-            EventKind::Prompt => Self::Prompt,
-            EventKind::ToolDone => Self::ToolDone,
-            EventKind::TurnEnd => Self::Stop,
-            EventKind::SessionEnd => Self::SessionEnd,
-            _ => Self::Other,
-        }
-    }
-
     /// Native name used in `hookEventName`; only injectable events have one.
     const fn injectable_name(self) -> Option<&'static str> {
         match self {
@@ -50,16 +39,6 @@ impl Native {
     const fn allows_notice(self) -> bool {
         !matches!(self, Self::SessionEnd | Self::Other)
     }
-}
-
-fn native_event(request: &Request) -> Native {
-    let name = request.host_event.as_deref().or_else(|| {
-        request
-            .payload
-            .get("hook_event_name")
-            .and_then(serde_json::Value::as_str)
-    });
-    name.map_or_else(|| Native::from_kind(request.event), Native::from_name)
 }
 
 fn json_string(text: &str) -> String {
@@ -79,7 +58,10 @@ pub(crate) fn render_reply(request: &Request, action: &ReplyAction) -> String {
         ReplyAction::InjectAndNotice { inject, notice } => (capped(inject), capped(notice)),
         _ => (None, None),
     };
-    let native = native_event(request);
+    let Ok(Some(native)) = super::native_event(request) else {
+        return String::new();
+    };
+    let native = Native::from_name(native);
     let inject = inject.zip(native.injectable_name());
     let notice = notice.filter(|_| native.allows_notice());
 

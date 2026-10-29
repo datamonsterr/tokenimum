@@ -11,6 +11,7 @@ use crate::{AdapterError, HostAdapter, InstallContext, InstallReport, PruneTarge
 
 mod install;
 mod map;
+mod patch;
 pub mod reader;
 mod reply;
 
@@ -77,4 +78,21 @@ pub(crate) fn repo_relative(path: &str, cwd: Option<&Path>) -> Option<PathBuf> {
         }
     }
     (!clean.as_os_str().is_empty()).then_some(clean)
+}
+
+/// Resolve native names identically for mapping and rendering.
+fn native_event(request: &Request) -> Result<Option<&str>, AdapterError> {
+    let payload = match request.payload.get("hook_event_name") {
+        Some(serde_json::Value::String(name)) => Some(name.as_str()),
+        None => None,
+        _ => return Err(crate::writer::invalid("hook_event_name must be a string")),
+    };
+    if let (Some(payload), Some(host)) = (payload, request.host_event.as_deref())
+        && payload != host
+    {
+        return Err(crate::writer::invalid(
+            "hook_event_name conflicts with host_event",
+        ));
+    }
+    Ok(payload.or(request.host_event.as_deref()))
 }

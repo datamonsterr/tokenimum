@@ -249,7 +249,7 @@ fn fallback_event_and_edit_containment_are_pure() {
         let req = request(
             json!({"session_id":"s","hook_event_name":"PostToolUse","cwd":"/repo","tool_name":"Write","tool_input":{"file_path":path},"tool_response":{"type":"create"}}),
         );
-        assert!(
+        assert_eq!(
             adapter
                 .map_event(&req)
                 .unwrap()
@@ -257,7 +257,8 @@ fn fallback_event_and_edit_containment_are_pure() {
                 .call
                 .unwrap()
                 .edits
-                .is_empty()
+                .len(),
+            0
         );
     }
 }
@@ -276,5 +277,32 @@ fn timestamps_validate_calendar_offsets_and_pre_epoch_fractional_seconds() {
             request(json!({"session_id":"s","hook_event_name":"SessionStart","timestamp":text}));
         let event = ClaudeAdapter::new().map_event(&req).unwrap().unwrap();
         assert_eq!(event.timestamp.map(|value| value.0), expected, "{text}");
+    }
+}
+
+#[test]
+fn conflicting_native_events_fail_mapping_and_render_nothing() {
+    let adapter = ClaudeAdapter::new();
+    for (native, host_event) in [
+        ("SessionStart", "Stop"),
+        ("Stop", "SessionStart"),
+        ("SessionEnd", "SessionStart"),
+    ] {
+        let mut req = request(json!({"session_id":"s", "hook_event_name":native}));
+        req.host_event = Some(host_event.into());
+        assert!(matches!(
+            adapter.map_event(&req),
+            Err(AdapterError::InvalidPayload { .. })
+        ));
+        assert_eq!(
+            adapter.render_reply(
+                &req,
+                &ReplyAction::InjectAndNotice {
+                    inject: "context".into(),
+                    notice: "notice".into()
+                }
+            ),
+            ""
+        );
     }
 }

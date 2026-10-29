@@ -116,10 +116,7 @@ fn maps_apply_patch_add_file_to_create_edit() {
             via: EditVia::Tool,
         }]
     );
-    assert!(
-        call.args_digest
-            .starts_with("{\"command\":\"*** Begin Patch")
-    );
+    assert_eq!(call.args_digest, r#"[["add","c.txt","x\n"]]"#);
     assert_eq!(call.output_digest, "A ~/dev/example/c.txt");
 }
 
@@ -367,16 +364,19 @@ fn stop_reply_never_contains_decision_or_hook_specific_output() {
 }
 
 #[test]
-fn native_event_name_selects_rules_and_falls_back_to_event_kind() {
-    // No native name: the normalized kind decides.
-    assert_eq!(
-        render(EventKind::Prompt, None, &inject("c")),
-        "{\"hookSpecificOutput\":{\"hookEventName\":\"UserPromptSubmit\",\"additionalContext\":\"c\"}}"
-    );
+fn native_event_names_are_required_and_payload_names_are_used() {
+    // Mapping and rendering both require a native name.
+    assert_eq!(render(EventKind::Prompt, None, &inject("c")), "");
     assert_eq!(render(EventKind::SessionEnd, None, &notice("n")), "");
+    assert_eq!(render(EventKind::TurnEnd, None, &notice("n")), "");
+    let missing = request(EventKind::TurnEnd, None, json!({"session_id":SESSION}));
+    assert!(matches!(
+        CodexAdapter::new().map_event(&missing),
+        Err(AdapterError::InvalidPayload { .. })
+    ));
     assert_eq!(
-        render(EventKind::TurnEnd, None, &notice("n")),
-        "{\"systemMessage\":\"n\"}"
+        CodexAdapter::new().render_reply(&missing, &both("c", "n")),
+        ""
     );
     // Events Codex tokenimum does not handle never get output.
     assert_eq!(render(EventKind::ToolBefore, None, &inject("c")), "");
@@ -417,6 +417,37 @@ fn replies_are_capped_at_10000_chars_on_a_char_boundary() {
     assert!(out.find("hookSpecificOutput").unwrap() < out.find("systemMessage").unwrap());
 
     let exact = "é".repeat(10_000);
-    let out = render(EventKind::TurnEnd, None, &notice(&exact));
+    let out = render(EventKind::TurnEnd, Some("Stop"), &notice(&exact));
     assert!(out.contains(&exact));
+}
+
+#[test]
+fn conflicting_native_events_fail_mapping_and_render_nothing() {
+    let adapter = CodexAdapter::new();
+    for (native, host_event) in [
+        ("SessionStart", "Stop"),
+        ("Stop", "SessionStart"),
+        ("SessionEnd", "SessionStart"),
+    ] {
+        let mut req = request(
+            EventKind::TurnEnd,
+            None,
+            json!({"session_id":"s", "hook_event_name":native}),
+        );
+        req.host_event = Some(host_event.into());
+        assert!(matches!(
+            adapter.map_event(&req),
+            Err(AdapterError::InvalidPayload { .. })
+        ));
+        assert_eq!(
+            adapter.render_reply(
+                &req,
+                &ReplyAction::InjectAndNotice {
+                    inject: "context".into(),
+                    notice: "notice".into()
+                }
+            ),
+            ""
+        );
+    }
 }

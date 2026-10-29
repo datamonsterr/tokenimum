@@ -132,7 +132,7 @@ fn reads_plain_rollout_into_two_turns_with_prompts_and_calls() {
         vec![
             (
                 "apply_patch".into(),
-                "*** Add File: c.txt".into(),
+                r#"[["add","c.txt","x\n"]]"#.into(),
                 None,
                 false
             ),
@@ -303,5 +303,120 @@ fn synthetic_items_cover_delete_update_aborts_outside_paths_and_unknown_events()
     assert!(shell.is_error);
     assert_eq!(shell.duration_ms, Some(1_500));
     assert_eq!(shell.output_digest, "fatal: x");
+    fs::remove_dir_all(dir).unwrap();
+}
+
+fn read_records(name: &str, records: &[Value]) -> Session {
+    let dir = scratch(name);
+    let path = dir.join("rollout.jsonl");
+    fs::write(
+        &path,
+        records
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>()
+            .join("\n"),
+    )
+    .unwrap();
+    let session = read(&path).unwrap();
+    fs::remove_dir_all(dir).unwrap();
+    session
+}
+
+#[test]
+fn identical_token_count_snapshots_are_counted_once_across_turns() {
+    let usage = serde_json::json!({"input_tokens":100,"cached_input_tokens":30,"cache_write_input_tokens":0,"output_tokens":5});
+    let record = serde_json::json!({"type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":usage,"last_token_usage":usage}}});
+    let session = read_records(
+        "duplicate-usage",
+        &[
+            record.clone(),
+            serde_json::json!({"type":"event_msg","payload":{"type":"task_complete"}}),
+            serde_json::json!({"type":"event_msg","payload":{"type":"task_started"}}),
+            record,
+        ],
+    );
+    assert_eq!(
+        session.usage,
+        Usage {
+            input: 70,
+            output: 5,
+            cache_read: 30,
+            cache_write: 0
+        }
+    );
+    assert_eq!(session.turns[1].usage, Usage::default());
+}
+
+#[test]
+fn cache_writes_are_excluded_from_uncached_input_with_saturation() {
+    for (input, expected) in [(100, 50), (40, 0)] {
+        let usage = serde_json::json!({"input_tokens":input,"cached_input_tokens":30,"cache_write_input_tokens":20,"output_tokens":5});
+        let session = read_records(
+            "cache-write",
+            &[
+                serde_json::json!({"type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":usage,"last_token_usage":usage}}}),
+            ],
+        );
+        assert_eq!(
+            session.usage,
+            Usage {
+                input: expected,
+                output: 5,
+                cache_read: 30,
+                cache_write: 20
+            }
+        );
+    }
+}
+
+#[test]
+fn malformed_and_unknown_completed_items_count_as_skipped() {
+    let records = [Value::Null, serde_json::json!(7), serde_json::json!([]), serde_json::json!({}), serde_json::json!({"type":"FutureItem"})]
+        .map(|item| serde_json::json!({"type":"event_msg","payload":{"type":"item_completed","item":item}}));
+    let session = read_records("malformed-items", &records);
+    assert_eq!((session.total_records, session.skipped_records), (5, 5));
+    assert!(session.partial);
+    assert_eq!(session.turns.len(), 0);
+}
+
+#[test]
+fn apply_patch_fixture_args_digest_matches_live_hook() {
+    let payload: Value = serde_json::from_str(include_str!(
+        "../../../fixtures/codex/hooks/PostToolUse-apply_patch.json"
+    ))
+    .unwrap();
+    let request = tkm_proto::Request {
+        version: tkm_proto::PROTOCOL_VERSION,
+        host: Host::Codex,
+        event: tkm_proto::EventKind::ToolDone,
+        host_event: Some("PostToolUse".into()),
+        payload,
+        env: std::collections::BTreeMap::new(),
+        cwd: None,
+    };
+    let live = CodexAdapter::new()
+        .map_event(&request)
+        .unwrap()
+        .unwrap()
+        .call
+        .unwrap();
+    let session = read(&plain_path()).unwrap();
+    let call = &session.turns[1].calls[0];
+    assert_eq!(call.args_digest, live.args_digest);
+    assert_eq!(call.output_digest, live.output_digest);
+}
+
+#[test]
+fn concatenated_zstd_frames_decode_all_records_and_share_one_cap() {
+    let bytes = include_bytes!("fixtures/codex/sessions/multiframe.jsonl.zst");
+    let plain = fs::read(plain_path()).unwrap();
+    assert_eq!(decompress_zstd(bytes, plain.len()).unwrap(), plain);
+    assert!(decompress_zstd(bytes, plain.len() - 1).is_err());
+    assert!(decompress_zstd(&bytes[..bytes.len() - 3], plain.len()).is_err());
+    let dir = scratch("multiframe");
+    let path = dir.join("rollout.jsonl.zst");
+    fs::write(&path, bytes).unwrap();
+    assert_eq!(read(&path).unwrap(), read(&plain_path()).unwrap());
     fs::remove_dir_all(dir).unwrap();
 }
