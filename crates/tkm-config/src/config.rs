@@ -727,9 +727,10 @@ fn default_config(keys: &[Key]) -> Result<EffectiveConfig, ConfigError> {
     Ok(config)
 }
 
-fn read_file_layers(
-    inputs: &LoadInputs,
-) -> Result<Vec<(Layer, Vec<(String, toml_edit::Item)>)>, ConfigError> {
+/// Flattened `(dotted key, item)` entries of one configuration file.
+type FileEntries = Vec<(String, toml_edit::Item)>;
+
+fn read_file_layers(inputs: &LoadInputs) -> Result<Vec<(Layer, FileEntries)>, ConfigError> {
     let global = inputs
         .env
         .iter()
