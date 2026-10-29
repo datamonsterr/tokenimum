@@ -52,6 +52,22 @@ pub(crate) struct EscalationJob {
     pub repo_root: PathBuf,
     pub with_adapter: bool,
     pub command: Option<String>,
+    pub secrets: BTreeMap<String, String>,
+}
+
+fn escalation_redactor(
+    repo_root: PathBuf,
+    home: PathBuf,
+    daemon_env: &[(String, String)],
+    session_env: &BTreeMap<String, String>,
+) -> Redactor {
+    let mut env = daemon_env.to_vec();
+    env.extend(session_env.iter().map(|(k, v)| (k.clone(), v.clone())));
+    Redactor::new(RedactContext {
+        repo_root,
+        home,
+        env,
+    })
 }
 
 const REDIRECT_GUIDANCE: [(&str, &str); 7] = [
@@ -289,11 +305,8 @@ impl Daemon {
                 .rev()
                 .find(|(key, _)| key == "HOME")
                 .map_or_else(PathBuf::new, |(_, value)| PathBuf::from(value));
-            let redactor = Redactor::new(RedactContext {
-                repo_root: job.repo_root.clone(),
-                home,
-                env: self.env.clone(),
-            });
+            let redactor =
+                escalation_redactor(job.repo_root.clone(), home, &self.env, &job.secrets);
             let digest = build_digest(
                 DigestInput {
                     prompt: &job.prompt,
@@ -320,25 +333,36 @@ impl Daemon {
                 self.decider.decide(request),
             )
             .await
-                && let Some(Answer::Choice {
+            {
+                lock(&self.outbox).decisions.push_back(NewDecision {
+                    model: decision.model_version.clone(),
+                    purpose: Purpose::Redirect.as_str().to_owned(),
+                    questions: serde_json::Value::Null,
+                    answers: serde_json::to_value(&decision.answers).unwrap_or_default(),
+                    cost_usd: decision.usage.cost.unwrap_or(0.0),
+                    latency_ms: u32::try_from(decision.latency_ms).unwrap_or(u32::MAX),
+                    shadow: false,
+                });
+                if let Some(Answer::Choice {
                     choice,
                     probabilities,
                     ..
                 }) = decision.answers.get("suggest")
-            {
-                suggest = match choice.as_str() {
-                    "continue" => Suggest::Continue,
-                    "cancel" => Suggest::Cancel,
-                    "reroute" => Suggest::Reroute,
-                    _ => Suggest::Redirect,
-                };
-                suggest_probs = probabilities.clone().unwrap_or_default();
+                {
+                    suggest = match choice.as_str() {
+                        "continue" => Suggest::Continue,
+                        "cancel" => Suggest::Cancel,
+                        "reroute" => Suggest::Reroute,
+                        _ => Suggest::Redirect,
+                    };
+                    suggest_probs = probabilities.clone().unwrap_or_default();
+                }
             }
         }
         let me = self.clone();
         let joined = tokio::task::spawn_blocking(move || {
-            if use_adapter {
-                me.escalator.escalate(&EscalationEvent {
+            if use_adapter
+                && me.escalator.try_escalate(&EscalationEvent {
                     host: job.host,
                     session_id: job.session_id.clone(),
                     repo: job.repo.clone(),
@@ -347,10 +371,11 @@ impl Daemon {
                     envelope: job.envelope,
                     stuck: job.scores.map_or(0.0, |scores| scores.0),
                     progress: job.scores.map_or(0.0, |scores| scores.1),
-                    redirect_given: job.redirect_given,
+                    redirect_given: job.redirect_given.clone(),
                     suggest,
                     suggest_probs,
-                });
+                })
+            {
                 return Ok(());
             }
             let Some(command) = job.command.as_deref() else {

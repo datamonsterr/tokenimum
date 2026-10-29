@@ -389,21 +389,27 @@ impl Escalator for SuperorchestratorEscalator {
                 .is_some_and(|r| r.token.is_some())
     }
     fn escalate(&self, event: &EscalationEvent) {
+        let _ = self.try_escalate(event);
+    }
+    fn try_escalate(&self, event: &EscalationEvent) -> bool {
         if self.health.in_backoff() {
-            return;
+            return false;
         }
         let run = self
             .sessions
             .lock()
             .ok()
             .and_then(|s| s.get(&(event.host, event.session_id.clone())).cloned());
-        if let Some(run) = run.filter(|r| r.token.is_some())
-            && self.send(&run, event).is_err()
-        {
+        let Some(run) = run.filter(|r| r.token.is_some()) else {
+            return false;
+        };
+        if self.send(&run, event).is_err() {
             self.health
                 .report_failure("superorchestrator escalation failed");
             tracing::warn!("superorchestrator escalation failed");
+            return false;
         }
+        true
     }
 }
 /// Decision spend sink.

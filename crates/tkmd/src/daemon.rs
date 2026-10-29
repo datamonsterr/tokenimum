@@ -802,6 +802,17 @@ impl Daemon {
                                             EscalationMode::DelegatedWithAdapter
                                         ),
                                         command: settings.escalate_command.clone(),
+                                        secrets: request
+                                            .env
+                                            .iter()
+                                            .filter(|(name, _)| {
+                                                let name = name.to_ascii_uppercase();
+                                                ["KEY", "TOKEN", "SECRET"]
+                                                    .iter()
+                                                    .any(|part| name.contains(part))
+                                            })
+                                            .map(|(name, value)| (name.clone(), value.clone()))
+                                            .collect(),
                                     }));
                                 }
                             }

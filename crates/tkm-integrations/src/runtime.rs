@@ -204,8 +204,9 @@ impl Escalator for Integrations {
         self.superorchestrator_enabled() && self.escalator.handles(host, session_id)
     }
     fn escalate(&self, event: &EscalationEvent) {
-        if self.superorchestrator_enabled() {
-            self.escalator.escalate(event);
-        }
+        let _ = self.try_escalate(event);
+    }
+    fn try_escalate(&self, event: &EscalationEvent) -> bool {
+        self.superorchestrator_enabled() && self.escalator.try_escalate(event)
     }
 }

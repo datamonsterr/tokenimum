@@ -82,6 +82,7 @@ pub fn build_decider(
 }
 
 type SpendTarget = (Arc<dyn SpendSink>, Arc<dyn Escalator>);
+type SpendRecord = (Arc<dyn SpendSink>, String, String, f64, Option<String>);
 
 /// Spend ledger for the decision client. Rows live in memory (cap checks must not touch disk);
 /// each decision is also written to the `decisions` table by the daemon through the outbox,
@@ -89,13 +90,12 @@ type SpendTarget = (Arc<dyn SpendSink>, Arc<dyn Escalator>);
 pub struct StoreLedger {
     inner: InMemoryLedger,
     sink: Mutex<Option<SpendTarget>>,
-    spend_tx: std::sync::mpsc::Sender<(Arc<dyn SpendSink>, String, String, f64, Option<String>)>,
+    spend_tx: std::sync::mpsc::Sender<SpendRecord>,
 }
 
 impl Default for StoreLedger {
     fn default() -> Self {
-        let (spend_tx, rx) =
-            std::sync::mpsc::channel::<(Arc<dyn SpendSink>, String, String, f64, Option<String>)>();
+        let (spend_tx, rx) = std::sync::mpsc::channel::<SpendRecord>();
         std::thread::spawn(move || {
             while let Ok((sink, purpose, model, cost, run_id)) = rx.recv() {
                 sink.record(&purpose, &model, cost, run_id.as_deref());

@@ -145,6 +145,11 @@ pub trait Escalator: Send + Sync {
 
     /// Delivers the escalation. Failures are the adapter's to log.
     fn escalate(&self, event: &EscalationEvent);
+    /// Attempts delivery and reports whether it succeeded.
+    fn try_escalate(&self, event: &EscalationEvent) -> bool {
+        self.escalate(event);
+        true
+    }
 }
 
 /// Default [`Escalator`]: handles nothing.
