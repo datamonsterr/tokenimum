@@ -13,8 +13,8 @@ Refreshed 2026-10-29 against `da6a44d` on `epic/e10`, where CI is green. Counts 
 
 | Status | Rows |
 |---|---|
-| met | 501 |
-| deferred | 44 |
+| met | 502 |
+| deferred | 43 |
 | not applicable | 11 |
 
 Every `deferred` row starts its evidence with one category tag:
@@ -22,7 +22,7 @@ Every `deferred` row starts its evidence with one category tag:
 | Category | Meaning | Rows |
 |---|---|---|
 | (a) | Needs live or real-world data, or user action: real host sessions, live model spend, the replay benchmark sample run, secrets | 16 |
-| (b) | Intentionally out of scope or limited by an ADR (link in the row) | 11 |
+| (b) | Intentionally out of scope or limited by an ADR (link in the row) | 10 |
 | (c) | Not implemented: code is missing | 17 |
 
 Rows fixed since the audit was written (priced ledger and pricing refresh, skill evidence, Pi steer,
@@ -65,7 +65,6 @@ Each item gives the exact SPEC text and the files involved. Tracked in [ADR 0050
 - S4.2-7, S9.2-3, S9.3-1, S15-2, S17-5: superorchestrator spend ingestion, [ADR 0040](../docs/adr/0040-e9-integrations.md) item 5.
 - S5.1-2: 10 ms connect timeout, [ADR 0014](../docs/adr/0014-hook-client.md).
 - S6.4-1, S6.4-18: legacy opencode `storage/`, S14-5: awaited `tool_done`, [ADR 0025](../docs/adr/0025-shim-protocol.md).
-- S6.10-8: user-scope Kimi/Codewhale installer, [ADR 0020](../docs/adr/0020-e5b-host-adapters.md).
 - S9.4-1: four otherskill host names, [ADR 0040](../docs/adr/0040-e9-integrations.md) item 7.
 
 ## Pending
@@ -417,7 +416,7 @@ Nothing pending. The E10.6 replay benchmark harness is merged; only its real-dat
 | ID | Requirement | Status | Evidence |
 |---|---|---|---|
 | S6.10-1 | Codewhale (codewhale / legacy deepseek) target; dsh future adapter | met | [e5b-hosts.md](../docs/verified/e5b-hosts.md); [mod.rs](../crates/tkm-hosts/src/codewhale/mod.rs) |
-| S6.10-8 | User config [[hooks.hooks]], project hook path | deferred | **(b)** [ADR 0020](../docs/adr/0020-e5b-host-adapters.md): the installer is user-scope only; project scope returns Unsupported. |
+| S6.10-8 | User config [[hooks.hooks]], project hook path | met | [codewhale_install.rs](../crates/tkm-hosts/tests/codewhale_install.rs) tests user and project hooks, preservation, idempotence and restoration; [ADR 0020](../docs/adr/0020-e5b-host-adapters.md) documents approval. |
 | S6.10-3 | Six lifecycle/tool events plus session_idle | met | [codewhale_install.rs](../crates/tkm-hosts/tests/codewhale_install.rs) `install_registers_session_idle_with_its_native_event` |
 | S6.10-4 | Map DEEPSEEK env markers and stdin | met | [codewhale_contract.rs](../crates/tkm-hosts/tests/codewhale_contract.rs) |
 | S6.10-5 | Only tool_call_before additionalContext, caps and no blocking | met | [codewhale_contract.rs](../crates/tkm-hosts/tests/codewhale_contract.rs) |
