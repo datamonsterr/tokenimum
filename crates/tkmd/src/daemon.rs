@@ -525,6 +525,7 @@ impl Daemon {
             redirects: 0,
             escalated: false,
             judging: false,
+            pending_redirect: None,
         });
         session.loop_state = if session.settings.loop_mode == LoopMode::Off {
             "off"
@@ -607,6 +608,8 @@ impl Daemon {
         let now = self.clock.now_ms();
         let tag: Tag = (event.host, event.session_id.clone());
         let mut inject_text: Option<String> = None;
+        let mut redirect_text: Option<String>;
+        let turn_seq_now;
         let mut notice_text: Option<String> = None;
         {
             let mut guard = lock(&self.state);
@@ -635,6 +638,7 @@ impl Daemon {
             let Some(mut turn) = session.turn.take() else {
                 return Ok(noop_reply(host));
             };
+            redirect_text = turn.pending_redirect.take();
             turn.total_calls = turn.total_calls.saturating_add(1);
             let actions = match turn.guard.as_mut() {
                 Some(turn_guard) => turn_guard.on_tool_done(&call, &settings.loop_cfg, envelope),
@@ -643,7 +647,7 @@ impl Daemon {
             if turn.calls.len() < MAX_TURN_CALLS {
                 turn.calls.push(call);
             }
-            let turn_seq_now = turn.seq;
+            turn_seq_now = turn.seq;
             for action in actions {
                 match action {
                     LoopAction::RequestJudge { request: judge } => {
@@ -686,7 +690,7 @@ impl Daemon {
                             turn.redirects += 1;
                             session.loop_state = "redirected";
                             self.record_loop_event(session, "loop.redirect", kind, &text, false);
-                            inject_text = join_text(inject_text, Some(text));
+                            redirect_text = join_text(redirect_text, Some(text));
                         }
                     }
                     LoopAction::Escalate { mode } => {
@@ -736,17 +740,21 @@ impl Daemon {
                 let _ = self.monitor_tx.send(MonitorMessage::Session(update));
             }
         }
-        let action = match (inject_text.clone(), notice_text) {
+        let combined = join_text(inject_text.clone(), redirect_text.clone());
+        let action = match (combined, notice_text) {
             (Some(inject), Some(notice)) => ReplyAction::InjectAndNotice { inject, notice },
             (Some(text), None) => ReplyAction::Inject { text },
             (None, Some(text)) => ReplyAction::Notice { text },
             (None, None) => ReplyAction::Nothing,
         };
         let (reply, delivered) = Self::render(request, adapter, action);
-        if !delivered && let Some(text) = inject_text {
+        if !delivered {
             // The host cannot show it on this event: keep it for the next injectable one.
             if let Some(session) = lock(&self.state).sessions.get_mut(&tag) {
-                session.pending_inject = join_text(Some(text), session.pending_inject.take());
+                session.pending_inject = join_text(inject_text, session.pending_inject.take());
+                if let Some(turn) = session.turn.as_mut() && turn.seq == turn_seq_now {
+                    turn.pending_redirect = join_text(redirect_text, turn.pending_redirect.take());
+                }
             }
         }
         Ok(reply)
@@ -760,17 +768,25 @@ impl Daemon {
         event: &HookEvent,
     ) -> Reply {
         let tag: Tag = (event.host, event.session_id.clone());
-        let pending = lock(&self.state)
-            .sessions
-            .get_mut(&tag)
-            .and_then(|session| session.pending_inject.take());
-        let Some(text) = pending else {
+        let (pending, redirect, seq) = {
+            let mut state = lock(&self.state);
+            let Some(session) = state.sessions.get_mut(&tag) else {
+                return noop_reply(request.host);
+            };
+            let seq = session.turn.as_ref().map(|turn| turn.seq);
+            let redirect = session.turn.as_mut().and_then(|turn| turn.pending_redirect.take());
+            (session.pending_inject.take(), redirect, seq)
+        };
+        let Some(text) = join_text(pending.clone(), redirect.clone()) else {
             return noop_reply(request.host);
         };
         let (reply, delivered) =
             Self::render(request, adapter, ReplyAction::Inject { text: text.clone() });
         if !delivered && let Some(session) = lock(&self.state).sessions.get_mut(&tag) {
-            session.pending_inject = Some(text);
+            session.pending_inject = join_text(pending, session.pending_inject.take());
+            if let Some(turn) = session.turn.as_mut() && Some(turn.seq) == seq {
+                turn.pending_redirect = join_text(redirect, turn.pending_redirect.take());
+            }
         }
         reply
     }

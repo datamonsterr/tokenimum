@@ -39,6 +39,8 @@ pub struct TurnState {
     pub escalated: bool,
     /// Whether a judge request is in flight.
     pub judging: bool,
+    /// Redirect waiting for an injectable event in this turn.
+    pub pending_redirect: Option<String>,
 }
 
 /// A live session.

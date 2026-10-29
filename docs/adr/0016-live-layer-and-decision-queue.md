@@ -13,7 +13,9 @@ Date: 2026-10-29. Status: accepted (epic E4.3).
 3. **Delivery.** A "stuck" verdict is stored inside the guard (`on_judge_verdict`); the guard hands
    it back as a redirect on a later `tool_done`. Jobs carry the turn sequence number; a verdict for a
    turn that ended (or was replaced) is dropped. A redirect that the host cannot show on this event
-   stays pending and goes out on the next injectable event.
+   stays pending for the current turn and goes out on the next injectable event; it is discarded
+   when that turn ends. Prompt context deferred by a host is stored separately and survives the
+   turn boundary until an injectable event.
 4. **Shadow.** A decision is *acting* only if `loop.mode = redirect` and the answering model version
    has a calibration row (SPEC 8.5). Otherwise (mode `shadow`, or the balanced preset before
    calibration) the decision row is stored with `shadow = 1`, the guard's pending slot is released,
