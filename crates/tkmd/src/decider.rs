@@ -144,13 +144,14 @@ impl SpendLedger for StoreLedger {
     }
 
     fn record(&self, row: DecisionRow) {
+        let target = self
+            .sink
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone();
         if !row.cached
             && let Some(cost) = row.cost_usd
-            && let Some((sink, escalator)) = self
-                .sink
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .clone()
+            && let Some((sink, escalator)) = target
             && escalator.superorchestrator_enabled()
         {
             let run_id = row.session_id.split_once(':').and_then(|(host, session)| {
