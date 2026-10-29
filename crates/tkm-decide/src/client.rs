@@ -212,7 +212,9 @@ impl<T: Transport, C: Clock, L: SpendLedger> DecisionClient<T, C, L> {
         }
         Outcome::NoDecision(NoDecisionReason::AllFailed)
     }
-    /// Ask the first two active models concurrently, returning independent outcomes.
+    /// Ask the primary and Jev reference concurrently, returning independent outcomes.
+    /// A custom chain without Jev uses its first two slots. A configured but unavailable
+    /// Jev reference fails open instead of substituting a different model silently.
     /// Each model is attempted once; combining their answers belongs to calibration.
     ///
     /// # Panics
@@ -223,9 +225,22 @@ impl<T: Transport, C: Clock, L: SpendLedger> DecisionClient<T, C, L> {
             return (outcome.clone(), outcome);
         }
         let models = self.chain.active_models();
+        let reference_configured = self
+            .config
+            .chain
+            .iter()
+            .any(|m| m.slug.starts_with("typesafe/jev-"));
+        let primary = models
+            .iter()
+            .find(|m| !reference_configured || !m.starts_with("typesafe/jev-"));
+        let reference = if reference_configured {
+            models.iter().find(|m| m.starts_with("typesafe/jev-"))
+        } else {
+            models.get(1)
+        };
         tokio::join!(
-            self.agreement_slot(models.first().map(String::as_str), &req),
-            self.agreement_slot(models.get(1).map(String::as_str), &req)
+            self.agreement_slot(primary.map(String::as_str), &req),
+            self.agreement_slot(reference.map(String::as_str), &req)
         )
     }
     /// Probe each free slot explicitly and activate only successful slots.

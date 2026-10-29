@@ -177,3 +177,202 @@ impl ShadowWindow {
         now_ms.saturating_sub(self.started_ms) < 14 * 86_400_000 || self.judged_turns < 200
     }
 }
+
+/// Minimum labelled items before a model/purpose fit can authorize decisions.
+pub const MIN_LABELS: usize = 20;
+
+/// Precision required to leave shadow for a supported purpose.
+/// SPEC 8.5 requires 0.9 for stuck; the same conservative target applies to the other
+/// purposes until a separate product target is specified.
+#[must_use]
+pub fn precision_target(purpose: &str) -> Option<f64> {
+    matches!(
+        purpose,
+        "loop_guard" | "fact_filter" | "fact_contradiction" | "relevance"
+    )
+    .then_some(0.9)
+}
+
+/// One independently labelled candidate or loop judgment, in probability units.
+#[derive(Debug, Clone, Copy)]
+pub struct LabelledSample {
+    /// Stuck, stability, contradiction, or relevance (score divided by three).
+    pub primary: f64,
+    /// Progress for loops or safety for fact filters; absent for single-question purposes.
+    pub secondary: Option<f64>,
+    /// Whether the action's condition held in later outcome evidence.
+    pub positive: bool,
+}
+
+/// Threshold pair with measured quality on the labelled input.
+#[derive(Debug, Clone, Copy)]
+pub struct PurposeFit {
+    /// Purpose-specific thresholds, preserving the common store representation.
+    pub thresholds: Thresholds,
+    /// Number of independently labelled items.
+    pub sample_count: usize,
+    /// Precision of the complete action predicate (including both questions).
+    pub precision: f64,
+    /// Recall of the complete action predicate.
+    pub recall: f64,
+}
+
+/// Decode outcome labels without turning unlabelled questions into negative examples.
+/// Legacy loop labels remain the strings `stuck` and `progress`; batch labels are JSON
+/// objects keyed by the exact question name, with boolean observed outcomes.
+#[must_use]
+pub fn labelled_samples(
+    purpose: &str,
+    answers: &serde_json::Value,
+    labels: &serde_json::Value,
+) -> Vec<LabelledSample> {
+    let probability = |key: &str| {
+        answers
+            .get(key)?
+            .get("noul")?
+            .as_f64()
+            .filter(|v| (0.0..=1.0).contains(v))
+    };
+    let mut samples = Vec::new();
+    if purpose == "loop_guard" {
+        let positive = match labels.as_str() {
+            Some("stuck") => Some(true),
+            Some("progress") => Some(false),
+            _ => None,
+        };
+        if let (Some(primary), Some(positive)) = (probability("stuck"), positive) {
+            samples.push(LabelledSample {
+                primary,
+                secondary: probability("progress"),
+                positive,
+            });
+        }
+        return samples;
+    }
+    let Some(labels) = labels.as_object() else {
+        return samples;
+    };
+    for (key, label) in labels {
+        let Some(positive) = label.as_bool() else {
+            continue;
+        };
+        let sample = match purpose {
+            "fact_filter" => key.strip_prefix("stable_").and_then(|id| {
+                let safe_key = format!("safe_{id}");
+                // Both questions must have outcome evidence for this same candidate.
+                (labels.get(&safe_key)?.as_bool()? == positive).then_some(LabelledSample {
+                    primary: probability(key)?,
+                    secondary: Some(probability(&safe_key)?),
+                    positive,
+                })
+            }),
+            "fact_contradiction" if key.starts_with("contradicts_") => {
+                probability(key).map(|primary| LabelledSample {
+                    primary,
+                    secondary: None,
+                    positive,
+                })
+            }
+            "relevance" if key.starts_with("rel_") => answers
+                .get(key)
+                .and_then(|a| a.get("score"))
+                .and_then(serde_json::Value::as_f64)
+                .filter(|score| (0.0..=3.0).contains(score))
+                .map(|score| LabelledSample {
+                    primary: score / 3.0,
+                    secondary: None,
+                    positive,
+                }),
+            _ => None,
+        };
+        samples.extend(sample);
+    }
+    samples
+}
+
+/// Fit the full action predicate for one purpose, at minimum recall and precision.
+/// Facts fit stability/safety jointly; loops fit stuck/progress jointly. Relevance is
+/// normalized from its ordered 0..3 score and cannot lower SPEC 7.2's admission cutoffs.
+#[must_use]
+#[allow(clippy::cast_precision_loss)] // In-memory sample counts cannot exceed addressable memory.
+#[allow(clippy::too_many_lines)] // Fit and score the complete two-question predicate together.
+pub fn fit_purpose(purpose: &str, samples: &[LabelledSample]) -> Option<PurposeFit> {
+    let target = precision_target(purpose)?;
+    if samples.len() < MIN_LABELS
+        || samples.iter().any(|s| {
+            !(0.0..=1.0).contains(&s.primary)
+                || s.secondary.is_some_and(|v| !(0.0..=1.0).contains(&v))
+        })
+    {
+        return None;
+    }
+    let positives = samples.iter().filter(|s| s.positive).count();
+    if positives == 0 {
+        return None;
+    }
+    let defaults = Thresholds::default();
+    let mut secondary: Vec<f64> = samples.iter().filter_map(|s| s.secondary).collect();
+    secondary.push(if purpose == "loop_guard" {
+        defaults.t_progress
+    } else {
+        defaults.t_high
+    });
+    secondary.sort_by(f64::total_cmp);
+    secondary.dedup();
+    let mut primary: Vec<f64> = samples.iter().map(|s| s.primary).collect();
+    primary.sort_by(f64::total_cmp);
+    primary.dedup();
+    let mut best: Option<PurposeFit> = None;
+    for low in primary {
+        for &high in &secondary {
+            if purpose == "fact_filter" && low > high {
+                continue;
+            }
+            let mut thresholds = defaults;
+            match purpose {
+                "loop_guard" => {
+                    thresholds.t_stuck = low;
+                    thresholds.t_progress = high;
+                }
+                "fact_filter" => {
+                    thresholds.t_low = low;
+                    thresholds.t_high = high;
+                }
+                "fact_contradiction" => thresholds.t_high = low,
+                "relevance" => {
+                    thresholds.t_low = low.max(0.5);
+                    thresholds.t_high = low.max(0.5);
+                }
+                _ => return None,
+            }
+            let predicts = |s: &&LabelledSample| match purpose {
+                "loop_guard" => s.primary >= low && s.secondary.is_none_or(|p| p <= high),
+                "fact_filter" => s.primary >= low && s.secondary.is_some_and(|p| p >= high),
+                "relevance" => s.primary >= thresholds.t_high,
+                _ => s.primary >= low,
+            };
+            let predicted = samples.iter().filter(predicts).count();
+            if predicted == 0 {
+                continue;
+            }
+            let hits = samples.iter().filter(|s| predicts(s) && s.positive).count();
+            let precision = hits as f64 / predicted as f64;
+            let recall = hits as f64 / positives as f64;
+            if precision >= target
+                && recall >= FitConfig::default().min_recall
+                && best.is_none_or(|b| {
+                    precision > b.precision
+                        || (precision.total_cmp(&b.precision).is_eq() && recall > b.recall)
+                })
+            {
+                best = Some(PurposeFit {
+                    thresholds,
+                    sample_count: samples.len(),
+                    precision,
+                    recall,
+                });
+            }
+        }
+    }
+    best
+}

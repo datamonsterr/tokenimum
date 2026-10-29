@@ -277,7 +277,11 @@ impl Daemon {
             questions.insert(
                 format!("rel_{}", item.id),
                 Question::Score {
-                    instructions: "How relevant is this candidate context to the prompt?".into(),
+                    instructions: if item.source == Source::Memory {
+                        let reference = item.text.split_once("](").and_then(|(_, tail)| tail.split_once(')')).map(|(path, _)| path);
+                        reference.map_or_else(|| "How relevant is this candidate context to the prompt?".into(), |path|
+                            format!("How relevant is this candidate context to the prompt?\nReference: {}", redactor.redact(path)))
+                    } else { "How relevant is this candidate context to the prompt?".into() },
                     criteria: RELEVANCE_CRITERIA.iter().map(|c| (*c).to_owned()).collect(),
                 },
             );
@@ -290,12 +294,36 @@ impl Daemon {
         };
         match tokio::time::timeout(wait, self.decider.decide(request)).await {
             Ok(Outcome::Decision(decision)) => {
+                let key = tkm_decide::calibrate::CalibrationKey {
+                    model_version: decision.model_version.clone(),
+                    purpose: Purpose::Relevance.as_str().into(),
+                };
+                let thresholds =
+                    tkm_decide::calibrate::CalibrationStore::get(self.calibration.as_ref(), &key);
+                let backing = self.backing.clone();
+                let now = i64::try_from(self.clock.now_ms()).unwrap_or(i64::MAX);
+                let days = context.settings.shadow_days;
+                let turns = context.settings.shadow_turns;
+                let shadow = tokio::task::spawn_blocking(move || {
+                    backing.open().map_or(true, |store| {
+                        crate::decider::purpose_shadow(&store, "relevance", now, days, turns)
+                    })
+                })
+                .await
+                .unwrap_or(true);
+                let acting = thresholds.is_some() && !shadow;
                 let mut scores = BTreeMap::new();
                 for item in items {
                     if let Some(Answer::Score { score, .. }) =
                         decision.answers.get(&format!("rel_{}", item.id))
                     {
-                        scores.insert(item.id.clone(), *score);
+                        let thresholds = thresholds.unwrap_or_default();
+                        let cutoff = if item.fire_gate_prevents {
+                            thresholds.t_low
+                        } else {
+                            thresholds.t_high
+                        } * 3.0;
+                        scores.insert(item.id.clone(), if *score >= cutoff { *score } else { 0.0 });
                     }
                 }
                 lock(&self.outbox)
@@ -323,10 +351,10 @@ impl Daemon {
                                 decision.usage.cost
                             },
                             latency_ms: u32::try_from(decision.latency_ms).unwrap_or(u32::MAX),
-                            shadow: false,
+                            shadow: !acting,
                         },
                     });
-                Some(scores)
+                acting.then_some(scores)
             }
             Ok(Outcome::NoDecision(NoDecisionReason::Disabled) | Outcome::CodeOnly(_)) => None,
             Ok(Outcome::NoDecision(reason)) => {

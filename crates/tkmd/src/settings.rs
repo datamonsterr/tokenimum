@@ -499,6 +499,19 @@ mod tests {
     }
 
     #[test]
+    fn agreement_defaults_off_and_can_be_enabled_by_configuration() {
+        let dir = std::env::temp_dir().join("tkmd-agreement-settings-nonexistent");
+        let paths = Paths::from_dirs(&dir, Some(&dir), Some(&dir), Some(&dir));
+        assert!(!Settings::default().decide.agreement);
+        let settings = Settings::load(
+            &paths,
+            None,
+            vec![("TKM_DECIDE_AGREEMENT".into(), "true".into())],
+        );
+        assert!(settings.decide.agreement);
+    }
+
+    #[test]
     fn environment_overrides_loop_mode_and_decide_switch() {
         let dir = std::env::temp_dir().join("tkmd-settings-test-nonexistent");
         let paths = Paths::from_dirs(&dir, Some(&dir), Some(&dir), Some(&dir));

@@ -1,0 +1,4781 @@
+{
+  "source": "synthetic test double",
+  "turns": [
+    {
+      "session": {
+        "host": "claude",
+        "agent_home": "/synthetic/home",
+        "session_id": "outcome-00",
+        "repo_key": "synthetic",
+        "cwd": "/synthetic/repo",
+        "started": 1000,
+        "ended": 1999,
+        "turns": [
+          {
+            "prompt": "Run the repository tests",
+            "calls": [
+              {
+                "tool": "Bash",
+                "args_digest": "python -m pytest",
+                "output_digest": "10 passed in 0.3s",
+                "exit_code": 0,
+                "is_error": false
+              }
+            ],
+            "stopped_by": "own_stop"
+          }
+        ]
+      },
+      "facts": {
+        "facts": {
+          "repair": {
+            "candidate": {
+              "id": "repair",
+              "family": "form_repair",
+              "params": {
+                "intent": "run_tests",
+                "bad_form": "pytest",
+                "forms": {
+                  "python -m pytest": 3
+                }
+              },
+              "scope": "neutral",
+              "evidence": []
+            },
+            "life": {
+              "status": "active",
+              "confirmations": 3,
+              "contradictions": 0,
+              "score": 3.0,
+              "fire_num": 3,
+              "fire_den": 4,
+              "contradiction_streak": 0
+            }
+          }
+        },
+        "processed": []
+      },
+      "injected": [
+        "repair"
+      ],
+      "expected": {
+        "repair": true
+      },
+      "judgments": [
+        {
+          "model": "inception/mercury-decide-20260930",
+          "purpose": "fact_filter",
+          "answers": {
+            "stable_repair": {
+              "type": "noul",
+              "noul": 0.95
+            },
+            "safe_repair": {
+              "type": "noul",
+              "noul": 0.95
+            }
+          }
+        },
+        {
+          "model": "inception/mercury-decide-20260930",
+          "purpose": "fact_contradiction",
+          "answers": {
+            "contradicts_repair": {
+              "type": "noul",
+              "noul": 0.1
+            }
+          }
+        },
+        {
+          "model": "inception/mercury-decide-20260930",
+          "purpose": "relevance",
+          "answers": {
+            "rel_repair": {
+              "type": "score",
+              "score": 2.8499999999999996
+            }
+          }
+        },
+        {
+          "model": "perplexity/pplx-decider-flash-v1.2-20261016",
+          "purpose": "fact_filter",
+          "answers": {
+            "stable_repair": {
+              "type": "noul",
+              "noul": 0.95
+            },
+            "safe_repair": {
+              "type": "noul",
+              "noul": 0.95
+            }
+          }
+        },
+        {
+          "model": "perplexity/pplx-decider-flash-v1.2-20261016",
+          "purpose": "fact_contradiction",
+          "answers": {
+            "contradicts_repair": {
+              "type": "noul",
+              "noul": 0.1
+            }
+          }
+        },
+        {
+          "model": "perplexity/pplx-decider-flash-v1.2-20261016",
+          "purpose": "relevance",
+          "answers": {
+            "rel_repair": {
+              "type": "score",
+              "score": 2.8499999999999996
+            }
+          }
+        },
+        {
+          "model": "typesafe/jev-1.14-20261014",
+          "purpose": "fact_filter",
+          "answers": {
+            "stable_repair": {
+              "type": "noul",
+              "noul": 0.95
+            },
+            "safe_repair": {
+              "type": "noul",
+              "noul": 0.95
+            }
+          }
+        },
+        {
+          "model": "typesafe/jev-1.14-20261014",
+          "purpose": "fact_contradiction",
+          "answers": {
+            "contradicts_repair": {
+              "type": "noul",
+              "noul": 0.1
+            }
+          }
+        },
+        {
+          "model": "typesafe/jev-1.14-20261014",
+          "purpose": "relevance",
+          "answers": {
+            "rel_repair": {
+              "type": "score",
+              "score": 2.8499999999999996
+            }
+          }
+        },
+        {
+          "model": "unreliable-20261029",
+          "purpose": "fact_filter",
+          "answers": {
+            "stable_repair": {
+              "type": "noul",
+              "noul": 0.7
+            },
+            "safe_repair": {
+              "type": "noul",
+              "noul": 0.7
+            }
+          }
+        },
+        {
+          "model": "unreliable-20261029",
+          "purpose": "fact_contradiction",
+          "answers": {
+            "contradicts_repair": {
+              "type": "noul",
+              "noul": 0.7
+            }
+          }
+        },
+        {
+          "model": "unreliable-20261029",
+          "purpose": "relevance",
+          "answers": {
+            "rel_repair": {
+              "type": "score",
+              "score": 2.0999999999999996
+            }
+          }
+        }
+      ]
+    },
+    {
+      "session": {
+        "host": "codex",
+        "agent_home": "/synthetic/home",
+        "session_id": "outcome-01",
+        "repo_key": "synthetic",
+        "cwd": "/synthetic/repo",
+        "started": 2000,
+        "ended": 2999,
+        "turns": [
+          {
+            "prompt": "Run the repository tests",
+            "calls": [
+              {
+                "tool": "Bash",
+                "args_digest": "python -m pytest",
+                "output_digest": "10 passed in 0.3s",
+                "exit_code": 0,
+                "is_error": false
+              }
+            ],
+            "stopped_by": "own_stop"
+          }
+        ]
+      },
+      "facts": {
+        "facts": {
+          "repair": {
+            "candidate": {
+              "id": "repair",
+              "family": "form_repair",
+              "params": {
+                "intent": "run_tests",
+                "bad_form": "pytest",
+                "forms": {
+                  "python -m pytest": 3
+                }
+              },
+              "scope": "neutral",
+              "evidence": []
+            },
+            "life": {
+              "status": "active",
+              "confirmations": 3,
+              "contradictions": 0,
+              "score": 3.0,
+              "fire_num": 3,
+              "fire_den": 4,
+              "contradiction_streak": 0
+            }
+          }
+        },
+        "processed": []
+      },
+      "injected": [
+        "repair"
+      ],
+      "expected": {
+        "repair": true
+      },
+      "judgments": [
+        {
+          "model": "inception/mercury-decide-20260930",
+          "purpose": "fact_filter",
+          "answers": {
+            "stable_repair": {
+              "type": "noul",
+              "noul": 0.95
+            },
+            "safe_repair": {
+              "type": "noul",
+              "noul": 0.95
+            }
+          }
+        },
+        {
+          "model": "inception/mercury-decide-20260930",
+          "purpose": "fact_contradiction",
+          "answers": {
+            "contradicts_repair": {
+              "type": "noul",
+              "noul": 0.1
+            }
+          }
+        },
+        {
+          "model": "inception/mercury-decide-20260930",
+          "purpose": "relevance",
+          "answers": {
+            "rel_repair": {
+              "type": "score",
+              "score": 2.8499999999999996
+            }
+          }
+        },
+        {
+          "model": "perplexity/pplx-decider-flash-v1.2-20261016",
+          "purpose": "fact_filter",
+          "answers": {
+            "stable_repair": {
+              "type": "noul",
+              "noul": 0.95
+            },
+            "safe_repair": {
+              "type": "noul",
+              "noul": 0.95
+            }
+          }
+        },
+        {
+          "model": "perplexity/pplx-decider-flash-v1.2-20261016",
+          "purpose": "fact_contradiction",
+          "answers": {
+            "contradicts_repair": {
+              "type": "noul",
+              "noul": 0.1
+            }
+          }
+        },
+        {
+          "model": "perplexity/pplx-decider-flash-v1.2-20261016",
+          "purpose": "relevance",
+          "answers": {
+            "rel_repair": {
+              "type": "score",
+              "score": 2.8499999999999996
+            }
+          }
+        },
+        {
+          "model": "typesafe/jev-1.14-20261014",
+          "purpose": "fact_filter",
+          "answers": {
+            "stable_repair": {
+              "type": "noul",
+              "noul": 0.95
+            },
+            "safe_repair": {
+              "type": "noul",
+              "noul": 0.95
+            }
+          }
+        },
+        {
+          "model": "typesafe/jev-1.14-20261014",
+          "purpose": "fact_contradiction",
+          "answers": {
+            "contradicts_repair": {
+              "type": "noul",
+              "noul": 0.1
+            }
+          }
+        },
+        {
+          "model": "typesafe/jev-1.14-20261014",
+          "purpose": "relevance",
+          "answers": {
+            "rel_repair": {
+              "type": "score",
+              "score": 2.8499999999999996
+            }
+          }
+        },
+        {
+          "model": "unreliable-20261029",
+          "purpose": "fact_filter",
+          "answers": {
+            "stable_repair": {
+              "type": "noul",
+              "noul": 0.7
+            },
+            "safe_repair": {
+              "type": "noul",
+              "noul": 0.7
+            }
+          }
+        },
+        {
+          "model": "unreliable-20261029",
+          "purpose": "fact_contradiction",
+          "answers": {
+            "contradicts_repair": {
+              "type": "noul",
+              "noul": 0.7
+            }
+          }
+        },
+        {
+          "model": "unreliable-20261029",
+          "purpose": "relevance",
+          "answers": {
+            "rel_repair": {
+              "type": "score",
+              "score": 2.0999999999999996
+            }
+          }
+        }
+      ]
+    },
+    {
+      "session": {
+        "host": "claude",
+        "agent_home": "/synthetic/home",
+        "session_id": "outcome-02",
+        "repo_key": "synthetic",
+        "cwd": "/synthetic/repo",
+        "started": 3000,
+        "ended": 3999,
+        "turns": [
+          {
+            "prompt": "Run the repository tests",
+            "calls": [
+              {
+                "tool": "Bash",
+                "args_digest": "python -m pytest",
+                "output_digest": "10 passed in 0.3s",
+                "exit_code": 0,
+                "is_error": false
+              }
+            ],
+            "stopped_by": "own_stop"
+          }
+        ]
+      },
+      "facts": {
+        "facts": {
+          "repair": {
+            "candidate": {
+              "id": "repair",
+              "family": "form_repair",
+              "params": {
+                "intent": "run_tests",
+                "bad_form": "pytest",
+                "forms": {
+                  "python -m pytest": 3
+                }
+              },
+              "scope": "neutral",
+              "evidence": []
+            },
+            "life": {
+              "status": "active",
+              "confirmations": 3,
+              "contradictions": 0,
+              "score": 3.0,
+              "fire_num": 3,
+              "fire_den": 4,
+              "contradiction_streak": 0
+            }
+          }
+        },
+        "processed": []
+      },
+      "injected": [
+        "repair"
+      ],
+      "expected": {
+        "repair": true
+      },
+      "judgments": [
+        {
+          "model": "inception/mercury-decide-20260930",
+          "purpose": "fact_filter",
+          "answers": {
+            "stable_repair": {
+              "type": "noul",
+              "noul": 0.95
+            },
+            "safe_repair": {
+              "type": "noul",
+              "noul": 0.95
+            }
+          }
+        },
+        {
+          "model": "inception/mercury-decide-20260930",
+          "purpose": "fact_contradiction",
+          "answers": {
+            "contradicts_repair": {
+              "type": "noul",
+              "noul": 0.1
+            }
+          }
+        },
+        {
+          "model": "inception/mercury-decide-20260930",
+          "purpose": "relevance",
+          "answers": {
+            "rel_repair": {
+              "type": "score",
+              "score": 2.8499999999999996
+            }
+          }
+        },
+        {
+          "model": "perplexity/pplx-decider-flash-v1.2-20261016",
+          "purpose": "fact_filter",
+          "answers": {
+            "stable_repair": {
+              "type": "noul",
+              "noul": 0.95
+            },
+            "safe_repair": {
+              "type": "noul",
+              "noul": 0.95
+            }
+          }
+        },
+        {
+          "model": "perplexity/pplx-decider-flash-v1.2-20261016",
+          "purpose": "fact_contradiction",
+          "answers": {
+            "contradicts_repair": {
+              "type": "noul",
+              "noul": 0.1
+            }
+          }
+        },
+        {
+          "model": "perplexity/pplx-decider-flash-v1.2-20261016",
+          "purpose": "relevance",
+          "answers": {
+            "rel_repair": {
+              "type": "score",
+              "score": 2.8499999999999996
+            }
+          }
+        },
+        {
+          "model": "typesafe/jev-1.14-20261014",
+          "purpose": "fact_filter",
+          "answers": {
+            "stable_repair": {
+              "type": "noul",
+              "noul": 0.95
+            },
+            "safe_repair": {
+              "type": "noul",
+              "noul": 0.95
+            }
+          }
+        },
+        {
+          "model": "typesafe/jev-1.14-20261014",
+          "purpose": "fact_contradiction",
+          "answers": {
+            "contradicts_repair": {
+              "type": "noul",
+              "noul": 0.1
+            }
+          }
+        },
+        {
+          "model": "typesafe/jev-1.14-20261014",
+          "purpose": "relevance",
+          "answers": {
+            "rel_repair": {
+              "type": "score",
+              "score": 2.8499999999999996
+            }
+          }
+        },
+        {
+          "model": "unreliable-20261029",
+          "purpose": "fact_filter",
+          "answers": {
+            "stable_repair": {
+              "type": "noul",
+              "noul": 0.7
+            },
+            "safe_repair": {
+              "type": "noul",
+              "noul": 0.7
+            }
+          }
+        },
+        {
+          "model": "unreliable-20261029",
+          "purpose": "fact_contradiction",
+          "answers": {
+            "contradicts_repair": {
+              "type": "noul",
+              "noul": 0.7
+            }
+          }
+        },
+        {
+          "model": "unreliable-20261029",
+          "purpose": "relevance",
+          "answers": {
+            "rel_repair": {
+              "type": "score",
+              "score": 2.0999999999999996
+            }
+          }
+        }
+      ]
+    },
+    {
+      "session": {
+        "host": "codex",
+        "agent_home": "/synthetic/home",
+        "session_id": "outcome-03",
+        "repo_key": "synthetic",
+        "cwd": "/synthetic/repo",
+        "started": 4000,
+        "ended": 4999,
+        "turns": [
+          {
+            "prompt": "Run the repository tests",
+            "calls": [
+              {
+                "tool": "Bash",
+                "args_digest": "python -m pytest",
+                "output_digest": "10 passed in 0.3s",
+                "exit_code": 0,
+                "is_error": false
+              }
+            ],
+            "stopped_by": "own_stop"
+          }
+        ]
+      },
+      "facts": {
+        "facts": {
+          "repair": {
+            "candidate": {
+              "id": "repair",
+              "family": "form_repair",
+              "params": {
+                "intent": "run_tests",
+                "bad_form": "pytest",
+                "forms": {
+                  "python -m pytest": 3
+                }
+              },
+              "scope": "neutral",
+              "evidence": []
+            },
+            "life": {
+              "status": "active",
+              "confirmations": 3,
+              "contradictions": 0,
+              "score": 3.0,
+              "fire_num": 3,
+              "fire_den": 4,
+              "contradiction_streak": 0
+            }
+          }
+        },
+        "processed": []
+      },
+      "injected": [
+        "repair"
+      ],
+      "expected": {
+        "repair": true
+      },
+      "judgments": [
+        {
+          "model": "inception/mercury-decide-20260930",
+          "purpose": "fact_filter",
+          "answers": {
+            "stable_repair": {
+              "type": "noul",
+              "noul": 0.95
+            },
+            "safe_repair": {
+              "type": "noul",
+              "noul": 0.95
+            }
+          }
+        },
+        {
+          "model": "inception/mercury-decide-20260930",
+          "purpose": "fact_contradiction",
+          "answers": {
+            "contradicts_repair": {
+              "type": "noul",
+              "noul": 0.1
+            }
+          }
+        },
+        {
+          "model": "inception/mercury-decide-20260930",
+          "purpose": "relevance",
+          "answers": {
+            "rel_repair": {
+              "type": "score",
+              "score": 2.8499999999999996
+            }
+          }
+        },
+        {
+          "model": "perplexity/pplx-decider-flash-v1.2-20261016",
+          "purpose": "fact_filter",
+          "answers": {
+            "stable_repair": {
+              "type": "noul",
+              "noul": 0.95
+            },
+            "safe_repair": {
+              "type": "noul",
+              "noul": 0.95
+            }
+          }
+        },
+        {
+          "model": "perplexity/pplx-decider-flash-v1.2-20261016",
+          "purpose": "fact_contradiction",
+          "answers": {
+            "contradicts_repair": {
+              "type": "noul",
+              "noul": 0.1
+            }
+          }
+        },
+        {
+          "model": "perplexity/pplx-decider-flash-v1.2-20261016",
+          "purpose": "relevance",
+          "answers": {
+            "rel_repair": {
+              "type": "score",
+              "score": 2.8499999999999996
+            }
+          }
+        },
+        {
+          "model": "typesafe/jev-1.14-20261014",
+          "purpose": "fact_filter",
+          "answers": {
+            "stable_repair": {
+              "type": "noul",
+              "noul": 0.95
+            },
+            "safe_repair": {
+              "type": "noul",
+              "noul": 0.95
+            }
+          }
+        },
+        {
+          "model": "typesafe/jev-1.14-20261014",
+          "purpose": "fact_contradiction",
+          "answers": {
+            "contradicts_repair": {
+              "type": "noul",
+              "noul": 0.1
+            }
+          }
+        },
+        {
+          "model": "typesafe/jev-1.14-20261014",
+          "purpose": "relevance",
+          "answers": {
+            "rel_repair": {
+              "type": "score",
+              "score": 2.8499999999999996
+            }
+          }
+        },
+        {
+          "model": "unreliable-20261029",
+          "purpose": "fact_filter",
+          "answers": {
+            "stable_repair": {
+              "type": "noul",
+              "noul": 0.7
+            },
+            "safe_repair": {
+              "type": "noul",
+              "noul": 0.7
+            }
+          }
+        },
+        {
+          "model": "unreliable-20261029",
+          "purpose": "fact_contradiction",
+          "answers": {
+            "contradicts_repair": {
+              "type": "noul",
+              "noul": 0.7
+            }
+          }
+        },
+        {
+          "model": "unreliable-20261029",
+          "purpose": "relevance",
+          "answers": {
+            "rel_repair": {
+              "type": "score",
+              "score": 2.0999999999999996
+            }
+          }
+        }
+      ]
+    },
+    {
+      "session": {
+        "host": "claude",
+        "agent_home": "/synthetic/home",
+        "session_id": "outcome-04",
+        "repo_key": "synthetic",
+        "cwd": "/synthetic/repo",
+        "started": 5000,
+        "ended": 5999,
+        "turns": [
+          {
+            "prompt": "Run the repository tests",
+            "calls": [
+              {
+                "tool": "Bash",
+                "args_digest": "python -m pytest",
+                "output_digest": "10 passed in 0.3s",
+                "exit_code": 0,
+                "is_error": false
+              }
+            ],
+            "stopped_by": "own_stop"
+          }
+        ]
+      },
+      "facts": {
+        "facts": {
+          "repair": {
+            "candidate": {
+              "id": "repair",
+              "family": "form_repair",
+              "params": {
+                "intent": "run_tests",
+                "bad_form": "pytest",
+                "forms": {
+                  "python -m pytest": 3
+                }
+              },
+              "scope": "neutral",
+              "evidence": []
+            },
+            "life": {
+              "status": "active",
+              "confirmations": 3,
+              "contradictions": 0,
+              "score": 3.0,
+              "fire_num": 3,
+              "fire_den": 4,
+              "contradiction_streak": 0
+            }
+          }
+        },
+        "processed": []
+      },
+      "injected": [
+        "repair"
+      ],
+      "expected": {
+        "repair": true
+      },
+      "judgments": [
+        {
+          "model": "inception/mercury-decide-20260930",
+          "purpose": "fact_filter",
+          "answers": {
+            "stable_repair": {
+              "type": "noul",
+              "noul": 0.95
+            },
+            "safe_repair": {
+              "type": "noul",
+              "noul": 0.95
+            }
+          }
+        },
+        {
+          "model": "inception/mercury-decide-20260930",
+          "purpose": "fact_contradiction",
+          "answers": {
+            "contradicts_repair": {
+              "type": "noul",
+              "noul": 0.1
+            }
+          }
+        },
+        {
+          "model": "inception/mercury-decide-20260930",
+          "purpose": "relevance",
+          "answers": {
+            "rel_repair": {
+              "type": "score",
+              "score": 2.8499999999999996
+            }
+          }
+        },
+        {
+          "model": "perplexity/pplx-decider-flash-v1.2-20261016",
+          "purpose": "fact_filter",
+          "answers": {
+            "stable_repair": {
+              "type": "noul",
+              "noul": 0.95
+            },
+            "safe_repair": {
+              "type": "noul",
+              "noul": 0.95
+            }
+          }
+        },
+        {
+          "model": "perplexity/pplx-decider-flash-v1.2-20261016",
+          "purpose": "fact_contradiction",
+          "answers": {
+            "contradicts_repair": {
+              "type": "noul",
+              "noul": 0.1
+            }
+          }
+        },
+        {
+          "model": "perplexity/pplx-decider-flash-v1.2-20261016",
+          "purpose": "relevance",
+          "answers": {
+            "rel_repair": {
+              "type": "score",
+              "score": 2.8499999999999996
+            }
+          }
+        },
+        {
+          "model": "typesafe/jev-1.14-20261014",
+          "purpose": "fact_filter",
+          "answers": {
+            "stable_repair": {
+              "type": "noul",
+              "noul": 0.95
+            },
+            "safe_repair": {
+              "type": "noul",
+              "noul": 0.95
+            }
+          }
+        },
+        {
+          "model": "typesafe/jev-1.14-20261014",
+          "purpose": "fact_contradiction",
+          "answers": {
+            "contradicts_repair": {
+              "type": "noul",
+              "noul": 0.1
+            }
+          }
+        },
+        {
+          "model": "typesafe/jev-1.14-20261014",
+          "purpose": "relevance",
+          "answers": {
+            "rel_repair": {
+              "type": "score",
+              "score": 2.8499999999999996
+            }
+          }
+        },
+        {
+          "model": "unreliable-20261029",
+          "purpose": "fact_filter",
+          "answers": {
+            "stable_repair": {
+              "type": "noul",
+              "noul": 0.7
+            },
+            "safe_repair": {
+              "type": "noul",
+              "noul": 0.7
+            }
+          }
+        },
+        {
+          "model": "unreliable-20261029",
+          "purpose": "fact_contradiction",
+          "answers": {
+            "contradicts_repair": {
+              "type": "noul",
+              "noul": 0.7
+            }
+          }
+        },
+        {
+          "model": "unreliable-20261029",
+          "purpose": "relevance",
+          "answers": {
+            "rel_repair": {
+              "type": "score",
+              "score": 2.0999999999999996
+            }
+          }
+        }
+      ]
+    },
+    {
+      "session": {
+        "host": "codex",
+        "agent_home": "/synthetic/home",
+        "session_id": "outcome-05",
+        "repo_key": "synthetic",
+        "cwd": "/synthetic/repo",
+        "started": 6000,
+        "ended": 6999,
+        "turns": [
+          {
+            "prompt": "Run the repository tests",
+            "calls": [
+              {
+                "tool": "Bash",
+                "args_digest": "python -m pytest",
+                "output_digest": "10 passed in 0.3s",
+                "exit_code": 0,
+                "is_error": false
+              }
+            ],
+            "stopped_by": "own_stop"
+          }
+        ]
+      },
+      "facts": {
+        "facts": {
+          "repair": {
+            "candidate": {
+              "id": "repair",
+              "family": "form_repair",
+              "params": {
+                "intent": "run_tests",
+                "bad_form": "pytest",
+                "forms": {
+                  "python -m pytest": 3
+                }
+              },
+              "scope": "neutral",
+              "evidence": []
+            },
+            "life": {
+              "status": "active",
+              "confirmations": 3,
+              "contradictions": 0,
+              "score": 3.0,
+              "fire_num": 3,
+              "fire_den": 4,
+              "contradiction_streak": 0
+            }
+          }
+        },
+        "processed": []
+      },
+      "injected": [
+        "repair"
+      ],
+      "expected": {
+        "repair": true
+      },
+      "judgments": [
+        {
+          "model": "inception/mercury-decide-20260930",
+          "purpose": "fact_filter",
+          "answers": {
+            "stable_repair": {
+              "type": "noul",
+              "noul": 0.95
+            },
+            "safe_repair": {
+              "type": "noul",
+              "noul": 0.95
+            }
+          }
+        },
+        {
+          "model": "inception/mercury-decide-20260930",
+          "purpose": "fact_contradiction",
+          "answers": {
+            "contradicts_repair": {
+              "type": "noul",
+              "noul": 0.1
+            }
+          }
+        },
+        {
+          "model": "inception/mercury-decide-20260930",
+          "purpose": "relevance",
+          "answers": {
+            "rel_repair": {
+              "type": "score",
+              "score": 2.8499999999999996
+            }
+          }
+        },
+        {
+          "model": "perplexity/pplx-decider-flash-v1.2-20261016",
+          "purpose": "fact_filter",
+          "answers": {
+            "stable_repair": {
+              "type": "noul",
+              "noul": 0.95
+            },
+            "safe_repair": {
+              "type": "noul",
+              "noul": 0.95
+            }
+          }
+        },
+        {
+          "model": "perplexity/pplx-decider-flash-v1.2-20261016",
+          "purpose": "fact_contradiction",
+          "answers": {
+            "contradicts_repair": {
+              "type": "noul",
+              "noul": 0.1
+            }
+          }
+        },
+        {
+          "model": "perplexity/pplx-decider-flash-v1.2-20261016",
+          "purpose": "relevance",
+          "answers": {
+            "rel_repair": {
+              "type": "score",
+              "score": 2.8499999999999996
+            }
+          }
+        },
+        {
+          "model": "typesafe/jev-1.14-20261014",
+          "purpose": "fact_filter",
+          "answers": {
+            "stable_repair": {
+              "type": "noul",
+              "noul": 0.95
+            },
+            "safe_repair": {
+              "type": "noul",
+              "noul": 0.95
+            }
+          }
+        },
+        {
+          "model": "typesafe/jev-1.14-20261014",
+          "purpose": "fact_contradiction",
+          "answers": {
+            "contradicts_repair": {
+              "type": "noul",
+              "noul": 0.1
+            }
+          }
+        },
+        {
+          "model": "typesafe/jev-1.14-20261014",
+          "purpose": "relevance",
+          "answers": {
+            "rel_repair": {
+              "type": "score",
+              "score": 2.8499999999999996
+            }
+          }
+        },
+        {
+          "model": "unreliable-20261029",
+          "purpose": "fact_filter",
+          "answers": {
+            "stable_repair": {
+              "type": "noul",
+              "noul": 0.7
+            },
+            "safe_repair": {
+              "type": "noul",
+              "noul": 0.7
+            }
+          }
+        },
+        {
+          "model": "unreliable-20261029",
+          "purpose": "fact_contradiction",
+          "answers": {
+            "contradicts_repair": {
+              "type": "noul",
+              "noul": 0.7
+            }
+          }
+        },
+        {
+          "model": "unreliable-20261029",
+          "purpose": "relevance",
+          "answers": {
+            "rel_repair": {
+              "type": "score",
+              "score": 2.0999999999999996
+            }
+          }
+        }
+      ]
+    },
+    {
+      "session": {
+        "host": "claude",
+        "agent_home": "/synthetic/home",
+        "session_id": "outcome-06",
+        "repo_key": "synthetic",
+        "cwd": "/synthetic/repo",
+        "started": 7000,
+        "ended": 7999,
+        "turns": [
+          {
+            "prompt": "Run the repository tests",
+            "calls": [
+              {
+                "tool": "Bash",
+                "args_digest": "python -m pytest",
+                "output_digest": "10 passed in 0.3s",
+                "exit_code": 0,
+                "is_error": false
+              }
+            ],
+            "stopped_by": "own_stop"
+          }
+        ]
+      },
+      "facts": {
+        "facts": {
+          "repair": {
+            "candidate": {
+              "id": "repair",
+              "family": "form_repair",
+              "params": {
+                "intent": "run_tests",
+                "bad_form": "pytest",
+                "forms": {
+                  "python -m pytest": 3
+                }
+              },
+              "scope": "neutral",
+              "evidence": []
+            },
+            "life": {
+              "status": "active",
+              "confirmations": 3,
+              "contradictions": 0,
+              "score": 3.0,
+              "fire_num": 3,
+              "fire_den": 4,
+              "contradiction_streak": 0
+            }
+          }
+        },
+        "processed": []
+      },
+      "injected": [
+        "repair"
+      ],
+      "expected": {
+        "repair": true
+      },
+      "judgments": [
+        {
+          "model": "inception/mercury-decide-20260930",
+          "purpose": "fact_filter",
+          "answers": {
+            "stable_repair": {
+              "type": "noul",
+              "noul": 0.95
+            },
+            "safe_repair": {
+              "type": "noul",
+              "noul": 0.95
+            }
+          }
+        },
+        {
+          "model": "inception/mercury-decide-20260930",
+          "purpose": "fact_contradiction",
+          "answers": {
+            "contradicts_repair": {
+              "type": "noul",
+              "noul": 0.1
+            }
+          }
+        },
+        {
+          "model": "inception/mercury-decide-20260930",
+          "purpose": "relevance",
+          "answers": {
+            "rel_repair": {
+              "type": "score",
+              "score": 2.8499999999999996
+            }
+          }
+        },
+        {
+          "model": "perplexity/pplx-decider-flash-v1.2-20261016",
+          "purpose": "fact_filter",
+          "answers": {
+            "stable_repair": {
+              "type": "noul",
+              "noul": 0.95
+            },
+            "safe_repair": {
+              "type": "noul",
+              "noul": 0.95
+            }
+          }
+        },
+        {
+          "model": "perplexity/pplx-decider-flash-v1.2-20261016",
+          "purpose": "fact_contradiction",
+          "answers": {
+            "contradicts_repair": {
+              "type": "noul",
+              "noul": 0.1
+            }
+          }
+        },
+        {
+          "model": "perplexity/pplx-decider-flash-v1.2-20261016",
+          "purpose": "relevance",
+          "answers": {
+            "rel_repair": {
+              "type": "score",
+              "score": 2.8499999999999996
+            }
+          }
+        },
+        {
+          "model": "typesafe/jev-1.14-20261014",
+          "purpose": "fact_filter",
+          "answers": {
+            "stable_repair": {
+              "type": "noul",
+              "noul": 0.95
+            },
+            "safe_repair": {
+              "type": "noul",
+              "noul": 0.95
+            }
+          }
+        },
+        {
+          "model": "typesafe/jev-1.14-20261014",
+          "purpose": "fact_contradiction",
+          "answers": {
+            "contradicts_repair": {
+              "type": "noul",
+              "noul": 0.1
+            }
+          }
+        },
+        {
+          "model": "typesafe/jev-1.14-20261014",
+          "purpose": "relevance",
+          "answers": {
+            "rel_repair": {
+              "type": "score",
+              "score": 2.8499999999999996
+            }
+          }
+        },
+        {
+          "model": "unreliable-20261029",
+          "purpose": "fact_filter",
+          "answers": {
+            "stable_repair": {
+              "type": "noul",
+              "noul": 0.7
+            },
+            "safe_repair": {
+              "type": "noul",
+              "noul": 0.7
+            }
+          }
+        },
+        {
+          "model": "unreliable-20261029",
+          "purpose": "fact_contradiction",
+          "answers": {
+            "contradicts_repair": {
+              "type": "noul",
+              "noul": 0.7
+            }
+          }
+        },
+        {
+          "model": "unreliable-20261029",
+          "purpose": "relevance",
+          "answers": {
+            "rel_repair": {
+              "type": "score",
+              "score": 2.0999999999999996
+            }
+          }
+        }
+      ]
+    },
+    {
+      "session": {
+        "host": "codex",
+        "agent_home": "/synthetic/home",
+        "session_id": "outcome-07",
+        "repo_key": "synthetic",
+        "cwd": "/synthetic/repo",
+        "started": 8000,
+        "ended": 8999,
+        "turns": [
+          {
+            "prompt": "Run the repository tests",
+            "calls": [
+              {
+                "tool": "Bash",
+                "args_digest": "python -m pytest",
+                "output_digest": "10 passed in 0.3s",
+                "exit_code": 0,
+                "is_error": false
+              }
+            ],
+            "stopped_by": "own_stop"
+          }
+        ]
+      },
+      "facts": {
+        "facts": {
+          "repair": {
+            "candidate": {
+              "id": "repair",
+              "family": "form_repair",
+              "params": {
+                "intent": "run_tests",
+                "bad_form": "pytest",
+                "forms": {
+                  "python -m pytest": 3
+                }
+              },
+              "scope": "neutral",
+              "evidence": []
+            },
+            "life": {
+              "status": "active",
+              "confirmations": 3,
+              "contradictions": 0,
+              "score": 3.0,
+              "fire_num": 3,
+              "fire_den": 4,
+              "contradiction_streak": 0
+            }
+          }
+        },
+        "processed": []
+      },
+      "injected": [
+        "repair"
+      ],
+      "expected": {
+        "repair": true
+      },
+      "judgments": [
+        {
+          "model": "inception/mercury-decide-20260930",
+          "purpose": "fact_filter",
+          "answers": {
+            "stable_repair": {
+              "type": "noul",
+              "noul": 0.95
+            },
+            "safe_repair": {
+              "type": "noul",
+              "noul": 0.95
+            }
+          }
+        },
+        {
+          "model": "inception/mercury-decide-20260930",
+          "purpose": "fact_contradiction",
+          "answers": {
+            "contradicts_repair": {
+              "type": "noul",
+              "noul": 0.1
+            }
+          }
+        },
+        {
+          "model": "inception/mercury-decide-20260930",
+          "purpose": "relevance",
+          "answers": {
+            "rel_repair": {
+              "type": "score",
+              "score": 2.8499999999999996
+            }
+          }
+        },
+        {
+          "model": "perplexity/pplx-decider-flash-v1.2-20261016",
+          "purpose": "fact_filter",
+          "answers": {
+            "stable_repair": {
+              "type": "noul",
+              "noul": 0.95
+            },
+            "safe_repair": {
+              "type": "noul",
+              "noul": 0.95
+            }
+          }
+        },
+        {
+          "model": "perplexity/pplx-decider-flash-v1.2-20261016",
+          "purpose": "fact_contradiction",
+          "answers": {
+            "contradicts_repair": {
+              "type": "noul",
+              "noul": 0.1
+            }
+          }
+        },
+        {
+          "model": "perplexity/pplx-decider-flash-v1.2-20261016",
+          "purpose": "relevance",
+          "answers": {
+            "rel_repair": {
+              "type": "score",
+              "score": 2.8499999999999996
+            }
+          }
+        },
+        {
+          "model": "typesafe/jev-1.14-20261014",
+          "purpose": "fact_filter",
+          "answers": {
+            "stable_repair": {
+              "type": "noul",
+              "noul": 0.95
+            },
+            "safe_repair": {
+              "type": "noul",
+              "noul": 0.95
+            }
+          }
+        },
+        {
+          "model": "typesafe/jev-1.14-20261014",
+          "purpose": "fact_contradiction",
+          "answers": {
+            "contradicts_repair": {
+              "type": "noul",
+              "noul": 0.1
+            }
+          }
+        },
+        {
+          "model": "typesafe/jev-1.14-20261014",
+          "purpose": "relevance",
+          "answers": {
+            "rel_repair": {
+              "type": "score",
+              "score": 2.8499999999999996
+            }
+          }
+        },
+        {
+          "model": "unreliable-20261029",
+          "purpose": "fact_filter",
+          "answers": {
+            "stable_repair": {
+              "type": "noul",
+              "noul": 0.7
+            },
+            "safe_repair": {
+              "type": "noul",
+              "noul": 0.7
+            }
+          }
+        },
+        {
+          "model": "unreliable-20261029",
+          "purpose": "fact_contradiction",
+          "answers": {
+            "contradicts_repair": {
+              "type": "noul",
+              "noul": 0.7
+            }
+          }
+        },
+        {
+          "model": "unreliable-20261029",
+          "purpose": "relevance",
+          "answers": {
+            "rel_repair": {
+              "type": "score",
+              "score": 2.0999999999999996
+            }
+          }
+        }
+      ]
+    },
+    {
+      "session": {
+        "host": "claude",
+        "agent_home": "/synthetic/home",
+        "session_id": "outcome-08",
+        "repo_key": "synthetic",
+        "cwd": "/synthetic/repo",
+        "started": 9000,
+        "ended": 9999,
+        "turns": [
+          {
+            "prompt": "Run the repository tests",
+            "calls": [
+              {
+                "tool": "Bash",
+                "args_digest": "python -m pytest",
+                "output_digest": "10 passed in 0.3s",
+                "exit_code": 0,
+                "is_error": false
+              }
+            ],
+            "stopped_by": "own_stop"
+          }
+        ]
+      },
+      "facts": {
+        "facts": {
+          "repair": {
+            "candidate": {
+              "id": "repair",
+              "family": "form_repair",
+              "params": {
+                "intent": "run_tests",
+                "bad_form": "pytest",
+                "forms": {
+                  "python -m pytest": 3
+                }
+              },
+              "scope": "neutral",
+              "evidence": []
+            },
+            "life": {
+              "status": "active",
+              "confirmations": 3,
+              "contradictions": 0,
+              "score": 3.0,
+              "fire_num": 3,
+              "fire_den": 4,
+              "contradiction_streak": 0
+            }
+          }
+        },
+        "processed": []
+      },
+      "injected": [
+        "repair"
+      ],
+      "expected": {
+        "repair": true
+      },
+      "judgments": [
+        {
+          "model": "inception/mercury-decide-20260930",
+          "purpose": "fact_filter",
+          "answers": {
+            "stable_repair": {
+              "type": "noul",
+              "noul": 0.95
+            },
+            "safe_repair": {
+              "type": "noul",
+              "noul": 0.95
+            }
+          }
+        },
+        {
+          "model": "inception/mercury-decide-20260930",
+          "purpose": "fact_contradiction",
+          "answers": {
+            "contradicts_repair": {
+              "type": "noul",
+              "noul": 0.1
+            }
+          }
+        },
+        {
+          "model": "inception/mercury-decide-20260930",
+          "purpose": "relevance",
+          "answers": {
+            "rel_repair": {
+              "type": "score",
+              "score": 2.8499999999999996
+            }
+          }
+        },
+        {
+          "model": "perplexity/pplx-decider-flash-v1.2-20261016",
+          "purpose": "fact_filter",
+          "answers": {
+            "stable_repair": {
+              "type": "noul",
+              "noul": 0.95
+            },
+            "safe_repair": {
+              "type": "noul",
+              "noul": 0.95
+            }
+          }
+        },
+        {
+          "model": "perplexity/pplx-decider-flash-v1.2-20261016",
+          "purpose": "fact_contradiction",
+          "answers": {
+            "contradicts_repair": {
+              "type": "noul",
+              "noul": 0.1
+            }
+          }
+        },
+        {
+          "model": "perplexity/pplx-decider-flash-v1.2-20261016",
+          "purpose": "relevance",
+          "answers": {
+            "rel_repair": {
+              "type": "score",
+              "score": 2.8499999999999996
+            }
+          }
+        },
+        {
+          "model": "typesafe/jev-1.14-20261014",
+          "purpose": "fact_filter",
+          "answers": {
+            "stable_repair": {
+              "type": "noul",
+              "noul": 0.95
+            },
+            "safe_repair": {
+              "type": "noul",
+              "noul": 0.95
+            }
+          }
+        },
+        {
+          "model": "typesafe/jev-1.14-20261014",
+          "purpose": "fact_contradiction",
+          "answers": {
+            "contradicts_repair": {
+              "type": "noul",
+              "noul": 0.1
+            }
+          }
+        },
+        {
+          "model": "typesafe/jev-1.14-20261014",
+          "purpose": "relevance",
+          "answers": {
+            "rel_repair": {
+              "type": "score",
+              "score": 2.8499999999999996
+            }
+          }
+        },
+        {
+          "model": "unreliable-20261029",
+          "purpose": "fact_filter",
+          "answers": {
+            "stable_repair": {
+              "type": "noul",
+              "noul": 0.7
+            },
+            "safe_repair": {
+              "type": "noul",
+              "noul": 0.7
+            }
+          }
+        },
+        {
+          "model": "unreliable-20261029",
+          "purpose": "fact_contradiction",
+          "answers": {
+            "contradicts_repair": {
+              "type": "noul",
+              "noul": 0.7
+            }
+          }
+        },
+        {
+          "model": "unreliable-20261029",
+          "purpose": "relevance",
+          "answers": {
+            "rel_repair": {
+              "type": "score",
+              "score": 2.0999999999999996
+            }
+          }
+        }
+      ]
+    },
+    {
+      "session": {
+        "host": "codex",
+        "agent_home": "/synthetic/home",
+        "session_id": "outcome-09",
+        "repo_key": "synthetic",
+        "cwd": "/synthetic/repo",
+        "started": 10000,
+        "ended": 10999,
+        "turns": [
+          {
+            "prompt": "Run the repository tests",
+            "calls": [
+              {
+                "tool": "Bash",
+                "args_digest": "python -m pytest",
+                "output_digest": "10 passed in 0.3s",
+                "exit_code": 0,
+                "is_error": false
+              }
+            ],
+            "stopped_by": "own_stop"
+          }
+        ]
+      },
+      "facts": {
+        "facts": {
+          "repair": {
+            "candidate": {
+              "id": "repair",
+              "family": "form_repair",
+              "params": {
+                "intent": "run_tests",
+                "bad_form": "pytest",
+                "forms": {
+                  "python -m pytest": 3
+                }
+              },
+              "scope": "neutral",
+              "evidence": []
+            },
+            "life": {
+              "status": "active",
+              "confirmations": 3,
+              "contradictions": 0,
+              "score": 3.0,
+              "fire_num": 3,
+              "fire_den": 4,
+              "contradiction_streak": 0
+            }
+          }
+        },
+        "processed": []
+      },
+      "injected": [
+        "repair"
+      ],
+      "expected": {
+        "repair": true
+      },
+      "judgments": [
+        {
+          "model": "inception/mercury-decide-20260930",
+          "purpose": "fact_filter",
+          "answers": {
+            "stable_repair": {
+              "type": "noul",
+              "noul": 0.95
+            },
+            "safe_repair": {
+              "type": "noul",
+              "noul": 0.95
+            }
+          }
+        },
+        {
+          "model": "inception/mercury-decide-20260930",
+          "purpose": "fact_contradiction",
+          "answers": {
+            "contradicts_repair": {
+              "type": "noul",
+              "noul": 0.1
+            }
+          }
+        },
+        {
+          "model": "inception/mercury-decide-20260930",
+          "purpose": "relevance",
+          "answers": {
+            "rel_repair": {
+              "type": "score",
+              "score": 2.8499999999999996
+            }
+          }
+        },
+        {
+          "model": "perplexity/pplx-decider-flash-v1.2-20261016",
+          "purpose": "fact_filter",
+          "answers": {
+            "stable_repair": {
+              "type": "noul",
+              "noul": 0.95
+            },
+            "safe_repair": {
+              "type": "noul",
+              "noul": 0.95
+            }
+          }
+        },
+        {
+          "model": "perplexity/pplx-decider-flash-v1.2-20261016",
+          "purpose": "fact_contradiction",
+          "answers": {
+            "contradicts_repair": {
+              "type": "noul",
+              "noul": 0.1
+            }
+          }
+        },
+        {
+          "model": "perplexity/pplx-decider-flash-v1.2-20261016",
+          "purpose": "relevance",
+          "answers": {
+            "rel_repair": {
+              "type": "score",
+              "score": 2.8499999999999996
+            }
+          }
+        },
+        {
+          "model": "typesafe/jev-1.14-20261014",
+          "purpose": "fact_filter",
+          "answers": {
+            "stable_repair": {
+              "type": "noul",
+              "noul": 0.95
+            },
+            "safe_repair": {
+              "type": "noul",
+              "noul": 0.95
+            }
+          }
+        },
+        {
+          "model": "typesafe/jev-1.14-20261014",
+          "purpose": "fact_contradiction",
+          "answers": {
+            "contradicts_repair": {
+              "type": "noul",
+              "noul": 0.1
+            }
+          }
+        },
+        {
+          "model": "typesafe/jev-1.14-20261014",
+          "purpose": "relevance",
+          "answers": {
+            "rel_repair": {
+              "type": "score",
+              "score": 2.8499999999999996
+            }
+          }
+        },
+        {
+          "model": "unreliable-20261029",
+          "purpose": "fact_filter",
+          "answers": {
+            "stable_repair": {
+              "type": "noul",
+              "noul": 0.7
+            },
+            "safe_repair": {
+              "type": "noul",
+              "noul": 0.7
+            }
+          }
+        },
+        {
+          "model": "unreliable-20261029",
+          "purpose": "fact_contradiction",
+          "answers": {
+            "contradicts_repair": {
+              "type": "noul",
+              "noul": 0.7
+            }
+          }
+        },
+        {
+          "model": "unreliable-20261029",
+          "purpose": "relevance",
+          "answers": {
+            "rel_repair": {
+              "type": "score",
+              "score": 2.0999999999999996
+            }
+          }
+        }
+      ]
+    },
+    {
+      "session": {
+        "host": "claude",
+        "agent_home": "/synthetic/home",
+        "session_id": "outcome-10",
+        "repo_key": "synthetic",
+        "cwd": "/synthetic/repo",
+        "started": 11000,
+        "ended": 11999,
+        "turns": [
+          {
+            "prompt": "Run the repository tests",
+            "calls": [
+              {
+                "tool": "Bash",
+                "args_digest": "python -m pytest",
+                "output_digest": "10 passed in 0.3s",
+                "exit_code": 0,
+                "is_error": false
+              }
+            ],
+            "stopped_by": "own_stop"
+          }
+        ]
+      },
+      "facts": {
+        "facts": {
+          "repair": {
+            "candidate": {
+              "id": "repair",
+              "family": "form_repair",
+              "params": {
+                "intent": "run_tests",
+                "bad_form": "pytest",
+                "forms": {
+                  "python -m pytest": 3
+                }
+              },
+              "scope": "neutral",
+              "evidence": []
+            },
+            "life": {
+              "status": "active",
+              "confirmations": 3,
+              "contradictions": 0,
+              "score": 3.0,
+              "fire_num": 3,
+              "fire_den": 4,
+              "contradiction_streak": 0
+            }
+          }
+        },
+        "processed": []
+      },
+      "injected": [
+        "repair"
+      ],
+      "expected": {
+        "repair": true
+      },
+      "judgments": [
+        {
+          "model": "inception/mercury-decide-20260930",
+          "purpose": "fact_filter",
+          "answers": {
+            "stable_repair": {
+              "type": "noul",
+              "noul": 0.95
+            },
+            "safe_repair": {
+              "type": "noul",
+              "noul": 0.95
+            }
+          }
+        },
+        {
+          "model": "inception/mercury-decide-20260930",
+          "purpose": "fact_contradiction",
+          "answers": {
+            "contradicts_repair": {
+              "type": "noul",
+              "noul": 0.1
+            }
+          }
+        },
+        {
+          "model": "inception/mercury-decide-20260930",
+          "purpose": "relevance",
+          "answers": {
+            "rel_repair": {
+              "type": "score",
+              "score": 2.8499999999999996
+            }
+          }
+        },
+        {
+          "model": "perplexity/pplx-decider-flash-v1.2-20261016",
+          "purpose": "fact_filter",
+          "answers": {
+            "stable_repair": {
+              "type": "noul",
+              "noul": 0.95
+            },
+            "safe_repair": {
+              "type": "noul",
+              "noul": 0.95
+            }
+          }
+        },
+        {
+          "model": "perplexity/pplx-decider-flash-v1.2-20261016",
+          "purpose": "fact_contradiction",
+          "answers": {
+            "contradicts_repair": {
+              "type": "noul",
+              "noul": 0.1
+            }
+          }
+        },
+        {
+          "model": "perplexity/pplx-decider-flash-v1.2-20261016",
+          "purpose": "relevance",
+          "answers": {
+            "rel_repair": {
+              "type": "score",
+              "score": 2.8499999999999996
+            }
+          }
+        },
+        {
+          "model": "typesafe/jev-1.14-20261014",
+          "purpose": "fact_filter",
+          "answers": {
+            "stable_repair": {
+              "type": "noul",
+              "noul": 0.95
+            },
+            "safe_repair": {
+              "type": "noul",
+              "noul": 0.95
+            }
+          }
+        },
+        {
+          "model": "typesafe/jev-1.14-20261014",
+          "purpose": "fact_contradiction",
+          "answers": {
+            "contradicts_repair": {
+              "type": "noul",
+              "noul": 0.1
+            }
+          }
+        },
+        {
+          "model": "typesafe/jev-1.14-20261014",
+          "purpose": "relevance",
+          "answers": {
+            "rel_repair": {
+              "type": "score",
+              "score": 2.8499999999999996
+            }
+          }
+        },
+        {
+          "model": "unreliable-20261029",
+          "purpose": "fact_filter",
+          "answers": {
+            "stable_repair": {
+              "type": "noul",
+              "noul": 0.7
+            },
+            "safe_repair": {
+              "type": "noul",
+              "noul": 0.7
+            }
+          }
+        },
+        {
+          "model": "unreliable-20261029",
+          "purpose": "fact_contradiction",
+          "answers": {
+            "contradicts_repair": {
+              "type": "noul",
+              "noul": 0.7
+            }
+          }
+        },
+        {
+          "model": "unreliable-20261029",
+          "purpose": "relevance",
+          "answers": {
+            "rel_repair": {
+              "type": "score",
+              "score": 2.0999999999999996
+            }
+          }
+        }
+      ]
+    },
+    {
+      "session": {
+        "host": "codex",
+        "agent_home": "/synthetic/home",
+        "session_id": "outcome-11",
+        "repo_key": "synthetic",
+        "cwd": "/synthetic/repo",
+        "started": 12000,
+        "ended": 12999,
+        "turns": [
+          {
+            "prompt": "Run the repository tests",
+            "calls": [
+              {
+                "tool": "Bash",
+                "args_digest": "python -m pytest",
+                "output_digest": "10 passed in 0.3s",
+                "exit_code": 0,
+                "is_error": false
+              }
+            ],
+            "stopped_by": "own_stop"
+          }
+        ]
+      },
+      "facts": {
+        "facts": {
+          "repair": {
+            "candidate": {
+              "id": "repair",
+              "family": "form_repair",
+              "params": {
+                "intent": "run_tests",
+                "bad_form": "pytest",
+                "forms": {
+                  "python -m pytest": 3
+                }
+              },
+              "scope": "neutral",
+              "evidence": []
+            },
+            "life": {
+              "status": "active",
+              "confirmations": 3,
+              "contradictions": 0,
+              "score": 3.0,
+              "fire_num": 3,
+              "fire_den": 4,
+              "contradiction_streak": 0
+            }
+          }
+        },
+        "processed": []
+      },
+      "injected": [
+        "repair"
+      ],
+      "expected": {
+        "repair": true
+      },
+      "judgments": [
+        {
+          "model": "inception/mercury-decide-20260930",
+          "purpose": "fact_filter",
+          "answers": {
+            "stable_repair": {
+              "type": "noul",
+              "noul": 0.95
+            },
+            "safe_repair": {
+              "type": "noul",
+              "noul": 0.95
+            }
+          }
+        },
+        {
+          "model": "inception/mercury-decide-20260930",
+          "purpose": "fact_contradiction",
+          "answers": {
+            "contradicts_repair": {
+              "type": "noul",
+              "noul": 0.1
+            }
+          }
+        },
+        {
+          "model": "inception/mercury-decide-20260930",
+          "purpose": "relevance",
+          "answers": {
+            "rel_repair": {
+              "type": "score",
+              "score": 2.8499999999999996
+            }
+          }
+        },
+        {
+          "model": "perplexity/pplx-decider-flash-v1.2-20261016",
+          "purpose": "fact_filter",
+          "answers": {
+            "stable_repair": {
+              "type": "noul",
+              "noul": 0.95
+            },
+            "safe_repair": {
+              "type": "noul",
+              "noul": 0.95
+            }
+          }
+        },
+        {
+          "model": "perplexity/pplx-decider-flash-v1.2-20261016",
+          "purpose": "fact_contradiction",
+          "answers": {
+            "contradicts_repair": {
+              "type": "noul",
+              "noul": 0.1
+            }
+          }
+        },
+        {
+          "model": "perplexity/pplx-decider-flash-v1.2-20261016",
+          "purpose": "relevance",
+          "answers": {
+            "rel_repair": {
+              "type": "score",
+              "score": 2.8499999999999996
+            }
+          }
+        },
+        {
+          "model": "typesafe/jev-1.14-20261014",
+          "purpose": "fact_filter",
+          "answers": {
+            "stable_repair": {
+              "type": "noul",
+              "noul": 0.95
+            },
+            "safe_repair": {
+              "type": "noul",
+              "noul": 0.95
+            }
+          }
+        },
+        {
+          "model": "typesafe/jev-1.14-20261014",
+          "purpose": "fact_contradiction",
+          "answers": {
+            "contradicts_repair": {
+              "type": "noul",
+              "noul": 0.1
+            }
+          }
+        },
+        {
+          "model": "typesafe/jev-1.14-20261014",
+          "purpose": "relevance",
+          "answers": {
+            "rel_repair": {
+              "type": "score",
+              "score": 2.8499999999999996
+            }
+          }
+        },
+        {
+          "model": "unreliable-20261029",
+          "purpose": "fact_filter",
+          "answers": {
+            "stable_repair": {
+              "type": "noul",
+              "noul": 0.7
+            },
+            "safe_repair": {
+              "type": "noul",
+              "noul": 0.7
+            }
+          }
+        },
+        {
+          "model": "unreliable-20261029",
+          "purpose": "fact_contradiction",
+          "answers": {
+            "contradicts_repair": {
+              "type": "noul",
+              "noul": 0.7
+            }
+          }
+        },
+        {
+          "model": "unreliable-20261029",
+          "purpose": "relevance",
+          "answers": {
+            "rel_repair": {
+              "type": "score",
+              "score": 2.0999999999999996
+            }
+          }
+        }
+      ]
+    },
+    {
+      "session": {
+        "host": "claude",
+        "agent_home": "/synthetic/home",
+        "session_id": "outcome-12",
+        "repo_key": "synthetic",
+        "cwd": "/synthetic/repo",
+        "started": 13000,
+        "ended": 13999,
+        "turns": [
+          {
+            "prompt": "Run the repository tests",
+            "calls": [
+              {
+                "tool": "Bash",
+                "args_digest": "python -m pytest",
+                "output_digest": "ImportError: missing dependency",
+                "exit_code": 1,
+                "is_error": true
+              }
+            ],
+            "stopped_by": "own_stop"
+          }
+        ]
+      },
+      "facts": {
+        "facts": {
+          "repair": {
+            "candidate": {
+              "id": "repair",
+              "family": "form_repair",
+              "params": {
+                "intent": "run_tests",
+                "bad_form": "pytest",
+                "forms": {
+                  "python -m pytest": 3
+                }
+              },
+              "scope": "neutral",
+              "evidence": []
+            },
+            "life": {
+              "status": "active",
+              "confirmations": 3,
+              "contradictions": 0,
+              "score": 3.0,
+              "fire_num": 3,
+              "fire_den": 4,
+              "contradiction_streak": 0
+            }
+          }
+        },
+        "processed": []
+      },
+      "injected": [
+        "repair"
+      ],
+      "expected": {
+        "repair": false
+      },
+      "judgments": [
+        {
+          "model": "inception/mercury-decide-20260930",
+          "purpose": "fact_filter",
+          "answers": {
+            "stable_repair": {
+              "type": "noul",
+              "noul": 0.1
+            },
+            "safe_repair": {
+              "type": "noul",
+              "noul": 0.1
+            }
+          }
+        },
+        {
+          "model": "inception/mercury-decide-20260930",
+          "purpose": "fact_contradiction",
+          "answers": {
+            "contradicts_repair": {
+              "type": "noul",
+              "noul": 0.95
+            }
+          }
+        },
+        {
+          "model": "inception/mercury-decide-20260930",
+          "purpose": "relevance",
+          "answers": {
+            "rel_repair": {
+              "type": "score",
+              "score": 0.30000000000000004
+            }
+          }
+        },
+        {
+          "model": "perplexity/pplx-decider-flash-v1.2-20261016",
+          "purpose": "fact_filter",
+          "answers": {
+            "stable_repair": {
+              "type": "noul",
+              "noul": 0.1
+            },
+            "safe_repair": {
+              "type": "noul",
+              "noul": 0.1
+            }
+          }
+        },
+        {
+          "model": "perplexity/pplx-decider-flash-v1.2-20261016",
+          "purpose": "fact_contradiction",
+          "answers": {
+            "contradicts_repair": {
+              "type": "noul",
+              "noul": 0.95
+            }
+          }
+        },
+        {
+          "model": "perplexity/pplx-decider-flash-v1.2-20261016",
+          "purpose": "relevance",
+          "answers": {
+            "rel_repair": {
+              "type": "score",
+              "score": 0.30000000000000004
+            }
+          }
+        },
+        {
+          "model": "typesafe/jev-1.14-20261014",
+          "purpose": "fact_filter",
+          "answers": {
+            "stable_repair": {
+              "type": "noul",
+              "noul": 0.1
+            },
+            "safe_repair": {
+              "type": "noul",
+              "noul": 0.1
+            }
+          }
+        },
+        {
+          "model": "typesafe/jev-1.14-20261014",
+          "purpose": "fact_contradiction",
+          "answers": {
+            "contradicts_repair": {
+              "type": "noul",
+              "noul": 0.95
+            }
+          }
+        },
+        {
+          "model": "typesafe/jev-1.14-20261014",
+          "purpose": "relevance",
+          "answers": {
+            "rel_repair": {
+              "type": "score",
+              "score": 0.30000000000000004
+            }
+          }
+        },
+        {
+          "model": "unreliable-20261029",
+          "purpose": "fact_filter",
+          "answers": {
+            "stable_repair": {
+              "type": "noul",
+              "noul": 0.7
+            },
+            "safe_repair": {
+              "type": "noul",
+              "noul": 0.7
+            }
+          }
+        },
+        {
+          "model": "unreliable-20261029",
+          "purpose": "fact_contradiction",
+          "answers": {
+            "contradicts_repair": {
+              "type": "noul",
+              "noul": 0.7
+            }
+          }
+        },
+        {
+          "model": "unreliable-20261029",
+          "purpose": "relevance",
+          "answers": {
+            "rel_repair": {
+              "type": "score",
+              "score": 2.0999999999999996
+            }
+          }
+        }
+      ]
+    },
+    {
+      "session": {
+        "host": "codex",
+        "agent_home": "/synthetic/home",
+        "session_id": "outcome-13",
+        "repo_key": "synthetic",
+        "cwd": "/synthetic/repo",
+        "started": 14000,
+        "ended": 14999,
+        "turns": [
+          {
+            "prompt": "Run the repository tests",
+            "calls": [
+              {
+                "tool": "Bash",
+                "args_digest": "python -m pytest",
+                "output_digest": "ImportError: missing dependency",
+                "exit_code": 1,
+                "is_error": true
+              }
+            ],
+            "stopped_by": "own_stop"
+          }
+        ]
+      },
+      "facts": {
+        "facts": {
+          "repair": {
+            "candidate": {
+              "id": "repair",
+              "family": "form_repair",
+              "params": {
+                "intent": "run_tests",
+                "bad_form": "pytest",
+                "forms": {
+                  "python -m pytest": 3
+                }
+              },
+              "scope": "neutral",
+              "evidence": []
+            },
+            "life": {
+              "status": "active",
+              "confirmations": 3,
+              "contradictions": 0,
+              "score": 3.0,
+              "fire_num": 3,
+              "fire_den": 4,
+              "contradiction_streak": 0
+            }
+          }
+        },
+        "processed": []
+      },
+      "injected": [
+        "repair"
+      ],
+      "expected": {
+        "repair": false
+      },
+      "judgments": [
+        {
+          "model": "inception/mercury-decide-20260930",
+          "purpose": "fact_filter",
+          "answers": {
+            "stable_repair": {
+              "type": "noul",
+              "noul": 0.1
+            },
+            "safe_repair": {
+              "type": "noul",
+              "noul": 0.1
+            }
+          }
+        },
+        {
+          "model": "inception/mercury-decide-20260930",
+          "purpose": "fact_contradiction",
+          "answers": {
+            "contradicts_repair": {
+              "type": "noul",
+              "noul": 0.95
+            }
+          }
+        },
+        {
+          "model": "inception/mercury-decide-20260930",
+          "purpose": "relevance",
+          "answers": {
+            "rel_repair": {
+              "type": "score",
+              "score": 0.30000000000000004
+            }
+          }
+        },
+        {
+          "model": "perplexity/pplx-decider-flash-v1.2-20261016",
+          "purpose": "fact_filter",
+          "answers": {
+            "stable_repair": {
+              "type": "noul",
+              "noul": 0.1
+            },
+            "safe_repair": {
+              "type": "noul",
+              "noul": 0.1
+            }
+          }
+        },
+        {
+          "model": "perplexity/pplx-decider-flash-v1.2-20261016",
+          "purpose": "fact_contradiction",
+          "answers": {
+            "contradicts_repair": {
+              "type": "noul",
+              "noul": 0.95
+            }
+          }
+        },
+        {
+          "model": "perplexity/pplx-decider-flash-v1.2-20261016",
+          "purpose": "relevance",
+          "answers": {
+            "rel_repair": {
+              "type": "score",
+              "score": 0.30000000000000004
+            }
+          }
+        },
+        {
+          "model": "typesafe/jev-1.14-20261014",
+          "purpose": "fact_filter",
+          "answers": {
+            "stable_repair": {
+              "type": "noul",
+              "noul": 0.1
+            },
+            "safe_repair": {
+              "type": "noul",
+              "noul": 0.1
+            }
+          }
+        },
+        {
+          "model": "typesafe/jev-1.14-20261014",
+          "purpose": "fact_contradiction",
+          "answers": {
+            "contradicts_repair": {
+              "type": "noul",
+              "noul": 0.95
+            }
+          }
+        },
+        {
+          "model": "typesafe/jev-1.14-20261014",
+          "purpose": "relevance",
+          "answers": {
+            "rel_repair": {
+              "type": "score",
+              "score": 0.30000000000000004
+            }
+          }
+        },
+        {
+          "model": "unreliable-20261029",
+          "purpose": "fact_filter",
+          "answers": {
+            "stable_repair": {
+              "type": "noul",
+              "noul": 0.7
+            },
+            "safe_repair": {
+              "type": "noul",
+              "noul": 0.7
+            }
+          }
+        },
+        {
+          "model": "unreliable-20261029",
+          "purpose": "fact_contradiction",
+          "answers": {
+            "contradicts_repair": {
+              "type": "noul",
+              "noul": 0.7
+            }
+          }
+        },
+        {
+          "model": "unreliable-20261029",
+          "purpose": "relevance",
+          "answers": {
+            "rel_repair": {
+              "type": "score",
+              "score": 2.0999999999999996
+            }
+          }
+        }
+      ]
+    },
+    {
+      "session": {
+        "host": "claude",
+        "agent_home": "/synthetic/home",
+        "session_id": "outcome-14",
+        "repo_key": "synthetic",
+        "cwd": "/synthetic/repo",
+        "started": 15000,
+        "ended": 15999,
+        "turns": [
+          {
+            "prompt": "Run the repository tests",
+            "calls": [
+              {
+                "tool": "Bash",
+                "args_digest": "python -m pytest",
+                "output_digest": "ImportError: missing dependency",
+                "exit_code": 1,
+                "is_error": true
+              }
+            ],
+            "stopped_by": "own_stop"
+          }
+        ]
+      },
+      "facts": {
+        "facts": {
+          "repair": {
+            "candidate": {
+              "id": "repair",
+              "family": "form_repair",
+              "params": {
+                "intent": "run_tests",
+                "bad_form": "pytest",
+                "forms": {
+                  "python -m pytest": 3
+                }
+              },
+              "scope": "neutral",
+              "evidence": []
+            },
+            "life": {
+              "status": "active",
+              "confirmations": 3,
+              "contradictions": 0,
+              "score": 3.0,
+              "fire_num": 3,
+              "fire_den": 4,
+              "contradiction_streak": 0
+            }
+          }
+        },
+        "processed": []
+      },
+      "injected": [
+        "repair"
+      ],
+      "expected": {
+        "repair": false
+      },
+      "judgments": [
+        {
+          "model": "inception/mercury-decide-20260930",
+          "purpose": "fact_filter",
+          "answers": {
+            "stable_repair": {
+              "type": "noul",
+              "noul": 0.1
+            },
+            "safe_repair": {
+              "type": "noul",
+              "noul": 0.1
+            }
+          }
+        },
+        {
+          "model": "inception/mercury-decide-20260930",
+          "purpose": "fact_contradiction",
+          "answers": {
+            "contradicts_repair": {
+              "type": "noul",
+              "noul": 0.95
+            }
+          }
+        },
+        {
+          "model": "inception/mercury-decide-20260930",
+          "purpose": "relevance",
+          "answers": {
+            "rel_repair": {
+              "type": "score",
+              "score": 0.30000000000000004
+            }
+          }
+        },
+        {
+          "model": "perplexity/pplx-decider-flash-v1.2-20261016",
+          "purpose": "fact_filter",
+          "answers": {
+            "stable_repair": {
+              "type": "noul",
+              "noul": 0.1
+            },
+            "safe_repair": {
+              "type": "noul",
+              "noul": 0.1
+            }
+          }
+        },
+        {
+          "model": "perplexity/pplx-decider-flash-v1.2-20261016",
+          "purpose": "fact_contradiction",
+          "answers": {
+            "contradicts_repair": {
+              "type": "noul",
+              "noul": 0.95
+            }
+          }
+        },
+        {
+          "model": "perplexity/pplx-decider-flash-v1.2-20261016",
+          "purpose": "relevance",
+          "answers": {
+            "rel_repair": {
+              "type": "score",
+              "score": 0.30000000000000004
+            }
+          }
+        },
+        {
+          "model": "typesafe/jev-1.14-20261014",
+          "purpose": "fact_filter",
+          "answers": {
+            "stable_repair": {
+              "type": "noul",
+              "noul": 0.1
+            },
+            "safe_repair": {
+              "type": "noul",
+              "noul": 0.1
+            }
+          }
+        },
+        {
+          "model": "typesafe/jev-1.14-20261014",
+          "purpose": "fact_contradiction",
+          "answers": {
+            "contradicts_repair": {
+              "type": "noul",
+              "noul": 0.95
+            }
+          }
+        },
+        {
+          "model": "typesafe/jev-1.14-20261014",
+          "purpose": "relevance",
+          "answers": {
+            "rel_repair": {
+              "type": "score",
+              "score": 0.30000000000000004
+            }
+          }
+        },
+        {
+          "model": "unreliable-20261029",
+          "purpose": "fact_filter",
+          "answers": {
+            "stable_repair": {
+              "type": "noul",
+              "noul": 0.7
+            },
+            "safe_repair": {
+              "type": "noul",
+              "noul": 0.7
+            }
+          }
+        },
+        {
+          "model": "unreliable-20261029",
+          "purpose": "fact_contradiction",
+          "answers": {
+            "contradicts_repair": {
+              "type": "noul",
+              "noul": 0.7
+            }
+          }
+        },
+        {
+          "model": "unreliable-20261029",
+          "purpose": "relevance",
+          "answers": {
+            "rel_repair": {
+              "type": "score",
+              "score": 2.0999999999999996
+            }
+          }
+        }
+      ]
+    },
+    {
+      "session": {
+        "host": "codex",
+        "agent_home": "/synthetic/home",
+        "session_id": "outcome-15",
+        "repo_key": "synthetic",
+        "cwd": "/synthetic/repo",
+        "started": 16000,
+        "ended": 16999,
+        "turns": [
+          {
+            "prompt": "Run the repository tests",
+            "calls": [
+              {
+                "tool": "Bash",
+                "args_digest": "python -m pytest",
+                "output_digest": "ImportError: missing dependency",
+                "exit_code": 1,
+                "is_error": true
+              }
+            ],
+            "stopped_by": "own_stop"
+          }
+        ]
+      },
+      "facts": {
+        "facts": {
+          "repair": {
+            "candidate": {
+              "id": "repair",
+              "family": "form_repair",
+              "params": {
+                "intent": "run_tests",
+                "bad_form": "pytest",
+                "forms": {
+                  "python -m pytest": 3
+                }
+              },
+              "scope": "neutral",
+              "evidence": []
+            },
+            "life": {
+              "status": "active",
+              "confirmations": 3,
+              "contradictions": 0,
+              "score": 3.0,
+              "fire_num": 3,
+              "fire_den": 4,
+              "contradiction_streak": 0
+            }
+          }
+        },
+        "processed": []
+      },
+      "injected": [
+        "repair"
+      ],
+      "expected": {
+        "repair": false
+      },
+      "judgments": [
+        {
+          "model": "inception/mercury-decide-20260930",
+          "purpose": "fact_filter",
+          "answers": {
+            "stable_repair": {
+              "type": "noul",
+              "noul": 0.1
+            },
+            "safe_repair": {
+              "type": "noul",
+              "noul": 0.1
+            }
+          }
+        },
+        {
+          "model": "inception/mercury-decide-20260930",
+          "purpose": "fact_contradiction",
+          "answers": {
+            "contradicts_repair": {
+              "type": "noul",
+              "noul": 0.95
+            }
+          }
+        },
+        {
+          "model": "inception/mercury-decide-20260930",
+          "purpose": "relevance",
+          "answers": {
+            "rel_repair": {
+              "type": "score",
+              "score": 0.30000000000000004
+            }
+          }
+        },
+        {
+          "model": "perplexity/pplx-decider-flash-v1.2-20261016",
+          "purpose": "fact_filter",
+          "answers": {
+            "stable_repair": {
+              "type": "noul",
+              "noul": 0.1
+            },
+            "safe_repair": {
+              "type": "noul",
+              "noul": 0.1
+            }
+          }
+        },
+        {
+          "model": "perplexity/pplx-decider-flash-v1.2-20261016",
+          "purpose": "fact_contradiction",
+          "answers": {
+            "contradicts_repair": {
+              "type": "noul",
+              "noul": 0.95
+            }
+          }
+        },
+        {
+          "model": "perplexity/pplx-decider-flash-v1.2-20261016",
+          "purpose": "relevance",
+          "answers": {
+            "rel_repair": {
+              "type": "score",
+              "score": 0.30000000000000004
+            }
+          }
+        },
+        {
+          "model": "typesafe/jev-1.14-20261014",
+          "purpose": "fact_filter",
+          "answers": {
+            "stable_repair": {
+              "type": "noul",
+              "noul": 0.1
+            },
+            "safe_repair": {
+              "type": "noul",
+              "noul": 0.1
+            }
+          }
+        },
+        {
+          "model": "typesafe/jev-1.14-20261014",
+          "purpose": "fact_contradiction",
+          "answers": {
+            "contradicts_repair": {
+              "type": "noul",
+              "noul": 0.95
+            }
+          }
+        },
+        {
+          "model": "typesafe/jev-1.14-20261014",
+          "purpose": "relevance",
+          "answers": {
+            "rel_repair": {
+              "type": "score",
+              "score": 0.30000000000000004
+            }
+          }
+        },
+        {
+          "model": "unreliable-20261029",
+          "purpose": "fact_filter",
+          "answers": {
+            "stable_repair": {
+              "type": "noul",
+              "noul": 0.7
+            },
+            "safe_repair": {
+              "type": "noul",
+              "noul": 0.7
+            }
+          }
+        },
+        {
+          "model": "unreliable-20261029",
+          "purpose": "fact_contradiction",
+          "answers": {
+            "contradicts_repair": {
+              "type": "noul",
+              "noul": 0.7
+            }
+          }
+        },
+        {
+          "model": "unreliable-20261029",
+          "purpose": "relevance",
+          "answers": {
+            "rel_repair": {
+              "type": "score",
+              "score": 2.0999999999999996
+            }
+          }
+        }
+      ]
+    },
+    {
+      "session": {
+        "host": "claude",
+        "agent_home": "/synthetic/home",
+        "session_id": "outcome-16",
+        "repo_key": "synthetic",
+        "cwd": "/synthetic/repo",
+        "started": 17000,
+        "ended": 17999,
+        "turns": [
+          {
+            "prompt": "Run the repository tests",
+            "calls": [
+              {
+                "tool": "Bash",
+                "args_digest": "python -m pytest",
+                "output_digest": "ImportError: missing dependency",
+                "exit_code": 1,
+                "is_error": true
+              }
+            ],
+            "stopped_by": "own_stop"
+          }
+        ]
+      },
+      "facts": {
+        "facts": {
+          "repair": {
+            "candidate": {
+              "id": "repair",
+              "family": "form_repair",
+              "params": {
+                "intent": "run_tests",
+                "bad_form": "pytest",
+                "forms": {
+                  "python -m pytest": 3
+                }
+              },
+              "scope": "neutral",
+              "evidence": []
+            },
+            "life": {
+              "status": "active",
+              "confirmations": 3,
+              "contradictions": 0,
+              "score": 3.0,
+              "fire_num": 3,
+              "fire_den": 4,
+              "contradiction_streak": 0
+            }
+          }
+        },
+        "processed": []
+      },
+      "injected": [
+        "repair"
+      ],
+      "expected": {
+        "repair": false
+      },
+      "judgments": [
+        {
+          "model": "inception/mercury-decide-20260930",
+          "purpose": "fact_filter",
+          "answers": {
+            "stable_repair": {
+              "type": "noul",
+              "noul": 0.1
+            },
+            "safe_repair": {
+              "type": "noul",
+              "noul": 0.1
+            }
+          }
+        },
+        {
+          "model": "inception/mercury-decide-20260930",
+          "purpose": "fact_contradiction",
+          "answers": {
+            "contradicts_repair": {
+              "type": "noul",
+              "noul": 0.95
+            }
+          }
+        },
+        {
+          "model": "inception/mercury-decide-20260930",
+          "purpose": "relevance",
+          "answers": {
+            "rel_repair": {
+              "type": "score",
+              "score": 0.30000000000000004
+            }
+          }
+        },
+        {
+          "model": "perplexity/pplx-decider-flash-v1.2-20261016",
+          "purpose": "fact_filter",
+          "answers": {
+            "stable_repair": {
+              "type": "noul",
+              "noul": 0.1
+            },
+            "safe_repair": {
+              "type": "noul",
+              "noul": 0.1
+            }
+          }
+        },
+        {
+          "model": "perplexity/pplx-decider-flash-v1.2-20261016",
+          "purpose": "fact_contradiction",
+          "answers": {
+            "contradicts_repair": {
+              "type": "noul",
+              "noul": 0.95
+            }
+          }
+        },
+        {
+          "model": "perplexity/pplx-decider-flash-v1.2-20261016",
+          "purpose": "relevance",
+          "answers": {
+            "rel_repair": {
+              "type": "score",
+              "score": 0.30000000000000004
+            }
+          }
+        },
+        {
+          "model": "typesafe/jev-1.14-20261014",
+          "purpose": "fact_filter",
+          "answers": {
+            "stable_repair": {
+              "type": "noul",
+              "noul": 0.1
+            },
+            "safe_repair": {
+              "type": "noul",
+              "noul": 0.1
+            }
+          }
+        },
+        {
+          "model": "typesafe/jev-1.14-20261014",
+          "purpose": "fact_contradiction",
+          "answers": {
+            "contradicts_repair": {
+              "type": "noul",
+              "noul": 0.95
+            }
+          }
+        },
+        {
+          "model": "typesafe/jev-1.14-20261014",
+          "purpose": "relevance",
+          "answers": {
+            "rel_repair": {
+              "type": "score",
+              "score": 0.30000000000000004
+            }
+          }
+        },
+        {
+          "model": "unreliable-20261029",
+          "purpose": "fact_filter",
+          "answers": {
+            "stable_repair": {
+              "type": "noul",
+              "noul": 0.7
+            },
+            "safe_repair": {
+              "type": "noul",
+              "noul": 0.7
+            }
+          }
+        },
+        {
+          "model": "unreliable-20261029",
+          "purpose": "fact_contradiction",
+          "answers": {
+            "contradicts_repair": {
+              "type": "noul",
+              "noul": 0.7
+            }
+          }
+        },
+        {
+          "model": "unreliable-20261029",
+          "purpose": "relevance",
+          "answers": {
+            "rel_repair": {
+              "type": "score",
+              "score": 2.0999999999999996
+            }
+          }
+        }
+      ]
+    },
+    {
+      "session": {
+        "host": "codex",
+        "agent_home": "/synthetic/home",
+        "session_id": "outcome-17",
+        "repo_key": "synthetic",
+        "cwd": "/synthetic/repo",
+        "started": 18000,
+        "ended": 18999,
+        "turns": [
+          {
+            "prompt": "Run the repository tests",
+            "calls": [
+              {
+                "tool": "Bash",
+                "args_digest": "python -m pytest",
+                "output_digest": "ImportError: missing dependency",
+                "exit_code": 1,
+                "is_error": true
+              }
+            ],
+            "stopped_by": "own_stop"
+          }
+        ]
+      },
+      "facts": {
+        "facts": {
+          "repair": {
+            "candidate": {
+              "id": "repair",
+              "family": "form_repair",
+              "params": {
+                "intent": "run_tests",
+                "bad_form": "pytest",
+                "forms": {
+                  "python -m pytest": 3
+                }
+              },
+              "scope": "neutral",
+              "evidence": []
+            },
+            "life": {
+              "status": "active",
+              "confirmations": 3,
+              "contradictions": 0,
+              "score": 3.0,
+              "fire_num": 3,
+              "fire_den": 4,
+              "contradiction_streak": 0
+            }
+          }
+        },
+        "processed": []
+      },
+      "injected": [
+        "repair"
+      ],
+      "expected": {
+        "repair": false
+      },
+      "judgments": [
+        {
+          "model": "inception/mercury-decide-20260930",
+          "purpose": "fact_filter",
+          "answers": {
+            "stable_repair": {
+              "type": "noul",
+              "noul": 0.1
+            },
+            "safe_repair": {
+              "type": "noul",
+              "noul": 0.1
+            }
+          }
+        },
+        {
+          "model": "inception/mercury-decide-20260930",
+          "purpose": "fact_contradiction",
+          "answers": {
+            "contradicts_repair": {
+              "type": "noul",
+              "noul": 0.95
+            }
+          }
+        },
+        {
+          "model": "inception/mercury-decide-20260930",
+          "purpose": "relevance",
+          "answers": {
+            "rel_repair": {
+              "type": "score",
+              "score": 0.30000000000000004
+            }
+          }
+        },
+        {
+          "model": "perplexity/pplx-decider-flash-v1.2-20261016",
+          "purpose": "fact_filter",
+          "answers": {
+            "stable_repair": {
+              "type": "noul",
+              "noul": 0.1
+            },
+            "safe_repair": {
+              "type": "noul",
+              "noul": 0.1
+            }
+          }
+        },
+        {
+          "model": "perplexity/pplx-decider-flash-v1.2-20261016",
+          "purpose": "fact_contradiction",
+          "answers": {
+            "contradicts_repair": {
+              "type": "noul",
+              "noul": 0.95
+            }
+          }
+        },
+        {
+          "model": "perplexity/pplx-decider-flash-v1.2-20261016",
+          "purpose": "relevance",
+          "answers": {
+            "rel_repair": {
+              "type": "score",
+              "score": 0.30000000000000004
+            }
+          }
+        },
+        {
+          "model": "typesafe/jev-1.14-20261014",
+          "purpose": "fact_filter",
+          "answers": {
+            "stable_repair": {
+              "type": "noul",
+              "noul": 0.1
+            },
+            "safe_repair": {
+              "type": "noul",
+              "noul": 0.1
+            }
+          }
+        },
+        {
+          "model": "typesafe/jev-1.14-20261014",
+          "purpose": "fact_contradiction",
+          "answers": {
+            "contradicts_repair": {
+              "type": "noul",
+              "noul": 0.95
+            }
+          }
+        },
+        {
+          "model": "typesafe/jev-1.14-20261014",
+          "purpose": "relevance",
+          "answers": {
+            "rel_repair": {
+              "type": "score",
+              "score": 0.30000000000000004
+            }
+          }
+        },
+        {
+          "model": "unreliable-20261029",
+          "purpose": "fact_filter",
+          "answers": {
+            "stable_repair": {
+              "type": "noul",
+              "noul": 0.7
+            },
+            "safe_repair": {
+              "type": "noul",
+              "noul": 0.7
+            }
+          }
+        },
+        {
+          "model": "unreliable-20261029",
+          "purpose": "fact_contradiction",
+          "answers": {
+            "contradicts_repair": {
+              "type": "noul",
+              "noul": 0.7
+            }
+          }
+        },
+        {
+          "model": "unreliable-20261029",
+          "purpose": "relevance",
+          "answers": {
+            "rel_repair": {
+              "type": "score",
+              "score": 2.0999999999999996
+            }
+          }
+        }
+      ]
+    },
+    {
+      "session": {
+        "host": "claude",
+        "agent_home": "/synthetic/home",
+        "session_id": "outcome-18",
+        "repo_key": "synthetic",
+        "cwd": "/synthetic/repo",
+        "started": 19000,
+        "ended": 19999,
+        "turns": [
+          {
+            "prompt": "Run the repository tests",
+            "calls": [
+              {
+                "tool": "Bash",
+                "args_digest": "python -m pytest",
+                "output_digest": "ImportError: missing dependency",
+                "exit_code": 1,
+                "is_error": true
+              }
+            ],
+            "stopped_by": "own_stop"
+          }
+        ]
+      },
+      "facts": {
+        "facts": {
+          "repair": {
+            "candidate": {
+              "id": "repair",
+              "family": "form_repair",
+              "params": {
+                "intent": "run_tests",
+                "bad_form": "pytest",
+                "forms": {
+                  "python -m pytest": 3
+                }
+              },
+              "scope": "neutral",
+              "evidence": []
+            },
+            "life": {
+              "status": "active",
+              "confirmations": 3,
+              "contradictions": 0,
+              "score": 3.0,
+              "fire_num": 3,
+              "fire_den": 4,
+              "contradiction_streak": 0
+            }
+          }
+        },
+        "processed": []
+      },
+      "injected": [
+        "repair"
+      ],
+      "expected": {
+        "repair": false
+      },
+      "judgments": [
+        {
+          "model": "inception/mercury-decide-20260930",
+          "purpose": "fact_filter",
+          "answers": {
+            "stable_repair": {
+              "type": "noul",
+              "noul": 0.1
+            },
+            "safe_repair": {
+              "type": "noul",
+              "noul": 0.1
+            }
+          }
+        },
+        {
+          "model": "inception/mercury-decide-20260930",
+          "purpose": "fact_contradiction",
+          "answers": {
+            "contradicts_repair": {
+              "type": "noul",
+              "noul": 0.95
+            }
+          }
+        },
+        {
+          "model": "inception/mercury-decide-20260930",
+          "purpose": "relevance",
+          "answers": {
+            "rel_repair": {
+              "type": "score",
+              "score": 0.30000000000000004
+            }
+          }
+        },
+        {
+          "model": "perplexity/pplx-decider-flash-v1.2-20261016",
+          "purpose": "fact_filter",
+          "answers": {
+            "stable_repair": {
+              "type": "noul",
+              "noul": 0.1
+            },
+            "safe_repair": {
+              "type": "noul",
+              "noul": 0.1
+            }
+          }
+        },
+        {
+          "model": "perplexity/pplx-decider-flash-v1.2-20261016",
+          "purpose": "fact_contradiction",
+          "answers": {
+            "contradicts_repair": {
+              "type": "noul",
+              "noul": 0.95
+            }
+          }
+        },
+        {
+          "model": "perplexity/pplx-decider-flash-v1.2-20261016",
+          "purpose": "relevance",
+          "answers": {
+            "rel_repair": {
+              "type": "score",
+              "score": 0.30000000000000004
+            }
+          }
+        },
+        {
+          "model": "typesafe/jev-1.14-20261014",
+          "purpose": "fact_filter",
+          "answers": {
+            "stable_repair": {
+              "type": "noul",
+              "noul": 0.1
+            },
+            "safe_repair": {
+              "type": "noul",
+              "noul": 0.1
+            }
+          }
+        },
+        {
+          "model": "typesafe/jev-1.14-20261014",
+          "purpose": "fact_contradiction",
+          "answers": {
+            "contradicts_repair": {
+              "type": "noul",
+              "noul": 0.95
+            }
+          }
+        },
+        {
+          "model": "typesafe/jev-1.14-20261014",
+          "purpose": "relevance",
+          "answers": {
+            "rel_repair": {
+              "type": "score",
+              "score": 0.30000000000000004
+            }
+          }
+        },
+        {
+          "model": "unreliable-20261029",
+          "purpose": "fact_filter",
+          "answers": {
+            "stable_repair": {
+              "type": "noul",
+              "noul": 0.7
+            },
+            "safe_repair": {
+              "type": "noul",
+              "noul": 0.7
+            }
+          }
+        },
+        {
+          "model": "unreliable-20261029",
+          "purpose": "fact_contradiction",
+          "answers": {
+            "contradicts_repair": {
+              "type": "noul",
+              "noul": 0.7
+            }
+          }
+        },
+        {
+          "model": "unreliable-20261029",
+          "purpose": "relevance",
+          "answers": {
+            "rel_repair": {
+              "type": "score",
+              "score": 2.0999999999999996
+            }
+          }
+        }
+      ]
+    },
+    {
+      "session": {
+        "host": "codex",
+        "agent_home": "/synthetic/home",
+        "session_id": "outcome-19",
+        "repo_key": "synthetic",
+        "cwd": "/synthetic/repo",
+        "started": 20000,
+        "ended": 20999,
+        "turns": [
+          {
+            "prompt": "Run the repository tests",
+            "calls": [
+              {
+                "tool": "Bash",
+                "args_digest": "python -m pytest",
+                "output_digest": "ImportError: missing dependency",
+                "exit_code": 1,
+                "is_error": true
+              }
+            ],
+            "stopped_by": "own_stop"
+          }
+        ]
+      },
+      "facts": {
+        "facts": {
+          "repair": {
+            "candidate": {
+              "id": "repair",
+              "family": "form_repair",
+              "params": {
+                "intent": "run_tests",
+                "bad_form": "pytest",
+                "forms": {
+                  "python -m pytest": 3
+                }
+              },
+              "scope": "neutral",
+              "evidence": []
+            },
+            "life": {
+              "status": "active",
+              "confirmations": 3,
+              "contradictions": 0,
+              "score": 3.0,
+              "fire_num": 3,
+              "fire_den": 4,
+              "contradiction_streak": 0
+            }
+          }
+        },
+        "processed": []
+      },
+      "injected": [
+        "repair"
+      ],
+      "expected": {
+        "repair": false
+      },
+      "judgments": [
+        {
+          "model": "inception/mercury-decide-20260930",
+          "purpose": "fact_filter",
+          "answers": {
+            "stable_repair": {
+              "type": "noul",
+              "noul": 0.1
+            },
+            "safe_repair": {
+              "type": "noul",
+              "noul": 0.1
+            }
+          }
+        },
+        {
+          "model": "inception/mercury-decide-20260930",
+          "purpose": "fact_contradiction",
+          "answers": {
+            "contradicts_repair": {
+              "type": "noul",
+              "noul": 0.95
+            }
+          }
+        },
+        {
+          "model": "inception/mercury-decide-20260930",
+          "purpose": "relevance",
+          "answers": {
+            "rel_repair": {
+              "type": "score",
+              "score": 0.30000000000000004
+            }
+          }
+        },
+        {
+          "model": "perplexity/pplx-decider-flash-v1.2-20261016",
+          "purpose": "fact_filter",
+          "answers": {
+            "stable_repair": {
+              "type": "noul",
+              "noul": 0.1
+            },
+            "safe_repair": {
+              "type": "noul",
+              "noul": 0.1
+            }
+          }
+        },
+        {
+          "model": "perplexity/pplx-decider-flash-v1.2-20261016",
+          "purpose": "fact_contradiction",
+          "answers": {
+            "contradicts_repair": {
+              "type": "noul",
+              "noul": 0.95
+            }
+          }
+        },
+        {
+          "model": "perplexity/pplx-decider-flash-v1.2-20261016",
+          "purpose": "relevance",
+          "answers": {
+            "rel_repair": {
+              "type": "score",
+              "score": 0.30000000000000004
+            }
+          }
+        },
+        {
+          "model": "typesafe/jev-1.14-20261014",
+          "purpose": "fact_filter",
+          "answers": {
+            "stable_repair": {
+              "type": "noul",
+              "noul": 0.1
+            },
+            "safe_repair": {
+              "type": "noul",
+              "noul": 0.1
+            }
+          }
+        },
+        {
+          "model": "typesafe/jev-1.14-20261014",
+          "purpose": "fact_contradiction",
+          "answers": {
+            "contradicts_repair": {
+              "type": "noul",
+              "noul": 0.95
+            }
+          }
+        },
+        {
+          "model": "typesafe/jev-1.14-20261014",
+          "purpose": "relevance",
+          "answers": {
+            "rel_repair": {
+              "type": "score",
+              "score": 0.30000000000000004
+            }
+          }
+        },
+        {
+          "model": "unreliable-20261029",
+          "purpose": "fact_filter",
+          "answers": {
+            "stable_repair": {
+              "type": "noul",
+              "noul": 0.7
+            },
+            "safe_repair": {
+              "type": "noul",
+              "noul": 0.7
+            }
+          }
+        },
+        {
+          "model": "unreliable-20261029",
+          "purpose": "fact_contradiction",
+          "answers": {
+            "contradicts_repair": {
+              "type": "noul",
+              "noul": 0.7
+            }
+          }
+        },
+        {
+          "model": "unreliable-20261029",
+          "purpose": "relevance",
+          "answers": {
+            "rel_repair": {
+              "type": "score",
+              "score": 2.0999999999999996
+            }
+          }
+        }
+      ]
+    },
+    {
+      "session": {
+        "host": "claude",
+        "agent_home": "/synthetic/home",
+        "session_id": "outcome-20",
+        "repo_key": "synthetic",
+        "cwd": "/synthetic/repo",
+        "started": 21000,
+        "ended": 21999,
+        "turns": [
+          {
+            "prompt": "Run the repository tests",
+            "calls": [
+              {
+                "tool": "Bash",
+                "args_digest": "python -m pytest",
+                "output_digest": "ImportError: missing dependency",
+                "exit_code": 1,
+                "is_error": true
+              }
+            ],
+            "stopped_by": "own_stop"
+          }
+        ]
+      },
+      "facts": {
+        "facts": {
+          "repair": {
+            "candidate": {
+              "id": "repair",
+              "family": "form_repair",
+              "params": {
+                "intent": "run_tests",
+                "bad_form": "pytest",
+                "forms": {
+                  "python -m pytest": 3
+                }
+              },
+              "scope": "neutral",
+              "evidence": []
+            },
+            "life": {
+              "status": "active",
+              "confirmations": 3,
+              "contradictions": 0,
+              "score": 3.0,
+              "fire_num": 3,
+              "fire_den": 4,
+              "contradiction_streak": 0
+            }
+          }
+        },
+        "processed": []
+      },
+      "injected": [
+        "repair"
+      ],
+      "expected": {
+        "repair": false
+      },
+      "judgments": [
+        {
+          "model": "inception/mercury-decide-20260930",
+          "purpose": "fact_filter",
+          "answers": {
+            "stable_repair": {
+              "type": "noul",
+              "noul": 0.1
+            },
+            "safe_repair": {
+              "type": "noul",
+              "noul": 0.1
+            }
+          }
+        },
+        {
+          "model": "inception/mercury-decide-20260930",
+          "purpose": "fact_contradiction",
+          "answers": {
+            "contradicts_repair": {
+              "type": "noul",
+              "noul": 0.95
+            }
+          }
+        },
+        {
+          "model": "inception/mercury-decide-20260930",
+          "purpose": "relevance",
+          "answers": {
+            "rel_repair": {
+              "type": "score",
+              "score": 0.30000000000000004
+            }
+          }
+        },
+        {
+          "model": "perplexity/pplx-decider-flash-v1.2-20261016",
+          "purpose": "fact_filter",
+          "answers": {
+            "stable_repair": {
+              "type": "noul",
+              "noul": 0.1
+            },
+            "safe_repair": {
+              "type": "noul",
+              "noul": 0.1
+            }
+          }
+        },
+        {
+          "model": "perplexity/pplx-decider-flash-v1.2-20261016",
+          "purpose": "fact_contradiction",
+          "answers": {
+            "contradicts_repair": {
+              "type": "noul",
+              "noul": 0.95
+            }
+          }
+        },
+        {
+          "model": "perplexity/pplx-decider-flash-v1.2-20261016",
+          "purpose": "relevance",
+          "answers": {
+            "rel_repair": {
+              "type": "score",
+              "score": 0.30000000000000004
+            }
+          }
+        },
+        {
+          "model": "typesafe/jev-1.14-20261014",
+          "purpose": "fact_filter",
+          "answers": {
+            "stable_repair": {
+              "type": "noul",
+              "noul": 0.1
+            },
+            "safe_repair": {
+              "type": "noul",
+              "noul": 0.1
+            }
+          }
+        },
+        {
+          "model": "typesafe/jev-1.14-20261014",
+          "purpose": "fact_contradiction",
+          "answers": {
+            "contradicts_repair": {
+              "type": "noul",
+              "noul": 0.95
+            }
+          }
+        },
+        {
+          "model": "typesafe/jev-1.14-20261014",
+          "purpose": "relevance",
+          "answers": {
+            "rel_repair": {
+              "type": "score",
+              "score": 0.30000000000000004
+            }
+          }
+        },
+        {
+          "model": "unreliable-20261029",
+          "purpose": "fact_filter",
+          "answers": {
+            "stable_repair": {
+              "type": "noul",
+              "noul": 0.7
+            },
+            "safe_repair": {
+              "type": "noul",
+              "noul": 0.7
+            }
+          }
+        },
+        {
+          "model": "unreliable-20261029",
+          "purpose": "fact_contradiction",
+          "answers": {
+            "contradicts_repair": {
+              "type": "noul",
+              "noul": 0.7
+            }
+          }
+        },
+        {
+          "model": "unreliable-20261029",
+          "purpose": "relevance",
+          "answers": {
+            "rel_repair": {
+              "type": "score",
+              "score": 2.0999999999999996
+            }
+          }
+        }
+      ]
+    },
+    {
+      "session": {
+        "host": "codex",
+        "agent_home": "/synthetic/home",
+        "session_id": "outcome-21",
+        "repo_key": "synthetic",
+        "cwd": "/synthetic/repo",
+        "started": 22000,
+        "ended": 22999,
+        "turns": [
+          {
+            "prompt": "Run the repository tests",
+            "calls": [
+              {
+                "tool": "Bash",
+                "args_digest": "python -m pytest",
+                "output_digest": "ImportError: missing dependency",
+                "exit_code": 1,
+                "is_error": true
+              }
+            ],
+            "stopped_by": "own_stop"
+          }
+        ]
+      },
+      "facts": {
+        "facts": {
+          "repair": {
+            "candidate": {
+              "id": "repair",
+              "family": "form_repair",
+              "params": {
+                "intent": "run_tests",
+                "bad_form": "pytest",
+                "forms": {
+                  "python -m pytest": 3
+                }
+              },
+              "scope": "neutral",
+              "evidence": []
+            },
+            "life": {
+              "status": "active",
+              "confirmations": 3,
+              "contradictions": 0,
+              "score": 3.0,
+              "fire_num": 3,
+              "fire_den": 4,
+              "contradiction_streak": 0
+            }
+          }
+        },
+        "processed": []
+      },
+      "injected": [
+        "repair"
+      ],
+      "expected": {
+        "repair": false
+      },
+      "judgments": [
+        {
+          "model": "inception/mercury-decide-20260930",
+          "purpose": "fact_filter",
+          "answers": {
+            "stable_repair": {
+              "type": "noul",
+              "noul": 0.1
+            },
+            "safe_repair": {
+              "type": "noul",
+              "noul": 0.1
+            }
+          }
+        },
+        {
+          "model": "inception/mercury-decide-20260930",
+          "purpose": "fact_contradiction",
+          "answers": {
+            "contradicts_repair": {
+              "type": "noul",
+              "noul": 0.95
+            }
+          }
+        },
+        {
+          "model": "inception/mercury-decide-20260930",
+          "purpose": "relevance",
+          "answers": {
+            "rel_repair": {
+              "type": "score",
+              "score": 0.30000000000000004
+            }
+          }
+        },
+        {
+          "model": "perplexity/pplx-decider-flash-v1.2-20261016",
+          "purpose": "fact_filter",
+          "answers": {
+            "stable_repair": {
+              "type": "noul",
+              "noul": 0.1
+            },
+            "safe_repair": {
+              "type": "noul",
+              "noul": 0.1
+            }
+          }
+        },
+        {
+          "model": "perplexity/pplx-decider-flash-v1.2-20261016",
+          "purpose": "fact_contradiction",
+          "answers": {
+            "contradicts_repair": {
+              "type": "noul",
+              "noul": 0.95
+            }
+          }
+        },
+        {
+          "model": "perplexity/pplx-decider-flash-v1.2-20261016",
+          "purpose": "relevance",
+          "answers": {
+            "rel_repair": {
+              "type": "score",
+              "score": 0.30000000000000004
+            }
+          }
+        },
+        {
+          "model": "typesafe/jev-1.14-20261014",
+          "purpose": "fact_filter",
+          "answers": {
+            "stable_repair": {
+              "type": "noul",
+              "noul": 0.1
+            },
+            "safe_repair": {
+              "type": "noul",
+              "noul": 0.1
+            }
+          }
+        },
+        {
+          "model": "typesafe/jev-1.14-20261014",
+          "purpose": "fact_contradiction",
+          "answers": {
+            "contradicts_repair": {
+              "type": "noul",
+              "noul": 0.95
+            }
+          }
+        },
+        {
+          "model": "typesafe/jev-1.14-20261014",
+          "purpose": "relevance",
+          "answers": {
+            "rel_repair": {
+              "type": "score",
+              "score": 0.30000000000000004
+            }
+          }
+        },
+        {
+          "model": "unreliable-20261029",
+          "purpose": "fact_filter",
+          "answers": {
+            "stable_repair": {
+              "type": "noul",
+              "noul": 0.7
+            },
+            "safe_repair": {
+              "type": "noul",
+              "noul": 0.7
+            }
+          }
+        },
+        {
+          "model": "unreliable-20261029",
+          "purpose": "fact_contradiction",
+          "answers": {
+            "contradicts_repair": {
+              "type": "noul",
+              "noul": 0.7
+            }
+          }
+        },
+        {
+          "model": "unreliable-20261029",
+          "purpose": "relevance",
+          "answers": {
+            "rel_repair": {
+              "type": "score",
+              "score": 2.0999999999999996
+            }
+          }
+        }
+      ]
+    },
+    {
+      "session": {
+        "host": "claude",
+        "agent_home": "/synthetic/home",
+        "session_id": "outcome-22",
+        "repo_key": "synthetic",
+        "cwd": "/synthetic/repo",
+        "started": 23000,
+        "ended": 23999,
+        "turns": [
+          {
+            "prompt": "Run the repository tests",
+            "calls": [
+              {
+                "tool": "Bash",
+                "args_digest": "python -m pytest",
+                "output_digest": "ImportError: missing dependency",
+                "exit_code": 1,
+                "is_error": true
+              }
+            ],
+            "stopped_by": "own_stop"
+          }
+        ]
+      },
+      "facts": {
+        "facts": {
+          "repair": {
+            "candidate": {
+              "id": "repair",
+              "family": "form_repair",
+              "params": {
+                "intent": "run_tests",
+                "bad_form": "pytest",
+                "forms": {
+                  "python -m pytest": 3
+                }
+              },
+              "scope": "neutral",
+              "evidence": []
+            },
+            "life": {
+              "status": "active",
+              "confirmations": 3,
+              "contradictions": 0,
+              "score": 3.0,
+              "fire_num": 3,
+              "fire_den": 4,
+              "contradiction_streak": 0
+            }
+          }
+        },
+        "processed": []
+      },
+      "injected": [
+        "repair"
+      ],
+      "expected": {
+        "repair": false
+      },
+      "judgments": [
+        {
+          "model": "inception/mercury-decide-20260930",
+          "purpose": "fact_filter",
+          "answers": {
+            "stable_repair": {
+              "type": "noul",
+              "noul": 0.1
+            },
+            "safe_repair": {
+              "type": "noul",
+              "noul": 0.1
+            }
+          }
+        },
+        {
+          "model": "inception/mercury-decide-20260930",
+          "purpose": "fact_contradiction",
+          "answers": {
+            "contradicts_repair": {
+              "type": "noul",
+              "noul": 0.95
+            }
+          }
+        },
+        {
+          "model": "inception/mercury-decide-20260930",
+          "purpose": "relevance",
+          "answers": {
+            "rel_repair": {
+              "type": "score",
+              "score": 0.30000000000000004
+            }
+          }
+        },
+        {
+          "model": "perplexity/pplx-decider-flash-v1.2-20261016",
+          "purpose": "fact_filter",
+          "answers": {
+            "stable_repair": {
+              "type": "noul",
+              "noul": 0.1
+            },
+            "safe_repair": {
+              "type": "noul",
+              "noul": 0.1
+            }
+          }
+        },
+        {
+          "model": "perplexity/pplx-decider-flash-v1.2-20261016",
+          "purpose": "fact_contradiction",
+          "answers": {
+            "contradicts_repair": {
+              "type": "noul",
+              "noul": 0.95
+            }
+          }
+        },
+        {
+          "model": "perplexity/pplx-decider-flash-v1.2-20261016",
+          "purpose": "relevance",
+          "answers": {
+            "rel_repair": {
+              "type": "score",
+              "score": 0.30000000000000004
+            }
+          }
+        },
+        {
+          "model": "typesafe/jev-1.14-20261014",
+          "purpose": "fact_filter",
+          "answers": {
+            "stable_repair": {
+              "type": "noul",
+              "noul": 0.1
+            },
+            "safe_repair": {
+              "type": "noul",
+              "noul": 0.1
+            }
+          }
+        },
+        {
+          "model": "typesafe/jev-1.14-20261014",
+          "purpose": "fact_contradiction",
+          "answers": {
+            "contradicts_repair": {
+              "type": "noul",
+              "noul": 0.95
+            }
+          }
+        },
+        {
+          "model": "typesafe/jev-1.14-20261014",
+          "purpose": "relevance",
+          "answers": {
+            "rel_repair": {
+              "type": "score",
+              "score": 0.30000000000000004
+            }
+          }
+        },
+        {
+          "model": "unreliable-20261029",
+          "purpose": "fact_filter",
+          "answers": {
+            "stable_repair": {
+              "type": "noul",
+              "noul": 0.7
+            },
+            "safe_repair": {
+              "type": "noul",
+              "noul": 0.7
+            }
+          }
+        },
+        {
+          "model": "unreliable-20261029",
+          "purpose": "fact_contradiction",
+          "answers": {
+            "contradicts_repair": {
+              "type": "noul",
+              "noul": 0.7
+            }
+          }
+        },
+        {
+          "model": "unreliable-20261029",
+          "purpose": "relevance",
+          "answers": {
+            "rel_repair": {
+              "type": "score",
+              "score": 2.0999999999999996
+            }
+          }
+        }
+      ]
+    },
+    {
+      "session": {
+        "host": "codex",
+        "agent_home": "/synthetic/home",
+        "session_id": "outcome-23",
+        "repo_key": "synthetic",
+        "cwd": "/synthetic/repo",
+        "started": 24000,
+        "ended": 24999,
+        "turns": [
+          {
+            "prompt": "Run the repository tests",
+            "calls": [
+              {
+                "tool": "Bash",
+                "args_digest": "python -m pytest",
+                "output_digest": "ImportError: missing dependency",
+                "exit_code": 1,
+                "is_error": true
+              }
+            ],
+            "stopped_by": "own_stop"
+          }
+        ]
+      },
+      "facts": {
+        "facts": {
+          "repair": {
+            "candidate": {
+              "id": "repair",
+              "family": "form_repair",
+              "params": {
+                "intent": "run_tests",
+                "bad_form": "pytest",
+                "forms": {
+                  "python -m pytest": 3
+                }
+              },
+              "scope": "neutral",
+              "evidence": []
+            },
+            "life": {
+              "status": "active",
+              "confirmations": 3,
+              "contradictions": 0,
+              "score": 3.0,
+              "fire_num": 3,
+              "fire_den": 4,
+              "contradiction_streak": 0
+            }
+          }
+        },
+        "processed": []
+      },
+      "injected": [
+        "repair"
+      ],
+      "expected": {
+        "repair": false
+      },
+      "judgments": [
+        {
+          "model": "inception/mercury-decide-20260930",
+          "purpose": "fact_filter",
+          "answers": {
+            "stable_repair": {
+              "type": "noul",
+              "noul": 0.1
+            },
+            "safe_repair": {
+              "type": "noul",
+              "noul": 0.1
+            }
+          }
+        },
+        {
+          "model": "inception/mercury-decide-20260930",
+          "purpose": "fact_contradiction",
+          "answers": {
+            "contradicts_repair": {
+              "type": "noul",
+              "noul": 0.95
+            }
+          }
+        },
+        {
+          "model": "inception/mercury-decide-20260930",
+          "purpose": "relevance",
+          "answers": {
+            "rel_repair": {
+              "type": "score",
+              "score": 0.30000000000000004
+            }
+          }
+        },
+        {
+          "model": "perplexity/pplx-decider-flash-v1.2-20261016",
+          "purpose": "fact_filter",
+          "answers": {
+            "stable_repair": {
+              "type": "noul",
+              "noul": 0.1
+            },
+            "safe_repair": {
+              "type": "noul",
+              "noul": 0.1
+            }
+          }
+        },
+        {
+          "model": "perplexity/pplx-decider-flash-v1.2-20261016",
+          "purpose": "fact_contradiction",
+          "answers": {
+            "contradicts_repair": {
+              "type": "noul",
+              "noul": 0.95
+            }
+          }
+        },
+        {
+          "model": "perplexity/pplx-decider-flash-v1.2-20261016",
+          "purpose": "relevance",
+          "answers": {
+            "rel_repair": {
+              "type": "score",
+              "score": 0.30000000000000004
+            }
+          }
+        },
+        {
+          "model": "typesafe/jev-1.14-20261014",
+          "purpose": "fact_filter",
+          "answers": {
+            "stable_repair": {
+              "type": "noul",
+              "noul": 0.1
+            },
+            "safe_repair": {
+              "type": "noul",
+              "noul": 0.1
+            }
+          }
+        },
+        {
+          "model": "typesafe/jev-1.14-20261014",
+          "purpose": "fact_contradiction",
+          "answers": {
+            "contradicts_repair": {
+              "type": "noul",
+              "noul": 0.95
+            }
+          }
+        },
+        {
+          "model": "typesafe/jev-1.14-20261014",
+          "purpose": "relevance",
+          "answers": {
+            "rel_repair": {
+              "type": "score",
+              "score": 0.30000000000000004
+            }
+          }
+        },
+        {
+          "model": "unreliable-20261029",
+          "purpose": "fact_filter",
+          "answers": {
+            "stable_repair": {
+              "type": "noul",
+              "noul": 0.7
+            },
+            "safe_repair": {
+              "type": "noul",
+              "noul": 0.7
+            }
+          }
+        },
+        {
+          "model": "unreliable-20261029",
+          "purpose": "fact_contradiction",
+          "answers": {
+            "contradicts_repair": {
+              "type": "noul",
+              "noul": 0.7
+            }
+          }
+        },
+        {
+          "model": "unreliable-20261029",
+          "purpose": "relevance",
+          "answers": {
+            "rel_repair": {
+              "type": "score",
+              "score": 2.0999999999999996
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

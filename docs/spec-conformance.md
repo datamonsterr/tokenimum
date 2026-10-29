@@ -9,14 +9,14 @@ what was known at the date in SPEC, not current upstream guarantees.
 
 ## Status and category summary
 
-Refreshed 2026-10-30 for the SPEC 7.3 pruning changes on the `da6a44d` CI-green baseline.
+Refreshed 2026-10-30 for the SPEC 7.3 pruning changes and the decision-calibration and agreement changes, based on the `da6a44d` CI-green baseline.
 Counts cover all 556 rows. New Rust tests are committed for controller CI; no local Rust
 build, test, check, clippy or bench was run.
 
 | Status | Rows |
 |---|---|
-| met | 508 |
-| deferred | 37 |
+| met | 514 |
+| deferred | 31 |
 | not applicable | 11 |
 
 Every `deferred` row starts its evidence with one category tag:
@@ -25,13 +25,13 @@ Every `deferred` row starts its evidence with one category tag:
 |---|---|---|
 | (a) | Needs live or real-world data, or user action: real host sessions, live model spend, the replay benchmark sample run, secrets | 16 |
 | (b) | Intentionally out of scope or limited by an ADR (link in the row) | 14 |
-| (c) | Not implemented: code is missing | 7 |
+| (c) | Not implemented: code is missing | 1 |
 
 Rows fixed since the audit was written (priced ledger and pricing refresh, skill evidence, Pi steer,
 Codewhale `session_idle`, Cursor repeat, doctor fold-only fallback, `doctor --probe`, daily free-model
 scheduler, batched fact decisions, shadow window, config switches, monitor panes, golden, TE parity,
-fault matrix and fresh-install), plus four-host pruning, write deadlines, protection and the
-recent-delegation cap, are now `met` and cite their tests. The pruning verification record is
+fault matrix and fresh-install), plus four-host pruning, write deadlines, protection, the
+recent-delegation cap, outcome labels, per-purpose calibration and live agreement mode, are now `met` and cite their tests. The pruning verification record is
 [tool-pruning.md](verified/tool-pruning.md).
 
 ### (c) Not implemented
@@ -39,9 +39,6 @@ recent-delegation cap, are now `met` and cite their tests. The pruning verificat
 Each item gives the exact SPEC text and the files involved. Tracked in [ADR 0050](../docs/adr/0050-conformance-gaps.md).
 
 - **S6.12-2**, SPEC 6.12: “`tkmd` watches known session directories (inotify/FSEvents through the `notify` crate; a 60 s scan when watching is not possible). A session idle for 30 minutes is folded.” Open part: only Claude derives a session log path without a hook transcript path; other hosts are marked `skipped`. Files: [fold.rs](../crates/tkmd/src/fold.rs), the host `reader.rs` files under [tkm-hosts](../crates/tkm-hosts/src/).
-- **S8.5-2, S12-11**, SPEC 8.5 and 11: “Facts are labelled by later confirmation or contradiction.” and “`tkm calibrate [--purpose loop|facts|relevance]` | fit thresholds from labelled decisions”. Only `loop` calibrates. Files: [calibrate.rs](../crates/tkm-cli/src/cmd/calibrate.rs), [calibrate.rs (decide)](../crates/tkm-decide/src/calibrate.rs).
-- **S15-16**, SPEC 15 M8: “Calibration loop; leave shadow mode per purpose when precision targets are met”. Per-purpose calibration for facts and relevance is missing (same files as above); stuck precision on real labelled turns also needs live data.
-- **S8.5-1, S10.4-14, S17-7**, SPEC 8.5: “Agreement mode (optional): ask two models in parallel (Mercury + Jev); act only when both pass threshold.” `decide_agreement` exists but no daemon path calls it, and `decide.agreement` is only read. Files: [client.rs](../crates/tkm-decide/src/client.rs), [decider.rs](../crates/tkmd/src/decider.rs), [settings.rs](../crates/tkmd/src/settings.rs), [live.rs](../crates/tkmd/src/live.rs).
 
 ### (a) Needs live or real-world data or user action
 
@@ -601,9 +598,9 @@ Nothing pending. The E10.6 replay benchmark harness is merged; only its real-dat
 | ID | Requirement | Status | Evidence |
 |---|---|---|---|
 | S8.5-7 | 14-day or 200-turn initial shadow period | met | [live.rs](../crates/tkmd/src/live.rs), [decisions.rs](../crates/tkm-store/tests/decisions.rs) |
-| S8.5-2 | Label loop outcomes and fact confirmation/contradiction | deferred | **(c)** [ADR 0032](../docs/adr/0032-cli-prune-gaps.md), [ADR 0045](../docs/adr/0045-offline-decision-bench.md): facts and relevance have no label contract; [calibrate.rs](../crates/tkm-cli/src/cmd/calibrate.rs) prints "not available yet". |
+| S8.5-2 | Label loop outcomes and fact confirmation/contradiction | met | [labels.rs](../crates/tkm-decide/tests/labels.rs) `normalized_sessions_label_held_failed_and_unexercised_facts`, `batch_labels_preserve_item_identity_and_contradiction_polarity`, memory/skill exercise tests; [fold.rs](../crates/tkmd/src/fold.rs) `fold_labels_prior_facts_and_same_session_relevance_without_labelling_its_own_fact_prediction`; [live.rs](../crates/tkmd/tests/live.rs) `judged_turn_outcomes_label_decisions_for_calibration`. |
 | S8.5-3 | Fit per-model threshold with ≥0.9 stuck precision and minimum recall | met | [calibrate_ops.rs](../crates/tkm-cli/tests/calibrate_ops.rs) |
-| S8.5-1 | Agreement: two models in parallel, act only on consensus | deferred | **(c)** [ADR 0016](../docs/adr/0016-live-layer-and-decision-queue.md): `decide_agreement` exists in [client.rs](../crates/tkm-decide/src/client.rs) but no daemon path calls it; see [decider.rs](../crates/tkmd/src/decider.rs). |
+| S8.5-1 | Agreement: two models in parallel, act only on consensus | met | [agreement.rs](../crates/tkmd/tests/agreement.rs) `live_agreement_acts_only_on_consensus_records_disagreement_and_fails_open` uses a transport barrier and covers verdict/redirect disagreement, failure and missing calibration; [client.rs](../crates/tkm-decide/tests/client.rs) `agreement_prefers_jev_over_the_fallback_and_charges_both_costs`. |
 | S8.5-5 | Offline cached fixture replay and model comparison | met | [replay_ops.rs](../crates/tkm-cli/tests/replay_ops.rs) |
 | S8.5-6 | Defaults t_stuck .85, t_progress .30, t_low .30, t_high .80 | met | [calibrate.rs](../crates/tkm-decide/tests/calibrate.rs) |
 
@@ -725,7 +722,7 @@ Nothing pending. The E10.6 replay benchmark harness is merged; only its real-dat
 | S10.4-11 | hosts.claude.enabled and per-host level auto/hooks/shim/fold-only | met | [settings.rs](../crates/tkmd/src/settings.rs), [init_lifecycle.rs](../crates/tkm-cli/tests/init_lifecycle.rs) |
 | S10.4-12 | integrations.superorchestrator and integrations.otherskill | met | [config.rs](../crates/tkm-config/src/config.rs) |
 | S10.4-13 | ui.web.enabled and ui.web.bind | met | [config.rs](../crates/tkm-config/src/config.rs) |
-| S10.4-14 | decide.agreement | deferred | **(c)** [ADR 0016](../docs/adr/0016-live-layer-and-decision-queue.md): `decide.agreement` is read in [settings.rs](../crates/tkmd/src/settings.rs) but never acted on. |
+| S10.4-14 | decide.agreement | met | [settings.rs](../crates/tkmd/src/settings.rs) `agreement_defaults_off_and_can_be_enabled_by_configuration`; [agreement.rs](../crates/tkmd/tests/agreement.rs) proves the enabled setting reaches parallel client requests and consensus gating. |
 | S10.4-15 | tkm config show [--effective] | met | [config_ops.rs](../crates/tkm-cli/tests/config_ops.rs) |
 | S10.4-16 | tkm config get, set, unset [--global/--repo/--local] | met | [config_ops.rs](../crates/tkm-cli/tests/config_ops.rs) |
 | S10.4-17 | tkm config preset &lt;name&gt; [--repo] | met | [config_ops.rs](../crates/tkm-cli/tests/config_ops.rs) |
@@ -825,7 +822,7 @@ Nothing pending. The E10.6 replay benchmark harness is merged; only its real-dat
 | S12-8 | tkm skills [--json] | met | [skills_wiring.rs](../crates/tkm-cli/tests/skills_wiring.rs) `skills_json_without_database_is_empty_ranking_prior`, `skills_text_prints_readable_evidence_table` |
 | S12-9 | tkm config ... | met | [config_ops.rs](../crates/tkm-cli/tests/config_ops.rs) |
 | S12-10 | tkm models [probe] | met | [models_ops.rs](../crates/tkm-cli/tests/models_ops.rs) |
-| S12-11 | tkm calibrate [--purpose loop/facts/relevance] | deferred | **(c)** [ADR 0032](../docs/adr/0032-cli-prune-gaps.md): only `--purpose loop` calibrates; [calibrate_ops.rs](../crates/tkm-cli/tests/calibrate_ops.rs); [calibrate.rs](../crates/tkm-cli/src/cmd/calibrate.rs). |
+| S12-11 | tkm calibrate [--purpose loop/facts/relevance] | met | [calibrate_ops.rs](../crates/tkm-cli/tests/calibrate_ops.rs) `calibrate_facts_and_relevance_are_isolated_by_model_and_purpose`, `fixture_precision_targets_gate_shadow_for_every_purpose_and_model`; [calibrate.rs](../crates/tkm-cli/src/cmd/calibrate.rs). |
 | S12-12 | tkm replay &lt;session-or-fixture&gt; | met | [replay_ops.rs](../crates/tkm-cli/tests/replay_ops.rs) |
 | S12-13 | tkm run &lt;harness&gt; [args...] | met | [run_wrapper.rs](../crates/tkm-cli/tests/run_wrapper.rs) |
 | S12-14 | tkm doctor [--probe] | met | [host_probe.rs](../crates/tkm-cli/tests/host_probe.rs) `fake_host_subset_records_arrivals_and_marks_missing_events_idle_fold`; [doctor_checks.rs](../crates/tkm-cli/tests/doctor_checks.rs) `doctor_persists_fallback_then_clears_it_after_repair` |
@@ -913,7 +910,7 @@ Nothing pending. The E10.6 replay benchmark harness is merged; only its real-dat
 | S15-13 | M6: otherskill loaded-vs-used evidence | met | [sessions.rs](../crates/tkm-store/tests/sessions.rs) `skill_evidence_is_persistent_per_session_and_replaceable`; [skills_wiring.rs](../crates/tkm-cli/tests/skills_wiring.rs); [ADR 0049](../docs/adr/0049-priced-ledger-and-skill-evidence.md) |
 | S15-14 | M7: account-home installation and delegated escalation | met | [e9.rs](../crates/tkm-integrations/tests/e9.rs) |
 | S15-2 | M7: spend visible in superorchestrator status | deferred | **(b)** [ADR 0040](../docs/adr/0040-e9-integrations.md) item 5: spend lines are written locally; superorchestrator status ingestion is an upstream follow-up. |
-| S15-16 | M8: per-purpose calibrated decisions and stuck precision ≥0.9 on labelled turns | deferred | **(c)** [ADR 0045](../docs/adr/0045-offline-decision-bench.md): stuck precision is measured on synthetic labels, and facts/relevance calibration has no label contract; see [calibrate.rs](../crates/tkm-cli/src/cmd/calibrate.rs). Real labelled turns also needed. |
+| S15-16 | M8: per-purpose calibrated decisions and stuck precision ≥0.9 on labelled turns | met | [calibrate_ops.rs](../crates/tkm-cli/tests/calibrate_ops.rs) `fixture_precision_targets_gate_shadow_for_every_purpose_and_model`; [purpose_calibration.rs](../crates/tkmd/tests/purpose_calibration.rs) quality, revocation and separate shadow-window gates; [outcomes.json](../fixtures/bench/outcomes.json) 24 labelled synthetic turns. CI exercises precision ≥0.9 and recall ≥0.5; these fixtures do not measure real-model quality. |
 | S15-17 | M8: dashboard local-only with token | met | [web.rs](../crates/tkmd/tests/web.rs) |
 
 ## 16. Testing
@@ -940,7 +937,7 @@ Nothing pending. The E10.6 replay benchmark harness is merged; only its real-dat
 | S17-4 | 4: otherskill selection hand-off and one injector | met | [0001-open-question-defaults.md](../docs/adr/0001-open-question-defaults.md); [0040-e9-integrations.md](../docs/adr/0040-e9-integrations.md) |
 | S17-5 | 5: orchestrator event/spend API and daemon supervisor | deferred | **(b)** [ADR 0040](../docs/adr/0040-e9-integrations.md) item 5: no orchestrator spend ingestion API; escalation channel is implemented ([e9.rs](../crates/tkm-integrations/tests/e9.rs)). |
 | S17-6 | 6: port TE logic with attribution, reimplement I/O | met | [0001-open-question-defaults.md](../docs/adr/0001-open-question-defaults.md); [NOTICE](../NOTICE) |
-| S17-7 | 7: agreement mode default and availability | deferred | **(c)** [ADR 0016](../docs/adr/0016-live-layer-and-decision-queue.md): agreement mode has no daemon wiring; see [client.rs](../crates/tkm-decide/src/client.rs) and [settings.rs](../crates/tkmd/src/settings.rs). [ADR 0001](../docs/adr/0001-open-question-defaults.md) |
+| S17-7 | 7: agreement mode default and availability | met | [ADR 0001](../docs/adr/0001-open-question-defaults.md) default off; [settings.rs](../crates/tkmd/src/settings.rs) `agreement_defaults_off_and_can_be_enabled_by_configuration`; [agreement.rs](../crates/tkmd/tests/agreement.rs) covers enabled operation, disagreement and failure. |
 | S17-8 | 8: Cursor, agy, Kimi, Codex behavior verification | deferred | **(a)** [e5b-hosts.md](../docs/verified/e5b-hosts.md) records agy tool events and Cursor/Kimi/Codewhale behavior as unobserved without real installs. |
 | S17-9 | 9: committed instruction-file injection opt-in | met | [0001-open-question-defaults.md](../docs/adr/0001-open-question-defaults.md); [fold_only_instructions.rs](../crates/tkm-hosts/tests/fold_only_instructions.rs) |
 
