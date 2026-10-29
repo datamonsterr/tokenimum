@@ -241,14 +241,14 @@ mod tests {
     use tkm_store::DenylistEntry;
 
     #[test]
-    fn restore_does_not_readd_manually_removed_owned_rule() {
-        let dir = tempfile::tempdir().unwrap();
+    fn restore_does_not_readd_manually_removed_owned_rule() -> Result<(), Box<dyn std::error::Error>>
+    {
+        let dir = tempfile::tempdir()?;
         assert!(
             std::process::Command::new("git")
                 .args(["init", "-q"])
                 .current_dir(dir.path())
-                .status()
-                .unwrap()
+                .status()?
                 .success()
         );
         let paths = Paths::from_dirs(
@@ -257,32 +257,30 @@ mod tests {
             Some(dir.path()),
             Some(dir.path()),
         );
-        paths.ensure_runtime_dir().unwrap();
-        let store = tkm_store::Store::open(&paths.db).unwrap();
+        paths.ensure_runtime_dir()?;
+        let store = tkm_store::Store::open(&paths.db)?;
         for tool in ["A", "B"] {
-            store
-                .record_denylist_write(&DenylistEntry {
-                    checkout_path: dir.path().into(),
-                    host: Host::Claude,
-                    tool: tool.into(),
-                    written_at: Timestamp(1),
-                    restored: false,
-                })
-                .unwrap();
+            store.record_denylist_write(&DenylistEntry {
+                checkout_path: dir.path().into(),
+                host: Host::Claude,
+                tool: tool.into(),
+                written_at: Timestamp(1),
+                restored: false,
+            })?;
         }
-        std::fs::create_dir_all(dir.path().join(".claude")).unwrap();
+        std::fs::create_dir_all(dir.path().join(".claude"))?;
         let file = dir.path().join(".claude/settings.local.json");
-        std::fs::write(&file, r#"{"permissions":{"deny":["A"]}}"#).unwrap();
+        std::fs::write(&file, r#"{"permissions":{"deny":["A"]}}"#)?;
         let actions = DaemonActions {
             db: paths.db.clone(),
             daemon: Daemon::new(crate::daemon::DaemonOptions::new(paths)),
             deny_lock: Mutex::new(()),
         };
         actions
-            .restore_tool(dir.path().to_str().unwrap(), "claude", "A")
-            .unwrap();
-        let value: serde_json::Value =
-            serde_json::from_slice(&std::fs::read(file).unwrap()).unwrap();
+            .restore_tool(&dir.path().to_string_lossy(), "claude", "A")
+            .map_err(std::io::Error::other)?;
+        let value: serde_json::Value = serde_json::from_slice(&std::fs::read(file)?)?;
         assert_eq!(value["permissions"]["deny"], serde_json::json!([]));
+        Ok(())
     }
 }
