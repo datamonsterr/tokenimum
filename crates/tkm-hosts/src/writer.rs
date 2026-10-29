@@ -171,23 +171,74 @@ fn temporary_file(parent: &Path) -> Result<(PathBuf, fs::File), AdapterError> {
     }
 }
 
-pub(super) fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), AdapterError> {
-    let parent = path
-        .parent()
-        .ok_or_else(|| unsafe_target(path, "target has no parent"))?;
-    let (temporary, mut file) = temporary_file(parent)?;
-    let result = (|| -> Result<(), AdapterError> {
-        if let Ok(metadata) = fs::metadata(path) {
-            file.set_permissions(metadata.permissions())?;
+/// A changed snapshot triggers one recomputation before any target is replaced.
+pub(super) enum Update<T> {
+    Done(T),
+    Retry(Option<String>),
+}
+
+pub(super) fn retry_update<T>(
+    mut snapshot: Option<String>,
+    mut update: impl FnMut(Option<&str>) -> Result<Update<T>, AdapterError>,
+) -> Result<T, AdapterError> {
+    for _ in 0..2 {
+        match update(snapshot.as_deref())? {
+            Update::Done(result) => return Ok(result),
+            Update::Retry(current) => snapshot = current,
         }
-        file.write_all(bytes)?;
-        file.sync_all()?;
+    }
+    Err(io::Error::new(
+        io::ErrorKind::WouldBlock,
+        "settings changed twice while preparing an update; retry the operation",
+    )
+    .into())
+}
+
+/// Stage bytes, then compare immediately before publishing or deleting.
+/// The callback publishes the first-write backup only after a successful check.
+pub(super) fn atomic_update(
+    path: &Path,
+    snapshot: Option<&str>,
+    replacement: Option<&str>,
+    before_publish: impl FnOnce() -> Result<(), AdapterError>,
+) -> Result<Update<()>, AdapterError> {
+    let temporary = if let Some(text) = replacement {
+        let parent = path
+            .parent()
+            .ok_or_else(|| unsafe_target(path, "target has no parent"))?;
+        let (temporary, mut file) = temporary_file(parent)?;
+        let staged = (|| -> Result<(), AdapterError> {
+            if let Ok(metadata) = fs::metadata(path) {
+                file.set_permissions(metadata.permissions())?;
+            }
+            file.write_all(text.as_bytes())?;
+            file.sync_all()?;
+            Ok(())
+        })();
         drop(file);
-        fs::rename(&temporary, path)?;
-        Ok(())
+        if let Err(error) = staged {
+            let _ = fs::remove_file(&temporary);
+            return Err(error);
+        }
+        Some(temporary)
+    } else {
+        None
+    };
+    let result = (|| -> Result<Update<()>, AdapterError> {
+        let current = read_optional(path)?;
+        if current.as_deref() != snapshot {
+            return Ok(Update::Retry(current));
+        }
+        before_publish()?;
+        if let Some(temporary) = &temporary {
+            fs::rename(temporary, path)?;
+        } else if snapshot.is_some() {
+            fs::remove_file(path)?;
+        }
+        Ok(Update::Done(()))
     })();
-    if result.is_err() {
-        let _ = fs::remove_file(&temporary);
+    if let Some(temporary) = temporary {
+        let _ = fs::remove_file(temporary);
     }
     result
 }
@@ -201,7 +252,11 @@ pub(super) fn save_backup(path: &Path, original: &[u8], source: &Path) -> Result
         .ok_or_else(|| unsafe_target(path, "backup has no parent"))?;
     let (temporary, mut file) = temporary_file(parent)?;
     let result = (|| -> Result<(), AdapterError> {
-        file.set_permissions(fs::metadata(source)?.permissions())?;
+        match fs::metadata(source) {
+            Ok(metadata) => file.set_permissions(metadata.permissions())?,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error.into()),
+        }
         file.write_all(original)?;
         file.sync_all()?;
         drop(file);
@@ -225,6 +280,13 @@ fn shell_words(command: &str) -> Option<Vec<String>> {
     let mut quote = None;
     let mut escaped = false;
     for character in command.chars() {
+        if matches!(character, '\n' | '\r') {
+            return None;
+        }
+        // Expansions still execute inside double quotes.
+        if quote == Some('"') && matches!(character, '$' | '`') && !escaped {
+            return None;
+        }
         if escaped {
             word.push(character);
             escaped = false;
@@ -242,13 +304,29 @@ fn shell_words(command: &str) -> Option<Vec<String>> {
             }
         } else if matches!(character, '\'' | '"') {
             quote = Some(character);
+        } else if character == '#' && word.is_empty() {
+            return None;
         } else if character.is_whitespace() {
             if !word.is_empty() {
                 words.push(std::mem::take(&mut word));
             }
         } else if matches!(
             character,
-            ';' | '|' | '&' | '<' | '>' | '`' | '$' | '(' | ')'
+            ';' | '|'
+                | '&'
+                | '<'
+                | '>'
+                | '`'
+                | '$'
+                | '('
+                | ')'
+                | '*'
+                | '?'
+                | '['
+                | ']'
+                | '{'
+                | '}'
+                | '~'
         ) {
             return None; // Complex shell programs cannot establish ownership.
         } else {
@@ -485,26 +563,37 @@ pub fn install_hooks(
             ..InstallReport::default()
         });
     }
-    let changed = install_text(original.as_deref().unwrap_or("{}"), host, hooks)?;
-    let mut report = InstallReport {
-        dry_run,
-        ..InstallReport::default()
-    };
-    if original.as_deref() == Some(changed.as_str()) {
-        return Ok(report);
-    }
-    report.changed_files.push(path.to_path_buf());
-    let needs_backup = original.is_some() && !backup_target.exists();
-    if needs_backup {
-        report.changed_files.push(backup);
-    }
-    if !dry_run {
-        if needs_backup && let Some(original) = &original {
-            save_backup(&backup_target, original.as_bytes(), &target)?;
+    retry_update(original, |original| {
+        let changed = install_text(original.unwrap_or("{}"), host, hooks)?;
+        let mut report = InstallReport {
+            dry_run,
+            ..InstallReport::default()
+        };
+        if original == Some(changed.as_str()) {
+            return Ok(Update::Done(report));
         }
-        atomic_write(&target, changed.as_bytes())?;
-    }
-    Ok(report)
+        report.changed_files.push(path.to_path_buf());
+        let needs_backup = !backup_target.exists();
+        if needs_backup {
+            report.changed_files.push(backup.clone());
+        }
+        if dry_run {
+            return Ok(Update::Done(report));
+        }
+        match atomic_update(&target, original, Some(&changed), || {
+            if needs_backup {
+                save_backup(
+                    &backup_target,
+                    original.unwrap_or_default().as_bytes(),
+                    &target,
+                )?;
+            }
+            Ok(())
+        })? {
+            Update::Done(()) => Ok(Update::Done(report)),
+            Update::Retry(current) => Ok(Update::Retry(current)),
+        }
+    })
 }
 
 /// Removes only groups whose every handler belongs to `host`.
@@ -524,46 +613,56 @@ pub fn uninstall_hooks(
 ) -> Result<InstallReport, AdapterError> {
     let target = safe_target(root, path)?;
     let (backup, backup_target) = checked_backup(root, path, &target)?;
-    let mut report = InstallReport {
-        dry_run,
-        ..InstallReport::default()
-    };
-    let Some(original) = read_optional(&target)? else {
-        return Ok(report);
-    };
-    let backup_text = read_optional(&backup_target)?;
-    let backup_value = backup_text
-        .as_deref()
-        .map(serde_json::from_str::<Value>)
-        .transpose()?;
-    let changed = uninstall_text(&original, host, backup_value.as_ref())?;
-    let value: Value = serde_json::from_str(&changed)?;
-    let restore = backup_value.as_ref() == Some(&value);
-    let replacement = if restore {
-        backup_text.as_deref().unwrap_or(&changed)
-    } else {
-        &changed
-    };
-    let delete = backup_text.is_none()
-        && value.as_object().is_some_and(serde_json::Map::is_empty)
-        && original != changed;
-    if original != replacement || delete {
-        report.changed_files.push(path.to_path_buf());
-    }
-    if restore {
-        report.changed_files.push(backup.clone());
-    }
-    if !dry_run {
-        if delete {
-            fs::remove_file(&target)?;
-        } else if original != replacement {
-            atomic_write(&target, replacement.as_bytes())?;
+    retry_update(read_optional(&target)?, |snapshot| {
+        let mut report = InstallReport {
+            dry_run,
+            ..InstallReport::default()
+        };
+        let Some(original) = snapshot else {
+            return Ok(Update::Done(report));
+        };
+        let backup_text = read_optional(&backup_target)?;
+        let backup_value = backup_text
+            .as_deref()
+            .filter(|text| !text.is_empty())
+            .map(serde_json::from_str::<Value>)
+            .transpose()?;
+        let changed = uninstall_text(original, host, backup_value.as_ref())?;
+        let value: Value = serde_json::from_str(&changed)?;
+        let restore = backup_value.as_ref() == Some(&value);
+        let replacement = if restore {
+            backup_text.as_deref().unwrap_or(&changed)
+        } else {
+            &changed
+        };
+        let delete = backup_text.as_deref() == Some("")
+            && value.as_object().is_some_and(serde_json::Map::is_empty);
+        let settings_changed = original != replacement || delete;
+        if settings_changed {
+            report.changed_files.push(path.to_path_buf());
         }
-        if restore {
+        if restore || delete {
+            report.changed_files.push(backup.clone());
+        }
+        if dry_run {
+            return Ok(Update::Done(report));
+        }
+        if settings_changed {
+            match atomic_update(
+                &target,
+                snapshot,
+                if delete { None } else { Some(replacement) },
+                || Ok(()),
+            )? {
+                Update::Done(()) => {}
+                Update::Retry(current) => return Ok(Update::Retry(current)),
+            }
+        }
+        if restore || delete {
             fs::remove_file(&backup)?;
         }
-    }
-    Ok(report)
+        Ok(Update::Done(report))
+    })
 }
 
 #[cfg(test)]
@@ -575,11 +674,11 @@ mod review_tests {
     fn compare_and_retry_recomputes_once_from_new_contents() {
         let mut snapshots = Vec::new();
         let result = retry_update(Some("first".into()), |snapshot| {
-            snapshots.push(snapshot.clone());
+            snapshots.push(snapshot.map(str::to_owned));
             if snapshots.len() == 1 {
                 Ok(Update::Retry(Some("foreign edit".into())))
             } else {
-                Ok(Update::Done(snapshot.clone()))
+                Ok(Update::Done(snapshot.map(str::to_owned)))
             }
         })
         .unwrap();
@@ -603,5 +702,62 @@ mod review_tests {
         };
         assert_eq!(error.kind(), io::ErrorKind::WouldBlock);
         assert!(error.to_string().contains("changed"));
+    }
+    struct Scratch(PathBuf);
+    impl Scratch {
+        fn new() -> Self {
+            static NEXT: AtomicU64 = AtomicU64::new(0);
+            let root = std::env::temp_dir().join(format!(
+                "tkm-review-update-{}-{}",
+                std::process::id(),
+                NEXT.fetch_add(1, Ordering::Relaxed)
+            ));
+            fs::create_dir_all(&root).unwrap();
+            Self(root)
+        }
+    }
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn atomic_update_checks_disk_before_replace_or_delete() {
+        let scratch = Scratch::new();
+        let path = scratch.0.join("settings.json");
+        for replacement in [Some("replacement"), None] {
+            fs::write(&path, "foreign edit").unwrap();
+            let update = atomic_update(&path, Some("stale"), replacement, || {
+                panic!("must not publish backup on conflict")
+            })
+            .unwrap();
+            let Update::Retry(snapshot) = update else {
+                panic!("expected conflict");
+            };
+            assert_eq!(snapshot.as_deref(), Some("foreign edit"));
+            assert_eq!(fs::read_to_string(&path).unwrap(), "foreign edit");
+            assert_eq!(fs::read_dir(&scratch.0).unwrap().count(), 1);
+        }
+    }
+
+    #[test]
+    fn atomic_update_retries_preserve_foreign_bytes_and_abort_on_second_change() {
+        let scratch = Scratch::new();
+        let path = scratch.0.join("settings.json");
+        fs::write(&path, "initial").unwrap();
+        let mut attempt = 0;
+        let result = retry_update(read_optional(&path).unwrap(), |snapshot| {
+            attempt += 1;
+            fs::write(&path, format!("foreign {attempt}")).unwrap();
+            atomic_update(&path, snapshot, Some("ours"), || {
+                panic!("must not publish on conflict")
+            })
+        });
+        assert!(
+            matches!(result, Err(AdapterError::Io(ref error)) if error.kind() == io::ErrorKind::WouldBlock)
+        );
+        assert_eq!(fs::read_to_string(&path).unwrap(), "foreign 2");
+        assert_eq!(fs::read_dir(&scratch.0).unwrap().count(), 1);
     }
 }

@@ -1,6 +1,9 @@
 //! Claude's local deny list, with ownership supplied by the caller's store.
 
-use super::{atomic_write, checked_backup, invalid, read_optional, safe_target, save_backup, span};
+use super::{
+    Update, atomic_update, checked_backup, invalid, read_optional, retry_update, safe_target,
+    save_backup, span,
+};
 use crate::AdapterError;
 use serde_json::{Value, json};
 use std::collections::BTreeSet;
@@ -49,7 +52,8 @@ fn exclude_target(root: &Path) -> Result<PathBuf, AdapterError> {
 fn refuse_tracked(root: &Path, path: &Path) -> Result<(), AdapterError> {
     let output = Command::new("git")
         .current_dir(root)
-        .args(["ls-files", "--error-unmatch", "--", RELATIVE])
+        .args(["ls-files", "--error-unmatch", "--"])
+        .arg(super::absolute(path)?)
         .output()?;
     if output.status.success() {
         return Err(AdapterError::UnsafeTarget {
@@ -173,49 +177,73 @@ pub fn update_deny(
     let path = repo.join(RELATIVE);
     let target = safe_target(repo, &path)?;
     refuse_tracked(repo, &path)?;
+    refuse_tracked(repo, &target)?;
     let (backup, backup_target) = checked_backup(repo, &path, &target)?;
-    let original = read_optional(&target)?;
-    let (changed, new_owned) = reconcile(original.as_deref().unwrap_or("{}"), owned, desired)?;
-    let settings_changed = original.as_deref().unwrap_or("{}") != changed;
-    let mut report = DenyReport {
-        owned: new_owned,
-        changed_files: Vec::new(),
-        dry_run,
-    };
-    if original.is_none() && !settings_changed {
-        return Ok(report);
-    }
-    let exclude = exclude_target(repo)?;
-    let previous_exclude = read_optional(&exclude)?.unwrap_or_default();
-    let mut next_exclude = previous_exclude.clone();
-    if !previous_exclude.lines().any(|line| line == EXCLUDE_LINE) {
-        if !next_exclude.is_empty() && !next_exclude.ends_with('\n') {
-            next_exclude.push('\n');
+    let mut exclude_changed = false;
+    retry_update(read_optional(&target)?, |original| {
+        // Recheck the index too when retrying a concurrently changed document.
+        refuse_tracked(repo, &path)?;
+        refuse_tracked(repo, &target)?;
+        let (changed, new_owned) = reconcile(original.unwrap_or("{}"), owned, desired)?;
+        let settings_changed = original.unwrap_or("{}") != changed;
+        let mut report = DenyReport {
+            owned: new_owned,
+            changed_files: Vec::new(),
+            dry_run,
+        };
+        if original.is_none() && !settings_changed {
+            return Ok(Update::Done(report));
         }
-        next_exclude.push_str(EXCLUDE_LINE);
-        next_exclude.push('\n');
-    }
-    let needs_backup = settings_changed && original.is_some() && !backup_target.exists();
-    if settings_changed {
-        report.changed_files.push(path);
-    }
-    if needs_backup {
-        report.changed_files.push(backup);
-    }
-    if next_exclude != previous_exclude {
-        report.changed_files.push(exclude.clone());
-    }
-    if !dry_run {
-        if needs_backup && let Some(original) = original {
-            save_backup(&backup_target, original.as_bytes(), &target)?;
+        let exclude = exclude_target(repo)?;
+        let needs_backup = settings_changed && !backup_target.exists();
+        if settings_changed {
+            report.changed_files.push(path.clone());
+        }
+        if needs_backup {
+            report.changed_files.push(backup.clone());
         }
         // Exclude before creating settings, so a partial write cannot expose it.
-        if next_exclude != previous_exclude {
-            atomic_write(&exclude, next_exclude.as_bytes())?;
+        exclude_changed |= update_exclude(&exclude, dry_run)?;
+        if exclude_changed {
+            report.changed_files.push(exclude);
         }
-        if settings_changed {
-            atomic_write(&target, changed.as_bytes())?;
+        if settings_changed && !dry_run {
+            match atomic_update(&target, original, Some(&changed), || {
+                if needs_backup {
+                    save_backup(
+                        &backup_target,
+                        original.unwrap_or_default().as_bytes(),
+                        &target,
+                    )?;
+                }
+                Ok(())
+            })? {
+                Update::Done(()) => {}
+                Update::Retry(current) => return Ok(Update::Retry(current)),
+            }
         }
-    }
-    Ok(report)
+        Ok(Update::Done(report))
+    })
+}
+
+fn update_exclude(path: &Path, dry_run: bool) -> Result<bool, AdapterError> {
+    retry_update(read_optional(path)?, |snapshot| {
+        let previous = snapshot.unwrap_or_default();
+        if previous.lines().any(|line| line == EXCLUDE_LINE) {
+            return Ok(Update::Done(false));
+        }
+        let mut next = previous.to_owned();
+        if !next.is_empty() && !next.ends_with('\n') {
+            next.push('\n');
+        }
+        next.push_str(EXCLUDE_LINE);
+        next.push('\n');
+        if dry_run {
+            return Ok(Update::Done(true));
+        }
+        match atomic_update(path, snapshot, Some(&next), || Ok(()))? {
+            Update::Done(()) => Ok(Update::Done(true)),
+            Update::Retry(current) => Ok(Update::Retry(current)),
+        }
+    })
 }
