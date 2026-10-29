@@ -3009,6 +3009,8 @@ name = "tkm-cli"
 version = "0.0.0"
 dependencies = [
  "clap",
+ "serde_json",
+ "tempfile",
  "tkm-config",
  "tkm-core",
  "tkm-decide",

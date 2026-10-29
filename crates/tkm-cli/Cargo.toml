@@ -21,6 +21,10 @@ tkm-integrations = { workspace = true }
 tkm-config = { workspace = true }
 tkm-ui = { workspace = true }
 
+[dev-dependencies]
+tempfile = { workspace = true }
+serde_json = { workspace = true }
+
 [[bin]]
 name = "tkm"
 path = "src/main.rs"
