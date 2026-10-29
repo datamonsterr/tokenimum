@@ -39,6 +39,11 @@ jobs:
           cargo bench --locked -p tkmd --bench tool_done -- --output-format bencher | tee tkmd-criterion.txt
           python3 scripts/check_bench_budget.py tkmd-criterion.txt tool_done_ 200000
           cat tkmd-criterion.txt >> criterion.txt
+      - name: Run UI render benchmark (budget 50 ms)
+        run: |
+          cargo bench --locked -p tkm-ui --bench render -- --output-format bencher | tee ui-criterion.txt
+          python3 scripts/check_bench_budget.py ui-criterion.txt render_ 50000000
+          cat ui-criterion.txt >> criterion.txt
       - name: Run hook benchmark
         run: |
           cargo build --release --locked -p tkm-hook

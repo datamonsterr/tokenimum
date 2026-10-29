@@ -3125,8 +3125,18 @@ name = "tkm-ui"
 version = "0.0.0"
 dependencies = [
  "axum",
+ "criterion",
  "crossterm",
  "ratatui",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.21",
+ "tkm-config",
+ "tkm-core",
+ "tkm-proto",
+ "tkm-store",
  "tokio",
 ]
 
