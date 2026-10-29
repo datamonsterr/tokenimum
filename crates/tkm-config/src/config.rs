@@ -210,6 +210,7 @@ static REGISTRY: LazyLock<Vec<Key>> = LazyLock::new(build_registry);
 fn registry() -> &'static [Key] {
     &REGISTRY
 }
+#[expect(clippy::too_many_lines, reason = "declarative key registry table")]
 fn build_registry() -> Vec<Key> {
     let mut keys = vec![
         key!(
@@ -711,12 +712,7 @@ fn read_file(path: &std::path::Path) -> Result<Vec<(String, toml_edit::Item)>, C
     flatten(document.as_table(), "", &mut result);
     Ok(result)
 }
-/// Load and validate all layers. Malformed files return an error with their path.
-///
-/// # Errors
-/// Returns an error for unreadable or malformed files.
-pub fn load(inputs: &LoadInputs) -> Result<EffectiveConfig, ConfigError> {
-    let keys = registry();
+fn default_config(keys: &[Key]) -> Result<EffectiveConfig, ConfigError> {
     let mut config = EffectiveConfig::default();
     for key in keys {
         let value = if key.name == "loop.escalate_command" {
@@ -728,6 +724,12 @@ pub fn load(inputs: &LoadInputs) -> Result<EffectiveConfig, ConfigError> {
             .values
             .insert(key.name.into(), (value, Layer::Default));
     }
+    Ok(config)
+}
+
+fn read_file_layers(
+    inputs: &LoadInputs,
+) -> Result<Vec<(Layer, Vec<(String, toml_edit::Item)>)>, ConfigError> {
     let global = inputs
         .env
         .iter()
@@ -742,17 +744,34 @@ pub fn load(inputs: &LoadInputs) -> Result<EffectiveConfig, ConfigError> {
             read_file(&root.join(".tokenimum.local.toml"))?,
         ));
     }
-    let mut entries: Vec<(Layer, String, Result<Value, ConfigError>)> = Vec::new();
-    for (layer, items) in layers {
-        for (name, item) in items {
-            let parsed = keys.iter().find(|k| k.name == name).map_or_else(
-                || Err(ConfigError::UnknownKey(name.clone())),
-                |key| parse_item(key, &item),
-            );
-            entries.push((layer, name, parsed));
-        }
-    }
-    for (name, value) in &inputs.env {
+    Ok(layers)
+}
+
+fn file_entries(
+    keys: &[Key],
+    layers: Vec<(Layer, Vec<(String, toml_edit::Item)>)>,
+) -> Vec<(Layer, String, Result<Value, ConfigError>)> {
+    layers
+        .into_iter()
+        .flat_map(|(layer, items)| {
+            items.into_iter().map(move |(name, item)| {
+                let parsed = keys.iter().find(|key| key.name == name).map_or_else(
+                    || Err(ConfigError::UnknownKey(name.clone())),
+                    |key| parse_item(key, &item),
+                );
+                (layer, name, parsed)
+            })
+        })
+        .collect()
+}
+
+fn env_entries(
+    keys: &[Key],
+    env: &[(String, String)],
+    config: &mut EffectiveConfig,
+) -> Vec<(Layer, String, Result<Value, ConfigError>)> {
+    let mut entries = Vec::new();
+    for (name, value) in env {
         if !name.starts_with("TKM_") || name == "TKM_CONFIG" || name == "TKM_DISABLE" {
             continue;
         }
@@ -765,7 +784,16 @@ pub fn load(inputs: &LoadInputs) -> Result<EffectiveConfig, ConfigError> {
             config.errors.push(ConfigError::UnknownKey(name.clone()));
         }
     }
-    for flag in &inputs.flags {
+    entries
+}
+
+fn flag_entries(
+    keys: &[Key],
+    flags: &[String],
+    config: &mut EffectiveConfig,
+) -> Vec<(Layer, String, Result<Value, ConfigError>)> {
+    let mut entries = Vec::new();
+    for flag in flags {
         if let Some((name, value)) = flag.split_once('=') {
             let parsed = keys.iter().find(|k| k.name == name).map_or_else(
                 || Err(ConfigError::UnknownKey(name.to_owned())),
@@ -780,7 +808,11 @@ pub fn load(inputs: &LoadInputs) -> Result<EffectiveConfig, ConfigError> {
             });
         }
     }
-    let selected = entries
+    entries
+}
+
+fn selected_preset(entries: &[(Layer, String, Result<Value, ConfigError>)]) -> (&str, Layer) {
+    entries
         .iter()
         .rev()
         .find_map(|(layer, key, value)| {
@@ -794,11 +826,18 @@ pub fn load(inputs: &LoadInputs) -> Result<EffectiveConfig, ConfigError> {
                 None
             }
         })
-        .unwrap_or(("balanced", Layer::Default));
+        .unwrap_or(("balanced", Layer::Default))
+}
+
+fn apply_preset(
+    config: &mut EffectiveConfig,
+    keys: &[Key],
+    selected: (&str, Layer),
+) -> Result<(), ConfigError> {
     for (name, raw) in preset(selected.0) {
         if let Some(key) = keys.iter().find(|key| key.name == *name) {
             apply(
-                &mut config,
+                config,
                 key,
                 parse_text(key, raw)?,
                 Layer::Preset,
@@ -810,16 +849,39 @@ pub fn load(inputs: &LoadInputs) -> Result<EffectiveConfig, ConfigError> {
             );
         }
     }
+    Ok(())
+}
+
+fn apply_entries(
+    config: &mut EffectiveConfig,
+    keys: &[Key],
+    entries: Vec<(Layer, String, Result<Value, ConfigError>)>,
+) {
     for (layer, name, value) in entries {
         match value {
             Ok(value) => {
                 if let Some(key) = keys.iter().find(|key| key.name == name) {
-                    apply(&mut config, key, value, layer, None);
+                    apply(config, key, value, layer, None);
                 }
             }
             Err(error) => config.errors.push(error),
         }
     }
+}
+
+/// Load and validate all layers. Malformed files return an error with their path.
+///
+/// # Errors
+/// Returns an error for unreadable or malformed files.
+pub fn load(inputs: &LoadInputs) -> Result<EffectiveConfig, ConfigError> {
+    let keys = registry();
+    let mut config = default_config(keys)?;
+    let mut entries = file_entries(keys, read_file_layers(inputs)?);
+    entries.extend(env_entries(keys, &inputs.env, &mut config));
+    entries.extend(flag_entries(keys, &inputs.flags, &mut config));
+    let selected = selected_preset(&entries);
+    apply_preset(&mut config, keys, selected)?;
+    apply_entries(&mut config, keys, entries);
     Ok(config)
 }
 /// Check whether a process environment disables tokenimum.
@@ -883,12 +945,10 @@ impl ConfigFile {
             .iter()
             .find(|k| k.name == key)
             .ok_or_else(|| ConfigError::UnknownKey(key.to_owned()))?;
-        let normalized = if let Ok(value) = raw.parse::<toml_edit::Value>() {
-            if let Some(s) = value.as_str() {
-                s.to_owned()
-            } else {
-                raw.to_owned()
-            }
+        let normalized = if let Ok(value) = raw.parse::<toml_edit::Value>()
+            && let Some(s) = value.as_str()
+        {
+            s.to_owned()
         } else {
             raw.to_owned()
         };
@@ -1019,12 +1079,12 @@ pub fn diff_from_preset(config: &EffectiveConfig) -> Vec<String> {
     }
     let name = config.get_str("preset").unwrap_or("balanced");
     for (name, raw) in preset(name) {
-        if let Some(key) = keys.iter().find(|k| k.name == *name) {
-            if let Ok(value) = parse_text(key, raw) {
-                baseline
-                    .values
-                    .insert((*name).into(), (value, Layer::Preset));
-            }
+        if let Some(key) = keys.iter().find(|k| k.name == *name)
+            && let Ok(value) = parse_text(key, raw)
+        {
+            baseline
+                .values
+                .insert((*name).into(), (value, Layer::Preset));
         }
     }
     config

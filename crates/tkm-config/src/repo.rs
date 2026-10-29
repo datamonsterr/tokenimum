@@ -105,17 +105,17 @@ fn origin_url(root: &Path) -> Option<String> {
                 .and_then(|s| s.strip_suffix(']'))
                 .and_then(|s| s.trim().strip_prefix('"'))
                 .and_then(|s| s.strip_suffix('"'));
-        } else if let Some(name) = current {
-            if let Some((key, value)) = line.split_once('=') {
-                if key.trim() == "url" && !value.trim().is_empty() {
-                    let value = value.trim().to_owned();
-                    if first.is_none() {
-                        first = Some(value.clone());
-                    }
-                    if name == "origin" && origin.is_none() {
-                        origin = Some(value);
-                    }
-                }
+        } else if let Some(name) = current
+            && let Some((key, value)) = line.split_once('=')
+            && key.trim() == "url"
+            && !value.trim().is_empty()
+        {
+            let value = value.trim().to_owned();
+            if first.is_none() {
+                first = Some(value.clone());
+            }
+            if name == "origin" && origin.is_none() {
+                origin = Some(value);
             }
         }
     }
@@ -128,24 +128,23 @@ pub fn normalize_remote(url: &str) -> String {
     if let Some((_, rest)) = value.split_once("://") {
         value = rest;
     }
-    if let Some((user, rest)) = value.split_once('@') {
-        if !user.contains('/') {
-            value = rest;
-        }
+    if let Some((user, rest)) = value.split_once('@')
+        && !user.contains('/')
+    {
+        value = rest;
     }
     let mut result = value.trim_end_matches('/').to_owned();
-    if let Some((host, rest)) = result.split_once(':') {
-        if !host.contains('/')
-            && rest
-                .chars()
-                .next()
-                .is_some_and(|c| !c.is_ascii_digit() && c != '/')
-        {
-            result = format!("{host}/{rest}");
-        }
+    if let Some((host, rest)) = result.split_once(':')
+        && !host.contains('/')
+        && rest
+            .chars()
+            .next()
+            .is_some_and(|c| !c.is_ascii_digit() && c != '/')
+    {
+        result = format!("{host}/{rest}");
     }
-    if result.ends_with(".git") {
-        result.truncate(result.len() - 4);
+    if let Some(stripped) = result.strip_suffix(".git") {
+        result = stripped.to_owned();
     }
     result.to_lowercase()
 }
