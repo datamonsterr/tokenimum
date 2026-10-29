@@ -1,0 +1,173 @@
+#![forbid(unsafe_code)]
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+use serde_json::{Value, json};
+use std::{
+    collections::BTreeSet,
+    fs,
+    path::PathBuf,
+    process::Command,
+    sync::atomic::{AtomicU64, Ordering},
+};
+use tkm_hosts::{
+    AdapterError,
+    writer::{self, HookSpec, deny::update_deny},
+};
+use tkm_proto::EventKind;
+struct Scratch(PathBuf);
+impl Scratch {
+    fn new() -> Self {
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        let p = std::env::temp_dir().join(format!(
+            "tkm-writer-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::create_dir_all(&p).unwrap();
+        Self(p)
+    }
+}
+impl Drop for Scratch {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.0);
+    }
+}
+fn init_git(temp: &Scratch) -> bool {
+    match Command::new("git")
+        .arg("init")
+        .arg("--quiet")
+        .arg(&temp.0)
+        .status()
+    {
+        Ok(s) => {
+            assert!(s.success());
+            true
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            eprintln!("SKIP: git is unavailable; prune git safety test not run");
+            false
+        }
+        Err(e) => panic!("git init: {e}"),
+    }
+}
+fn set(entries: &[&str]) -> BTreeSet<String> {
+    entries.iter().map(|s| (*s).to_owned()).collect()
+}
+#[test]
+fn shell_handler_ownership_is_host_specific_and_mixed_groups_survive() {
+    let temp = Scratch::new();
+    let path = temp.0.join("hooks.json");
+    let original = r#"{"hooks":{"Stop":[{"hooks":[{"command":"/bin/tkm-hook --host codex --event turn_end"},{"command":"foreign"}]},{"hooks":[{"command":"tkm-hook --host claude --event turn_end"}]},{"hooks":[{"command":"echo tkm-hook --host codex"}]}]}}"#;
+    fs::write(&path, original).unwrap();
+    let hooks = [HookSpec {
+        native_event: "Stop".into(),
+        kind: EventKind::TurnEnd,
+        matcher: None,
+        handler: json!({"type":"command","command":"tkm-hook --host codex --event turn_end","additionalContextLimit":2500}),
+    }];
+    writer::install_hooks(&temp.0, &path, "codex", &hooks, false).unwrap();
+    let bytes = fs::read(&path).unwrap();
+    assert!(String::from_utf8_lossy(&bytes).contains("additionalContextLimit"));
+    assert!(
+        writer::install_hooks(&temp.0, &path, "codex", &hooks, false)
+            .unwrap()
+            .changed_files
+            .is_empty()
+    );
+    writer::uninstall_hooks(&temp.0, &path, "codex", false).unwrap();
+    assert_eq!(fs::read_to_string(&path).unwrap(), original);
+}
+#[test]
+fn prune_owned_set_preserves_person_rules_and_excludes_once() {
+    let temp = Scratch::new();
+    if !init_git(&temp) {
+        return;
+    }
+    let path = temp.0.join(".claude/settings.local.json");
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    let original = fs::read(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../fixtures/claude/config/settings.local.json"
+    ))
+    .unwrap();
+    fs::write(&path, &original).unwrap();
+    let desired = set(&["WebFetch", "UnusedTool", "mcp__unused__*"]);
+    let result = update_deny(&temp.0, &BTreeSet::new(), &desired, false).unwrap();
+    assert_eq!(result.owned, set(&["UnusedTool", "mcp__unused__*"]));
+    let first = fs::read(&path).unwrap();
+    assert!(
+        update_deny(&temp.0, &result.owned, &desired, false)
+            .unwrap()
+            .changed_files
+            .is_empty()
+    );
+    assert_eq!(fs::read(&path).unwrap(), first);
+    let result = update_deny(&temp.0, &result.owned, &BTreeSet::new(), false).unwrap();
+    assert!(result.owned.is_empty());
+    let value: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+    assert_eq!(
+        value["permissions"]["deny"],
+        json!(["WebFetch", "Bash(rm -rf *)"])
+    );
+    let exclude = Command::new("git")
+        .current_dir(&temp.0)
+        .args(["rev-parse", "--git-path", "info/exclude"])
+        .output()
+        .unwrap();
+    let exclude = String::from_utf8(exclude.stdout).unwrap();
+    let contents = fs::read_to_string(temp.0.join(exclude.trim())).unwrap();
+    assert_eq!(
+        contents
+            .lines()
+            .filter(|line| *line == "/.claude/settings.local.json")
+            .count(),
+        1
+    );
+}
+#[test]
+fn prune_refuses_tracked_settings_and_dry_run_has_no_writes() {
+    let temp = Scratch::new();
+    if !init_git(&temp) {
+        return;
+    }
+    let desired = set(&["UnusedTool"]);
+    let result = update_deny(&temp.0, &BTreeSet::new(), &desired, true).unwrap();
+    assert!(!result.changed_files.is_empty());
+    assert!(!temp.0.join(".claude").exists());
+    let path = temp.0.join(".claude/settings.local.json");
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    fs::write(&path, b"{}").unwrap();
+    assert!(
+        Command::new("git")
+            .current_dir(&temp.0)
+            .args(["add", "--force", ".claude/settings.local.json"])
+            .status()
+            .unwrap()
+            .success()
+    );
+    assert!(matches!(
+        update_deny(&temp.0, &BTreeSet::new(), &desired, false),
+        Err(AdapterError::UnsafeTarget { .. })
+    ));
+    assert_eq!(fs::read(&path).unwrap(), b"{}");
+}
+#[cfg(unix)]
+#[test]
+fn prune_refuses_escaping_symlinks() {
+    let temp = Scratch::new();
+    if !init_git(&temp) {
+        return;
+    }
+    let outside = Scratch::new();
+    fs::write(outside.0.join("settings.json"), b"{}").unwrap();
+    fs::create_dir_all(temp.0.join(".claude")).unwrap();
+    std::os::unix::fs::symlink(
+        outside.0.join("settings.json"),
+        temp.0.join(".claude/settings.local.json"),
+    )
+    .unwrap();
+    assert!(matches!(
+        update_deny(&temp.0, &BTreeSet::new(), &set(&["UnusedTool"]), false),
+        Err(AdapterError::UnsafeTarget { .. })
+    ));
+    assert_eq!(fs::read(outside.0.join("settings.json")).unwrap(), b"{}");
+}
