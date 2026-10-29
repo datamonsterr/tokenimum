@@ -78,3 +78,30 @@ fn updating_pricing_preserves_trailing_comments_on_every_existing_value() {
     assert_eq!(model["context"].as_integer(), Some(65_536));
     assert_eq!(model["fetched"].as_str(), Some("2026-10-29"));
 }
+
+#[test]
+fn refresh_uses_fixture_rates_and_preserves_stale_table_on_failure() {
+    use tkm_decide::pricing::refresh_pricing;
+    let old = "[models.\"vendor/model\"]\ninput = 1.0\noutput = 2.0\ncache_read = 0.1\ncache_write = 1.0\n";
+    let fixture = include_str!("fixtures/models-decisions-2026-10-29.json");
+    let refreshed = refresh_pricing(old, 700_000_000, || Ok(fixture.to_owned())).unwrap();
+    let table = tkm_core::ledger::PriceTable::parse(&refreshed).unwrap();
+    assert!(table.models.contains_key("liquid/d1.1"));
+    assert!(table.models.contains_key("liquid/d1.1-20261027"));
+    assert!(table.models.contains_key("vendor/model"));
+    assert!(refreshed.contains("fetched_at = 700000000"));
+    assert!(refresh_pricing(&refreshed, 700_000_001, || Err("should not fetch".into())).is_ok());
+    assert!(refresh_pricing(old, 700_000_000, || Err("offline".into())).is_err());
+}
+
+#[test]
+fn rates_are_not_required_for_unused_cache_classes() {
+    let table =
+        tkm_core::ledger::PriceTable::parse("[models.fixture]\ninput=2.0\noutput=4.0\n").unwrap();
+    let usage = tkm_core::model::Usage {
+        input: 1000,
+        output: 100,
+        ..Default::default()
+    };
+    assert_eq!(table.price_usage("fixture", usage), Some(0.0024));
+}

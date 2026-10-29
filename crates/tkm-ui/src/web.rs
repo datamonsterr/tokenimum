@@ -275,8 +275,8 @@ async fn blocking<T: Send + 'static>(
 async fn history(State(s): State<WebState>) -> Result<Json<Value>, StatusCode> {
     let db = s.db.clone();
     blocking(&s, move || {
-        let rows = query(&db, "SELECT sessions.session_id, sessions.repo_key, sessions.host, sessions.started_at, ledger.priced_cost FROM ledger JOIN sessions ON sessions.id=ledger.session_id ORDER BY sessions.started_at", &[])?;
-        let daily = query(&db, "SELECT date(sessions.started_at / 1000, 'unixepoch') AS day, sum(ledger.priced_cost) AS cost FROM ledger JOIN sessions ON sessions.id=ledger.session_id GROUP BY day ORDER BY day", &[])?;
+        let rows = query(&db, "SELECT sessions.session_id, sessions.repo_key, sessions.host, sessions.started_at, ledger.priced_cost_usd AS priced_cost FROM ledger JOIN sessions ON sessions.id=ledger.session_id ORDER BY sessions.started_at", &[])?;
+        let daily = query(&db, "SELECT date(sessions.started_at / 1000, 'unixepoch') AS day, sum(ledger.priced_cost_usd) AS cost FROM ledger JOIN sessions ON sessions.id=ledger.session_id GROUP BY day ORDER BY day", &[])?;
         Ok(Json(json!({"sessions":rows,"days":daily})))
     }).await
 }

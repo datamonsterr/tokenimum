@@ -134,7 +134,7 @@ fn paid_probe(command: &[&str], configured_path: bool) {
     let rows = store.list_recent_decisions(-1).unwrap();
     assert_eq!(rows.len(), 1);
     assert!(rows[0].created_at.is_some_and(|t| t.0 > 0));
-    assert_eq!(rows[0].cost_usd, 0.000_001);
+    assert_eq!(rows[0].cost_usd, Some(0.000_001));
     let status = f.run(&["status", "--json"]);
     let json: serde_json::Value = serde_json::from_slice(&status.stdout).unwrap();
     assert_eq!(

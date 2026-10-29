@@ -63,6 +63,10 @@ fn pricing_session_prefers_breakdown_and_requires_known_model() {
         prices.price_session(&session, Some("example-model")),
         Some(2.0)
     );
+    session.usage = Usage {
+        output: 1_000_000,
+        ..Usage::default()
+    };
     session.usage_by_model.insert(
         "example-model".into(),
         Usage {

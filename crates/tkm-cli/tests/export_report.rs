@@ -17,7 +17,7 @@ fn seed_digest(f: &Fixture) {
                 purpose: "loop_guard".into(),
                 questions: serde_json::json!({}),
                 answers: serde_json::json!({}),
-                cost_usd: 0.0,
+                cost_usd: Some(0.0),
                 latency_ms: 1,
                 shadow: true,
             },
@@ -69,7 +69,7 @@ fn export_redacts_legacy_raw_digest_and_excludes_other_repositories() {
         purpose: "relevance".into(),
         questions: serde_json::json!({}),
         answers: serde_json::json!({}),
-        cost_usd: 0.0,
+        cost_usd: Some(0.0),
         latency_ms: 1,
         shadow: false,
     };

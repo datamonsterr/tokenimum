@@ -60,13 +60,32 @@ impl PriceTable {
     #[must_use]
     #[allow(clippy::cast_precision_loss)]
     pub fn price_usage(&self, model: &str, u: Usage) -> Option<f64> {
-        let p = self.models.get(model)?;
+        let p = self.models.get(model).or_else(|| {
+            let mut matches = self
+                .models
+                .iter()
+                .filter(|(id, _)| id.rsplit('/').next() == Some(model));
+            let (_, price) = matches.next()?;
+            if matches.next().is_some() {
+                None
+            } else {
+                Some(price)
+            }
+        })?;
         if !p.valid() {
             return None;
         }
         let ratios = cache_ratios(model);
-        let read = p.cache_read.or_else(|| ratios.map(|r| p.input * r.0))?;
-        let write = p.cache_write.or_else(|| ratios.map(|r| p.input * r.1))?;
+        let read = if u.cache_read == 0 {
+            0.0
+        } else {
+            p.cache_read.or_else(|| ratios.map(|r| p.input * r.0))?
+        };
+        let write = if u.cache_write == 0 {
+            0.0
+        } else {
+            p.cache_write.or_else(|| ratios.map(|r| p.input * r.1))?
+        };
         let cost = (u.input as f64 * p.input
             + u.output as f64 * p.output
             + u.cache_read as f64 * read
@@ -81,6 +100,14 @@ impl PriceTable {
         if session.usage_by_model.is_empty() {
             self.price_usage(model?, session.usage)
         } else {
+            let attributed = session
+                .usage_by_model
+                .values()
+                .copied()
+                .fold(Usage::default(), Usage::add);
+            if attributed != session.usage {
+                return None;
+            }
             session
                 .usage_by_model
                 .iter()

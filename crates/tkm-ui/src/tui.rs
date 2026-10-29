@@ -266,7 +266,7 @@ fn savings_rows(state: &MonitorState) -> Vec<String> {
             group.0.push(sample.cost);
         }
     }
-    groups
+    let mut rows: Vec<String> = groups
         .into_iter()
         .map(|((repo, host), (observed, baseline))| {
             let trend = observed
@@ -286,7 +286,14 @@ fn savings_rows(state: &MonitorState) -> Vec<String> {
                 baseline.len()
             )
         })
-        .collect()
+        .collect();
+    if state.unknown_session_costs > 0 {
+        rows.push(format!(
+            "Session cost unknown for {} sessions",
+            state.unknown_session_costs
+        ));
+    }
+    rows
 }
 /// Render the entire screen without side effects or access to a clock.
 pub fn render(state: &MonitorState, view: &ViewState, frame: &mut Frame<'_>) {

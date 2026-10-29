@@ -236,10 +236,28 @@ fn add_status_usage(
             cache_write,
         };
         session.usage = session.usage.add(step_usage);
+        let model = obj
+            .get("message")
+            .and_then(|message| message.get("payload"))
+            .and_then(|payload| payload.get("model"))
+            .and_then(Value::as_str);
+        if let Some(model) = model {
+            let total = session.usage_by_model.entry(model.to_owned()).or_default();
+            *total = total.add(step_usage);
+        }
 
         let cur_idx = turn_begins_count.saturating_sub(1);
         if let Some(turn) = session.turns.get_mut(cur_idx) {
             turn.usage = turn.usage.add(step_usage);
+            if let Some(model) = model {
+                let total = turn.usage_by_model.entry(model.to_owned()).or_default();
+                *total = total.add(step_usage);
+                turn.model = if turn.usage_by_model.len() == 1 {
+                    Some(model.to_owned())
+                } else {
+                    None
+                };
+            }
         }
     }
 }

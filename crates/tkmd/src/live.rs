@@ -251,28 +251,30 @@ impl Daemon {
                 questions: serde_json::to_value(questions).unwrap_or_default(),
                 answers: serde_json::to_value(&decision.answers).unwrap_or_default(),
                 cost_usd: if decision.cached {
-                    0.0
+                    Some(0.0)
                 } else {
-                    decision.usage.cost.unwrap_or(0.0)
+                    decision.usage.cost
                 },
                 latency_ms: u32::try_from(decision.latency_ms).unwrap_or(u32::MAX),
                 shadow: !acting,
             },
         });
-        self.publish(|| {
-            MonitorMessage::Decision(DecisionNotice {
-                purpose: key.purpose.clone(),
-                model: decision.model_version.clone(),
-                latency_ms: decision.latency_ms,
-                cost_usd: if decision.cached {
-                    0.0
-                } else {
-                    decision.usage.cost.unwrap_or(0.0)
-                },
-                shadow: !acting,
-                answers: serde_json::to_value(&decision.answers).unwrap_or_default(),
-            })
-        });
+        if decision.cached || decision.usage.cost.is_some() {
+            self.publish(|| {
+                MonitorMessage::Decision(DecisionNotice {
+                    purpose: key.purpose.clone(),
+                    model: decision.model_version.clone(),
+                    latency_ms: decision.latency_ms,
+                    cost_usd: if decision.cached {
+                        0.0
+                    } else {
+                        decision.usage.cost.unwrap_or(0.0)
+                    },
+                    shadow: !acting,
+                    answers: serde_json::to_value(&decision.answers).unwrap_or_default(),
+                })
+            });
+        }
         self.publish(|| MonitorMessage::Spend(self.spend_update(&job.settings)));
 
         let (Some(stuck), Some(progress)) = (noul(decision, "stuck"), noul(decision, "progress"))
@@ -386,9 +388,9 @@ impl Daemon {
                         questions: serde_json::to_value(&questions).unwrap_or_default(),
                         answers: serde_json::to_value(&decision.answers).unwrap_or_default(),
                         cost_usd: if decision.cached {
-                            0.0
+                            Some(0.0)
                         } else {
-                            decision.usage.cost.unwrap_or(0.0)
+                            decision.usage.cost
                         },
                         latency_ms: u32::try_from(decision.latency_ms).unwrap_or(u32::MAX),
                         shadow: false,
