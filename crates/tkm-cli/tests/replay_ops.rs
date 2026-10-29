@@ -144,7 +144,7 @@ fn record_bench_uses_mock_transport_and_marks_recorded_cache() {
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let endpoint = format!("http://{}/decisions", listener.local_addr().unwrap());
     let server = std::thread::spawn(move || {
-        for stream in listener.incoming().take(150) {
+        for stream in listener.incoming().take(300) {
             let mut stream = stream.unwrap();
             let mut data = Vec::new();
             let mut buffer = [0; 4096];
@@ -173,7 +173,12 @@ fn record_bench_uses_mock_transport_and_marks_recorded_cache() {
             let request: serde_json::Value =
                 serde_json::from_slice(&data[header_end..header_end + length]).unwrap();
             assert!(request["state"].is_string());
-            let response = serde_json::json!({"model": request["model"], "answers": {"stuck":{"type":"noul","noul":0.8},"progress":{"type":"noul","noul":0.2},"redirect":{"type":"choice","choice":"check_env"}},"usage":{"input_tokens":10,"output_tokens":0,"cost":0.000001}}).to_string();
+            let answers = if request["questions"].get("stuck").is_some() {
+                serde_json::json!({"stuck":{"type":"noul","noul":0.8},"progress":{"type":"noul","noul":0.2},"redirect":{"type":"choice","choice":"check_env"}})
+            } else {
+                serde_json::json!({"stable_candidate":{"type":"noul","noul":0.1},"safe_candidate":{"type":"noul","noul":0.9}})
+            };
+            let response = serde_json::json!({"model": request["model"], "answers": answers,"usage":{"input_tokens":10,"output_tokens":0,"cost":0.000001}}).to_string();
             write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", response.len(), response).unwrap();
         }
     });
@@ -205,4 +210,33 @@ fn bench_reports_fact_filter_question_agreement() {
     let report = String::from_utf8(out.stdout).unwrap();
     assert!(report.contains("Fact filter"));
     assert!(report.contains("stable") && report.contains("safe"));
+}
+
+#[test]
+fn record_requires_key_and_preserves_cache() {
+    let s = support_ops::Sandbox::new();
+    let source = std::path::Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/bench"));
+    let destination = s.repo.join("bench");
+    std::fs::create_dir_all(destination.join("sessions")).unwrap();
+    std::fs::copy(source.join("cache.json"), destination.join("cache.json")).unwrap();
+    for entry in std::fs::read_dir(source.join("sessions")).unwrap() {
+        let entry = entry.unwrap();
+        std::fs::copy(
+            entry.path(),
+            destination.join("sessions").join(entry.file_name()),
+        )
+        .unwrap();
+    }
+    let before = std::fs::read(destination.join("cache.json")).unwrap();
+    let out = s.run(&[
+        "replay",
+        "--bench",
+        "--record",
+        destination.to_str().unwrap(),
+    ]);
+    assert!(!out.status.success());
+    assert_eq!(
+        before,
+        std::fs::read(destination.join("cache.json")).unwrap()
+    );
 }
