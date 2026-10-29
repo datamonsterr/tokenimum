@@ -19,53 +19,59 @@ pub struct DenyDelta {
     /// Owned rules to remove.
     pub remove: BTreeSet<String>,
 }
-/// Plan automatic application and update ownership. Persist state only after the
-/// adapter successfully applies the delta; checkout identity is caller-supplied.
+/// Plan automatic application. Commit the returned state only after the adapter
+/// successfully applies the delta; checkout identity is caller-supplied.
 pub fn apply(
-    state: &mut DenyState,
+    state: &DenyState,
     checkout: &str,
     current: &BTreeSet<String>,
     requested: &BTreeSet<String>,
-) -> DenyDelta {
+) -> (DenyState, DenyDelta) {
+    let mut next = state.clone();
     let kept = state.kept.get(checkout);
     let add: BTreeSet<_> = requested
         .iter()
         .filter(|name| !current.contains(*name) && !kept.is_some_and(|items| items.contains(*name)))
         .cloned()
         .collect();
-    state
-        .applied
+    next.applied
         .entry(checkout.to_owned())
         .or_default()
         .extend(add.iter().cloned());
-    DenyDelta {
-        add,
-        remove: BTreeSet::new(),
-    }
+    (
+        next,
+        DenyDelta {
+            add,
+            remove: BTreeSet::new(),
+        },
+    )
 }
 /// Restore requested owned rules and remember them as kept. Foreign rules are untouched.
-/// Persist state only after the adapter successfully applies the delta.
+/// Commit the returned state only after the adapter successfully applies the delta.
 pub fn restore(
-    state: &mut DenyState,
+    state: &DenyState,
     checkout: &str,
     current: &BTreeSet<String>,
     requested: &BTreeSet<String>,
-) -> DenyDelta {
-    let owned = state.applied.entry(checkout.to_owned()).or_default();
+) -> (DenyState, DenyDelta) {
+    let mut next = state.clone();
+    let owned = next.applied.entry(checkout.to_owned()).or_default();
     let targets: BTreeSet<_> = owned.intersection(requested).cloned().collect();
     let remove = targets.intersection(current).cloned().collect();
     for name in &targets {
         owned.remove(name);
     }
-    state
-        .kept
+    next.kept
         .entry(checkout.to_owned())
         .or_default()
         .extend(targets);
-    DenyDelta {
-        add: BTreeSet::new(),
-        remove,
-    }
+    (
+        next,
+        DenyDelta {
+            add: BTreeSet::new(),
+            remove,
+        },
+    )
 }
 /// Change persistent keep overrides; removals take precedence over additions.
 pub fn set_kept(

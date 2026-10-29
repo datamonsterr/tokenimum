@@ -19,8 +19,9 @@ pub struct SkillReport {
 }
 /// Fold one complete session. Callers keep one report per repository and fold
 /// each session once. A `Skill` or `skill` call counts only when its digest
-/// is a single-field JSON object with a `skill` string matching a catalog name.
-/// Other and ambiguous digest forms are ignored.
+/// has an object digest with exactly one nonempty string `skill` field. Extra
+/// fields are ignored; malformed and ambiguous digests do not count. Invocations
+/// are recorded even when the session catalog omits the skill.
 pub fn fold_skills(report: &mut SkillReport, session: &Session) {
     if session.partial {
         return;
@@ -35,20 +36,20 @@ pub fn fold_skills(report: &mut SkillReport, session: &Session) {
         let item = report.skills.entry((*name).to_owned()).or_default();
         item.loaded_sessions = item.loaded_sessions.saturating_add(1);
     }
-    let Ok(pattern) = regex::Regex::new(r#"^\s*\{\s*"skill"\s*:\s*"([A-Za-z0-9_:/.-]+)"\s*\}\s*$"#)
-    else {
-        return;
-    };
+    #[derive(Deserialize)]
+    struct SkillArgs {
+        skill: String,
+    }
     for call in session.turns.iter().flat_map(|turn| &turn.calls) {
-        if !["Skill", "skill"].contains(&call.tool.as_str()) {
+        if !["Skill", "skill"].contains(&call.tool.as_str())
+            || !call.args_digest.trim_start().starts_with('{')
+        {
             continue;
         }
-        if let Some(name) = pattern
-            .captures(&call.args_digest)
-            .and_then(|captures| captures.get(1))
-            && names.contains(name.as_str())
-            && let Some(item) = report.skills.get_mut(name.as_str())
+        if let Ok(args) = serde_json::from_str::<SkillArgs>(&call.args_digest)
+            && !args.skill.trim().is_empty()
         {
+            let item = report.skills.entry(args.skill).or_default();
             item.invocations = item.invocations.saturating_add(1);
         }
     }

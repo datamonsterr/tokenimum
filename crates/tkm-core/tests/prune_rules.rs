@@ -367,31 +367,29 @@ fn deny_ownership_keep_and_checkout_isolation() {
     let mut state = DenyState::default();
     let current = set(&["foreign"]);
     let requested = set(&["foreign", "owned"]);
-    let delta = apply(&mut state, "one", &current, &requested);
+    let (next, delta) = apply(&state, "one", &current, &requested);
     assert_eq!(delta.add, set(&["owned"]));
+    state = next;
     let current = set(&["foreign", "owned"]);
+    assert!(apply(&state, "one", &current, &requested).1.add.is_empty());
     assert!(
-        apply(&mut state, "one", &current, &requested)
-            .add
-            .is_empty()
-    );
-    assert!(
-        restore(&mut state, "two", &current, &requested)
+        restore(&state, "two", &current, &requested)
+            .1
             .remove
             .is_empty()
     );
-    assert_eq!(
-        restore(&mut state, "one", &current, &requested).remove,
-        set(&["owned"])
-    );
+    let (next, delta) = restore(&state, "one", &current, &requested);
+    assert_eq!(delta.remove, set(&["owned"]));
+    state = next;
     assert!(
-        apply(&mut state, "one", &set(&["foreign"]), &requested)
+        apply(&state, "one", &set(&["foreign"]), &requested)
+            .1
             .add
             .is_empty()
     );
     set_kept(&mut state, "one", &set(&[]), &set(&["owned"]));
     assert_eq!(
-        apply(&mut state, "one", &set(&["foreign"]), &requested).add,
+        apply(&state, "one", &set(&["foreign"]), &requested).1.add,
         set(&["owned"])
     );
 }
@@ -404,22 +402,22 @@ fn failed_deny_apply_and_restore_are_retryable() {
     let empty = BTreeSet::new();
     let mut state = DenyState::default();
     let original = state.clone();
-    let first = apply(&mut state, "checkout", &empty, &requested);
+    let first = apply(&state, "checkout", &empty, &requested);
     assert_eq!(state, original, "planning must not commit on failed apply");
-    let retry = apply(&mut state, "checkout", &empty, &requested);
+    let retry = apply(&state, "checkout", &empty, &requested);
     assert_eq!(first, retry);
-    assert_eq!(retry.add, requested);
-    // Model a successfully applied addition, then a failed restore.
-    state.applied.insert("checkout".into(), requested.clone());
+    assert_eq!(retry.1.add, requested);
+    // Commit only after the adapter succeeds, then simulate a failed restore.
+    state = retry.0;
     let original = state.clone();
-    let first = restore(&mut state, "checkout", &requested, &requested);
+    let first = restore(&state, "checkout", &requested, &requested);
     assert_eq!(
         state, original,
         "planning must not commit on failed restore"
     );
-    let retry = restore(&mut state, "checkout", &requested, &requested);
+    let retry = restore(&state, "checkout", &requested, &requested);
     assert_eq!(first, retry);
-    assert_eq!(retry.remove, requested);
+    assert_eq!(retry.1.remove, requested);
 }
 
 #[test]
