@@ -19,3 +19,27 @@ pub fn detect(_ctx: &Ctx<'_>) -> IntegrationsPlan {
         otherskill: "otherskill: off (not detected)".into(),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn otherskill_key_consent_requires_an_explicit_yes() {
+        for (answer, expected) in [
+            ("\n", false),
+            ("no\n", false),
+            ("yes\n", true),
+            ("y\n", true),
+        ] {
+            let mut output = Vec::new();
+            assert_eq!(
+                ask_key_reuse(&mut answer.as_bytes(), &mut output).unwrap(),
+                expected
+            );
+            let prompt = String::from_utf8(output).unwrap();
+            assert!(prompt.contains("otherskill"));
+            assert!(prompt.contains("[y/N]"));
+        }
+    }
+}
