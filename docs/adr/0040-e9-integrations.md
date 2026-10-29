@@ -82,6 +82,8 @@ installed tools: superorchestrator 0.1.0 (`superorchestrator --help`, `runs list
 
 ## Consequences
 
+- Adapter detection state is written to `<tokenimum data dir>/integrations/status.json` for status and doctor.
+
 - No change to superorchestrator is needed for escalations. Spend in superorchestrator status
   needs a superorchestrator change (follow-up).
 - Escalation reaches the orchestrator through its existing `wait_agent` updates.

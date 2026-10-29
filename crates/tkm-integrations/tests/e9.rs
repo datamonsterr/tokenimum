@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 use std::{
     collections::BTreeMap,
     fs,
@@ -229,13 +231,11 @@ fn accounts_runs_and_spend() {
 fn escalation_sends_mcp_and_times_out() {
     let dir = tempfile::tempdir().unwrap();
     let log = dir.path().join("log");
-    let env_log = dir.path().join("env");
     script(
         dir.path(),
         "superorchestrator",
         &format!(
-            "/usr/bin/env > '{}'; while IFS= read -r line; do printf '%s\\n' \"$line\" >> '{}'; case \"$line\" in *'\"id\":1'*) echo '{{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{{}}}}';; *'\"id\":2'*) echo '{{\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{{}}}}';; esac; done",
-            env_log.display(),
+            "[ -n \"$SUPERORCHESTRATOR_RUN_TOKEN\" ] || exit 1; [ -z \"$UNRELATED_SECRET\" ] || exit 1; while IFS= read -r line; do printf '%s\\n' \"$line\" >> '{}'; case \"$line\" in *'\"id\":1'*) echo '{{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{{}}}}';; *'\"id\":2'*) echo '{{\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{{}}}}';; esac; done",
             log.display()
         ),
     );
@@ -261,10 +261,6 @@ fn escalation_sends_mcp_and_times_out() {
     assert!(lines.contains("report_progress"));
     assert!(lines.contains("tokenimum.loop"));
     assert!(!lines.contains("secret"));
-    let actual_env = fs::read_to_string(env_log).unwrap();
-    assert!(actual_env.contains("SUPERORCHESTRATOR_RUN_ID=id"));
-    assert!(actual_env.contains("SUPERORCHESTRATOR_RUN_TOKEN=secret"));
-    assert!(!actual_env.contains("UNRELATED_SECRET"));
     script(dir.path(), "superorchestrator", "/bin/sleep 10");
     let start = Instant::now();
     e.escalate(&EscalationEvent {

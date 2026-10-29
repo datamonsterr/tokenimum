@@ -18,7 +18,7 @@ use tkm_decide::calibrate::CalibrationKey;
 use tkm_decide::client::{DecideRequest, Decision, NoDecisionReason, Outcome};
 use tkm_decide::digest::{DigestInput, build_digest};
 use tkm_decide::redact::{RedactContext, Redactor};
-use tkm_integrations::EscalationEvent;
+use tkm_integrations::{EscalationEvent, Suggest};
 use tkm_proto::Host;
 use tkm_proto::monitor::{DecisionNotice, MonitorMessage};
 use tkm_store::NewDecision;
@@ -44,6 +44,12 @@ pub(crate) struct EscalationJob {
     pub session_id: String,
     pub repo: RepoKey,
     pub turn_calls: u32,
+    pub envelope: u32,
+    pub redirect_given: Option<String>,
+    pub scores: Option<(f64, f64)>,
+    pub prompt: String,
+    pub calls: Vec<Call>,
+    pub repo_root: PathBuf,
     pub with_adapter: bool,
     pub command: Option<String>,
 }
@@ -249,6 +255,7 @@ impl Daemon {
         let mut shadow_stuck = false;
         if let Some(turn) = session.turn.as_mut().filter(|t| t.seq == job.seq) {
             turn.judging = false;
+            turn.judge_scores = Some((stuck, progress));
             if let Some(turn_guard) = turn.guard.as_mut() {
                 if acting {
                     turn_guard.on_judge_verdict(job.request, scores, core_thresholds, kind);
@@ -272,15 +279,77 @@ impl Daemon {
 
     /// Delivers an escalation of a delegated run (adapter call or user command).
     pub(crate) async fn run_escalation(self: &Arc<Self>, job: EscalationJob) {
+        let use_adapter = job.with_adapter && self.escalator.handles(job.host, &job.session_id);
+        let mut suggest = Suggest::Redirect;
+        let mut suggest_probs = BTreeMap::new();
+        if use_adapter {
+            let home = self
+                .env
+                .iter()
+                .rev()
+                .find(|(key, _)| key == "HOME")
+                .map_or_else(PathBuf::new, |(_, value)| PathBuf::from(value));
+            let redactor = Redactor::new(RedactContext {
+                repo_root: job.repo_root.clone(),
+                home,
+                env: self.env.clone(),
+            });
+            let digest = build_digest(
+                DigestInput {
+                    prompt: &job.prompt,
+                    calls: &job.calls,
+                    tests: None,
+                },
+                &redactor,
+            );
+            let question = Question::Choice {
+                instructions: "Which action should the orchestrator take?".into(),
+                criteria: ["continue", "redirect", "cancel", "reroute"]
+                    .into_iter()
+                    .map(|value| (value.to_owned(), value.to_owned()))
+                    .collect(),
+            };
+            let request = DecideRequest {
+                purpose: Purpose::Redirect,
+                session_id: format!("{}:{}", job.host.as_str(), job.session_id),
+                state: format!("{digest}\nrouting level: unknown"),
+                questions: BTreeMap::from([("suggest".to_owned(), question)]),
+            };
+            if let Ok(Outcome::Decision(decision)) = tokio::time::timeout(
+                std::time::Duration::from_secs(3),
+                self.decider.decide(request),
+            )
+            .await
+                && let Some(Answer::Choice {
+                    choice,
+                    probabilities,
+                    ..
+                }) = decision.answers.get("suggest")
+            {
+                suggest = match choice.as_str() {
+                    "continue" => Suggest::Continue,
+                    "cancel" => Suggest::Cancel,
+                    "reroute" => Suggest::Reroute,
+                    _ => Suggest::Redirect,
+                };
+                suggest_probs = probabilities.clone().unwrap_or_default();
+            }
+        }
         let me = self.clone();
         let joined = tokio::task::spawn_blocking(move || {
-            if job.with_adapter {
+            if use_adapter {
                 me.escalator.escalate(&EscalationEvent {
                     host: job.host,
                     session_id: job.session_id.clone(),
                     repo: job.repo.clone(),
                     turn_calls: job.turn_calls,
-                    ..EscalationEvent::default()
+                    run_id: me.escalator.run_id(job.host, &job.session_id),
+                    envelope: job.envelope,
+                    stuck: job.scores.map_or(0.0, |scores| scores.0),
+                    progress: job.scores.map_or(0.0, |scores| scores.1),
+                    redirect_given: job.redirect_given,
+                    suggest,
+                    suggest_probs,
                 });
                 return Ok(());
             }

@@ -13,6 +13,7 @@ use tkm_decide::client::{
 };
 use tkm_decide::config::DecideConfig;
 use tkm_decide::key::ApiKey;
+use tkm_integrations::{Escalator, superorchestrator::SpendSink};
 use tkm_store::CalibrationRecord;
 
 use crate::clock::SystemClock;
@@ -80,15 +81,22 @@ pub fn build_decider(
     }
 }
 
+type SpendTarget = (Arc<dyn SpendSink>, Arc<dyn Escalator>);
+
 /// Spend ledger for the decision client. Rows live in memory (cap checks must not touch disk);
 /// each decision is also written to the `decisions` table by the daemon through the outbox,
 /// where it carries the answers and the shadow flag the client row lacks.
-#[derive(Debug, Default)]
+#[derive(Default)]
 pub struct StoreLedger {
     inner: InMemoryLedger,
+    sink: Mutex<Option<SpendTarget>>,
 }
 
 impl StoreLedger {
+    /// Enables reporting to an integration sink while the adapter is active.
+    pub fn set_spend_sink(&self, sink: Arc<dyn SpendSink>, escalator: Arc<dyn Escalator>) {
+        *self.sink.lock().unwrap_or_else(PoisonError::into_inner) = Some((sink, escalator));
+    }
     /// Tokens and cost the daemon spent on decisions for one session id.
     pub fn session_overhead(&self, session_id: &str) -> (u64, f64) {
         self.inner
@@ -119,6 +127,27 @@ impl SpendLedger for StoreLedger {
     }
 
     fn record(&self, row: DecisionRow) {
+        if !row.cached
+            && let Some(cost) = row.cost_usd
+            && let Some((sink, escalator)) = self
+                .sink
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .as_ref()
+            && escalator.superorchestrator_enabled()
+        {
+            let run_id = row.session_id.split_once(':').and_then(|(host, session)| {
+                host.parse::<tkm_proto::Host>()
+                    .ok()
+                    .and_then(|h| escalator.run_id(h, session))
+            });
+            sink.record(
+                row.purpose.as_str(),
+                row.model_version.as_deref().unwrap_or(&row.requested_model),
+                cost,
+                run_id.as_deref(),
+            );
+        }
         self.inner.record(row);
     }
 }

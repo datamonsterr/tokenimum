@@ -9,6 +9,7 @@
 pub mod detect;
 pub mod otherskill;
 mod process;
+pub mod runtime;
 pub mod superorchestrator;
 
 use std::{collections::BTreeMap, path::Path};
@@ -115,6 +116,18 @@ pub trait Escalator: Send + Sync {
         _cwd: &Path,
         _env: &BTreeMap<String, String>,
     ) {
+    }
+    /// Returns a cached delegated run identifier, if available.
+    fn delegated_run(&self, _cwd: &Path, _env: &BTreeMap<String, String>) -> Option<String> {
+        None
+    }
+    /// Returns the run identifier recorded for a session.
+    fn run_id(&self, _host: Host, _session_id: &str) -> Option<String> {
+        None
+    }
+    /// Whether the orchestrator adapter is currently enabled.
+    fn superorchestrator_enabled(&self) -> bool {
+        false
     }
     /// Returns true when this adapter owns the delegated run of the session, so the daemon
     /// uses the "delegated with adapter" escalation mode.

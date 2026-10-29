@@ -75,13 +75,15 @@ impl Clock for SystemClock {
             .unwrap_or_default()
     }
 }
+type HealthState = (Option<(Duration, String)>, Option<Duration>);
 /// Shared runtime backoff and redetection schedule.
 pub struct AdapterHealth {
     clock: Arc<dyn Clock>,
-    inner: Mutex<(Option<(Duration, String)>, Option<Duration>)>,
+    inner: Mutex<HealthState>,
 }
 impl AdapterHealth {
     /// Creates a health tracker.
+    #[must_use]
     pub fn new(clock: Arc<dyn Clock>) -> Self {
         Self {
             clock,
@@ -92,16 +94,18 @@ impl AdapterHealth {
     pub fn report_failure(&self, reason: &str) {
         if let Ok(mut inner) = self.inner.lock() {
             inner.0 = Some((
-                self.clock.now() + Duration::from_secs(900),
+                self.clock.now() + Duration::from_mins(15),
                 reason.to_owned(),
             ));
         }
     }
     /// Returns whether a failure backoff is active.
+    #[must_use]
     pub fn in_backoff(&self) -> bool {
         self.backoff().is_some()
     }
     /// Returns active backoff state, if any.
+    #[must_use]
     pub fn backoff(&self) -> Option<AdapterState> {
         let inner = self.inner.lock().ok()?;
         let (until, reason) = inner.0.as_ref()?;
@@ -111,14 +115,15 @@ impl AdapterHealth {
         })
     }
     /// Overlays runtime backoff onto a detection result for status reporting.
+    #[must_use]
     pub fn status(&self, mut status: AdapterStatus) -> AdapterStatus {
-        if status.mode != Mode::Off {
-            if let Some(state @ AdapterState::Backoff { .. }) = self.backoff() {
-                if let AdapterState::Backoff { reason, .. } = &state {
-                    status.reason = Some(reason.clone());
-                }
-                status.state = state;
+        if matches!(status.state, AdapterState::Enabled)
+            && let Some(state @ AdapterState::Backoff { .. }) = self.backoff()
+        {
+            if let AdapterState::Backoff { reason, .. } = &state {
+                status.reason = Some(reason.clone());
             }
+            status.state = state;
         }
         status
     }
@@ -130,7 +135,7 @@ impl AdapterHealth {
         let now = self.clock.now();
         if inner
             .1
-            .is_some_and(|last| now.saturating_sub(last) < Duration::from_secs(600))
+            .is_some_and(|last| now.saturating_sub(last) < Duration::from_mins(10))
         {
             return false;
         }
@@ -147,6 +152,7 @@ pub struct Probe {
 }
 impl Probe {
     /// Creates a probe with explicit PATH, home, working directory and environment.
+    #[must_use]
     pub fn new(path: OsString, home: PathBuf, cwd: PathBuf, env: BTreeMap<String, String>) -> Self {
         Self {
             path,
@@ -156,6 +162,7 @@ impl Probe {
         }
     }
     /// Detects a named adapter.
+    #[must_use]
     pub fn detect(&self, name: &str, mode: Mode) -> AdapterStatus {
         let failure = if mode == Mode::Off {
             Some("disabled by configuration")
@@ -167,13 +174,15 @@ impl Probe {
                     "superorchestrator" => self
                         .env
                         .get("SUPERORCHESTRATOR_CONFIG_DIR")
-                        .map(PathBuf::from)
-                        .unwrap_or_else(|| {
-                            self.env
-                                .get("XDG_CONFIG_HOME")
-                                .map_or_else(|| self.home.join(".config"), PathBuf::from)
-                                .join("superorchestrator")
-                        })
+                        .map_or_else(
+                            || {
+                                self.env
+                                    .get("XDG_CONFIG_HOME")
+                                    .map_or_else(|| self.home.join(".config"), PathBuf::from)
+                                    .join("superorchestrator")
+                            },
+                            PathBuf::from,
+                        )
                         .is_dir(),
                     "otherskill" => {
                         self.home
@@ -186,9 +195,7 @@ impl Probe {
                     }
                     _ => false,
                 };
-                if !config {
-                    Some("config missing")
-                } else {
+                if config {
                     let mut cmd = std::process::Command::new(bin);
                     cmd.arg(if name == "otherskill" {
                         "--help"
@@ -201,6 +208,8 @@ impl Probe {
                     } else {
                         Some("version probe failed or timed out")
                     }
+                } else {
+                    Some("config missing")
                 }
             }
         } else {

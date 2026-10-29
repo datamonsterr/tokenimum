@@ -17,6 +17,7 @@ pub struct OtherskillSource {
 }
 impl OtherskillSource {
     /// Creates an adapter.
+    #[must_use]
     pub fn new(path: OsString, health: Arc<AdapterHealth>) -> Self {
         Self { path, health }
     }
@@ -91,16 +92,51 @@ pub struct SkillEvidence {
     pub used: u64,
 }
 /// Builds the deterministic ranking prior.
+#[must_use]
 pub fn ranking_prior(evidence: &[SkillEvidence]) -> serde_json::Value {
     let mut skills = evidence.to_vec();
     skills.sort_by(|a, b| a.name.cmp(&b.name));
     serde_json::json!({"version":1,"source":"tokenimum","skills":skills})
 }
 /// Returns the credential file location.
+#[must_use]
 pub fn key_path(home: &Path) -> PathBuf {
     home.join(".config/otherskill/credentials.json")
 }
 /// Returns the credential location only with consent.
+#[must_use]
 pub fn reuse_key(consent: bool, home: &Path) -> Option<PathBuf> {
     consent.then(|| key_path(home))
+}
+
+/// Reads a private, non-symlink otherskill credential file.
+#[must_use]
+pub fn read_key(home: &Path) -> Option<String> {
+    use std::io::Read;
+    #[cfg(unix)]
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+    let path = key_path(home);
+    let before = std::fs::symlink_metadata(&path).ok()?;
+    if !before.file_type().is_file() {
+        return None;
+    }
+    let mut file = std::fs::File::open(path).ok()?;
+    let metadata = file.metadata().ok()?;
+    #[cfg(unix)]
+    if metadata.permissions().mode() & 0o077 != 0
+        || before.dev() != metadata.dev()
+        || before.ino() != metadata.ino()
+    {
+        return None;
+    }
+    #[cfg(not(unix))]
+    return None;
+    let mut contents = String::new();
+    file.read_to_string(&mut contents).ok()?;
+    let value: serde_json::Value = serde_json::from_str(&contents).ok()?;
+    value
+        .get("openrouter")?
+        .as_str()
+        .filter(|key| !key.trim().is_empty())
+        .map(str::to_owned)
 }

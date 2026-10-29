@@ -57,7 +57,7 @@ pub(crate) enum Effect {
 }
 
 /// What is known about a session before repository resolution.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub(crate) struct SessionSeed {
     pub host: Host,
     pub session_id: String,
@@ -65,6 +65,7 @@ pub(crate) struct SessionSeed {
     pub agent_home: PathBuf,
     pub log_path: Option<PathBuf>,
     pub delegated: bool,
+    pub env: std::collections::BTreeMap<String, String>,
 }
 
 /// Constructor arguments. [`DaemonOptions::new`] gives production defaults; tests replace the
@@ -511,10 +512,12 @@ impl Daemon {
         SessionSeed {
             host: event.host,
             session_id: event.session_id.clone(),
-            cwd,
+            cwd: cwd.clone(),
             agent_home: self.agent_home(event.host, request),
             log_path,
-            delegated: request.env.contains_key("TKM_DELEGATED"),
+            delegated: request.env.contains_key("TKM_DELEGATED")
+                || self.escalator.delegated_run(&cwd, &request.env).is_some(),
+            env: request.env.clone(),
         }
     }
 
@@ -525,6 +528,8 @@ impl Daemon {
         now: u64,
         generation: u64,
     ) -> SessionState {
+        self.escalator
+            .observe_session(seed.host, &seed.session_id, &seed.cwd, &seed.env);
         SessionState {
             generation,
             key: SessionKey {
@@ -578,6 +583,8 @@ impl Daemon {
             calls: Vec::new(),
             total_calls: 0,
             redirects: 0,
+            redirect_kind: None,
+            judge_scores: None,
             escalated: false,
             judging: false,
             pending_redirect: None,
@@ -745,6 +752,7 @@ impl Daemon {
                             self.record_loop_event(session, "loop.shadow", kind, &text, true);
                         } else {
                             turn.redirects += 1;
+                            turn.redirect_kind = Some(kind.to_owned());
                             session.loop_state = "redirected";
                             self.record_loop_event(session, "loop.redirect", kind, &text, false);
                             redirect_text = join_text(redirect_text, Some(text));
@@ -778,6 +786,17 @@ impl Daemon {
                                         session_id: session.session_id.clone(),
                                         repo: session.repo.clone(),
                                         turn_calls: turn.total_calls,
+                                        envelope: session.envelope.map_or(0, |v| {
+                                            format!("{v:.0}").parse().unwrap_or_default()
+                                        }),
+                                        redirect_given: turn.redirect_kind.clone(),
+                                        scores: turn.judge_scores,
+                                        prompt: turn.prompt.clone(),
+                                        calls: turn.calls.clone(),
+                                        repo_root: session
+                                            .root
+                                            .clone()
+                                            .unwrap_or_else(|| session.cwd.clone()),
                                         with_adapter: matches!(
                                             mode,
                                             EscalationMode::DelegatedWithAdapter
@@ -981,7 +1000,10 @@ impl Daemon {
             session.repo.clone_from(&resolved.repo);
             session.repo_label.clone_from(&resolved.label);
             session.root = Some(resolved.root.clone());
-            session.settings.clone_from(&resolved.settings);
+            let mut settings = (*resolved.settings).clone();
+            settings.prune.superorchestrator_adapter_enabled =
+                self.escalator.superorchestrator_enabled();
+            session.settings = Arc::new(settings);
             session.resolved = true;
             let remembered = turn_bases.get(&tag).copied().unwrap_or(0);
             session.next_turn_idx = session

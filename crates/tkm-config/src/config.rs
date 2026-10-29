@@ -515,6 +515,12 @@ fn build_registry() -> Vec<Key> {
             "Otherskill integration mode."
         ),
         key!(
+            "integrations.otherskill_key_reuse",
+            Kind::Bool,
+            "false",
+            "Reuse a private otherskill OpenRouter key with consent."
+        ),
+        key!(
             "ui.web.enabled",
             Kind::Bool,
             "false",

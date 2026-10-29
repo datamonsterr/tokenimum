@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 use tkm_core::{
     model::Timestamp,
     prune::{PruneConfig, PruneEvidence, ToolEvidence, decide},

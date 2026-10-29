@@ -35,6 +35,7 @@ pub struct AccountHome {
     pub enabled: bool,
 }
 /// Reads supported fields from account TOML files, ignoring malformed files.
+#[must_use]
 pub fn account_homes(config_dir: &Path) -> Vec<AccountHome> {
     let Ok(entries) = fs::read_dir(config_dir.join("accounts")) else {
         return Vec::new();
@@ -86,6 +87,7 @@ pub struct InstallReport {
     pub failed: usize,
 }
 /// Installs each enabled, supported account using the supplied installer.
+#[must_use]
 pub fn install_account_homes<E>(
     homes: &[AccountHome],
     mut installer: impl FnMut(Host, &Path) -> Result<InstallOutcome, E>,
@@ -109,6 +111,7 @@ pub fn install_account_homes<E>(
 pub struct Secret(String);
 impl Secret {
     /// Wraps a secret string.
+    #[must_use]
     pub fn new(value: String) -> Self {
         Self(value)
     }
@@ -142,13 +145,15 @@ struct RunRow {
     cwd: PathBuf,
     worktree: Option<PathBuf>,
 }
+type RunCache = (Option<Duration>, Vec<(PathBuf, DelegatedRun)>);
 /// Cached run list for cwd fallback detection.
 pub struct RunDetector {
     clock: Arc<dyn Clock>,
-    cache: Mutex<(Option<Duration>, Vec<(PathBuf, DelegatedRun)>)>,
+    cache: Mutex<RunCache>,
 }
 impl RunDetector {
     /// Creates an empty cache.
+    #[must_use]
     pub fn new(clock: Arc<dyn Clock>) -> Self {
         Self {
             clock,
@@ -156,6 +161,7 @@ impl RunDetector {
         }
     }
     /// Extracts primary run identity from a hook environment.
+    #[must_use]
     pub fn from_env(env: &BTreeMap<String, String>) -> Option<DelegatedRun> {
         let run_id = env.get("SUPERORCHESTRATOR_RUN_ID")?.clone();
         if run_id.is_empty() {
@@ -189,6 +195,7 @@ impl RunDetector {
             return Ok(());
         }
         cache.0 = Some(now);
+        drop(cache);
         let bin = process::binary(path, "superorchestrator")
             .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "binary missing"))?;
         let mut cmd = Command::new(bin);
@@ -196,6 +203,10 @@ impl RunDetector {
             .env("PATH", path);
         let bytes = process::output(cmd, Duration::from_secs(5))?;
         let rows: Vec<RunRow> = serde_json::from_slice(&bytes).map_err(io::Error::other)?;
+        let mut cache = self
+            .cache
+            .lock()
+            .map_err(|_| io::Error::other("cache poisoned"))?;
         cache.1 = rows
             .into_iter()
             .filter(|r| matches!(r.state.as_str(), "running" | "queued" | "waiting"))
@@ -214,6 +225,7 @@ impl RunDetector {
         Ok(())
     }
     /// Finds the deepest cached ancestor of a session directory.
+    #[must_use]
     pub fn match_cwd(&self, cwd: &Path) -> Option<DelegatedRun> {
         let cache = self.cache.lock().ok()?;
         cache
@@ -224,6 +236,33 @@ impl RunDetector {
             .map(|(_, run)| run.clone())
     }
 }
+fn write_message(input: &mut impl Write, value: &serde_json::Value) -> io::Result<()> {
+    writeln!(input, "{value}")?;
+    input.flush()
+}
+fn response(reader: &mut impl BufRead, id: u64) -> io::Result<()> {
+    loop {
+        let mut line = String::new();
+        if reader.read_line(&mut line)? == 0 {
+            return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "MCP closed"));
+        }
+        let value: serde_json::Value = serde_json::from_str(&line).map_err(io::Error::other)?;
+        if value.get("id").and_then(serde_json::Value::as_u64) == Some(id) {
+            return if value.get("error").is_some()
+                || value.get("result").is_none()
+                || value
+                    .pointer("/result/isError")
+                    .and_then(serde_json::Value::as_bool)
+                    == Some(true)
+            {
+                Err(io::Error::other("MCP request failed"))
+            } else {
+                Ok(())
+            };
+        }
+    }
+}
+
 /// Sends delegated loop escalation events through the MCP server.
 pub struct SuperorchestratorEscalator {
     path: OsString,
@@ -233,6 +272,7 @@ pub struct SuperorchestratorEscalator {
 }
 impl SuperorchestratorEscalator {
     /// Creates an escalation adapter.
+    #[must_use]
     pub fn new(path: OsString, home: PathBuf, health: Arc<AdapterHealth>) -> Self {
         Self {
             path,
@@ -279,36 +319,6 @@ impl SuperorchestratorEscalator {
         thread::spawn(move || {
             let result = (|| -> io::Result<()> {
                 let mut reader = BufReader::new(output);
-                fn write_message(
-                    input: &mut impl Write,
-                    value: &serde_json::Value,
-                ) -> io::Result<()> {
-                    writeln!(input, "{value}")?;
-                    input.flush()
-                }
-                fn response(reader: &mut impl BufRead, id: u64) -> io::Result<()> {
-                    loop {
-                        let mut line = String::new();
-                        if reader.read_line(&mut line)? == 0 {
-                            return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "MCP closed"));
-                        }
-                        let value: serde_json::Value =
-                            serde_json::from_str(&line).map_err(io::Error::other)?;
-                        if value.get("id").and_then(serde_json::Value::as_u64) == Some(id) {
-                            return if value.get("error").is_some()
-                                || value.get("result").is_none()
-                                || value
-                                    .pointer("/result/isError")
-                                    .and_then(serde_json::Value::as_bool)
-                                    == Some(true)
-                            {
-                                Err(io::Error::other("MCP request failed"))
-                            } else {
-                                Ok(())
-                            };
-                        }
-                    }
-                }
                 write_message(
                     &mut input,
                     &serde_json::json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"tokenimum","version":"0.0.0"}}}),
@@ -352,6 +362,13 @@ impl Escalator for SuperorchestratorEscalator {
             }
         }
     }
+    fn run_id(&self, host: Host, session_id: &str) -> Option<String> {
+        self.sessions
+            .lock()
+            .ok()?
+            .get(&(host, session_id.to_owned()))
+            .map(|run| run.run_id.clone())
+    }
     fn handles(&self, host: Host, session_id: &str) -> bool {
         !self.health.in_backoff()
             && self
@@ -370,12 +387,12 @@ impl Escalator for SuperorchestratorEscalator {
             .lock()
             .ok()
             .and_then(|s| s.get(&(event.host, event.session_id.clone())).cloned());
-        if let Some(run) = run.filter(|r| r.token.is_some()) {
-            if self.send(&run, event).is_err() {
-                self.health
-                    .report_failure("superorchestrator escalation failed");
-                tracing::warn!("superorchestrator escalation failed");
-            }
+        if let Some(run) = run.filter(|r| r.token.is_some())
+            && self.send(&run, event).is_err()
+        {
+            self.health
+                .report_failure("superorchestrator escalation failed");
+            tracing::warn!("superorchestrator escalation failed");
         }
     }
 }
@@ -397,6 +414,7 @@ pub struct SpendReporter {
 }
 impl SpendReporter {
     /// Creates a reporter for a tokenimum-owned file.
+    #[must_use]
     pub fn new(path: PathBuf) -> Self {
         Self {
             path,
