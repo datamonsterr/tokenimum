@@ -335,7 +335,11 @@ impl Reader {
         let output = if call.is_error {
             content
         } else {
-            record.get("toolUseResult").unwrap_or(content)
+            // A structured result that carries metadata only (an exit code) must not hide the text.
+            record
+                .get("toolUseResult")
+                .filter(|result| carries_text(result))
+                .unwrap_or(content)
         };
         call.output_digest = digest::output_digest(output);
         let text = digest::output_text(content);
@@ -453,6 +457,16 @@ fn parse_usage(value: &Value) -> Usage {
             .get("cache_creation_input_tokens")
             .and_then(Value::as_u64)
             .unwrap_or(0),
+    }
+}
+
+fn carries_text(result: &Value) -> bool {
+    match result {
+        Value::Object(object) => ["stdout", "stderr", "text", "content", "output", "file"]
+            .into_iter()
+            .any(|key| object.contains_key(key)),
+        Value::String(_) | Value::Array(_) => true,
+        _ => false,
     }
 }
 
