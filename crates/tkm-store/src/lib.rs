@@ -25,6 +25,7 @@
 
 mod decisions;
 mod host_health;
+mod host_probes;
 mod mechanisms;
 mod migrations;
 mod queries;
@@ -32,6 +33,7 @@ mod sessions;
 mod skills;
 
 pub use decisions::{CalibrationRecord, DecisionRecord, InstallRecord, NewDecision};
+pub use host_probes::HostEventProbe;
 pub use mechanisms::{DenylistEntry, ENVELOPE_RING, FactRecord, FactState, ToolEvidence};
 pub use queries::Repo;
 pub use sessions::{
@@ -43,7 +45,7 @@ use std::time::Duration;
 
 use rusqlite::{Connection, ErrorCode, OpenFlags, TransactionBehavior};
 
-const SCHEMA_VERSION: i64 = 5;
+const SCHEMA_VERSION: i64 = 6;
 const DEFAULT_BUSY_TIMEOUT: Duration = Duration::from_secs(2);
 
 /// Store operations can fail because of I/O, SQLite, migration, or JSON errors.

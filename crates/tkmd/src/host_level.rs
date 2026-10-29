@@ -41,6 +41,13 @@ impl crate::daemon::Daemon {
             Err(_) => store.host_fold_only(host)?,
         };
         crate::daemon::lock(&self.host_fallback).insert(host, folded);
+        let events = store
+            .host_event_probes(host)?
+            .into_iter()
+            .filter(|event| !event.arrived)
+            .map(|event| event.native)
+            .collect();
+        crate::daemon::lock(&self.idle_events).insert(host, events);
         Ok(())
     }
 
@@ -49,5 +56,28 @@ impl crate::daemon::Daemon {
             .get(&host)
             .copied()
             .unwrap_or(false)
+    }
+}
+
+impl crate::daemon::Daemon {
+    /// Whether doctor routes this native event to the idle fold worker.
+    pub fn event_uses_idle(
+        &self,
+        host: Host,
+        native: Option<&str>,
+        kind: tkm_proto::EventKind,
+    ) -> bool {
+        let policies = crate::daemon::lock(&self.idle_events);
+        let Some(missing) = policies.get(&host) else {
+            return false;
+        };
+        native.map_or_else(
+            || {
+                tkm_hosts::probe::expected_events(host)
+                    .iter()
+                    .any(|event| event.kind == kind && missing.contains(event.native))
+            },
+            |native| missing.contains(native),
+        )
     }
 }

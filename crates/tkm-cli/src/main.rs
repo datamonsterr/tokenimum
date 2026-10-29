@@ -8,6 +8,9 @@ use clap::Parser;
 use tkm_cli::{cli::Cli, cmd, ctx::Ctx};
 
 fn main() -> ExitCode {
+    if let Some(code) = cmd::doctor::record_probe_hook() {
+        return code;
+    }
     let cli = Cli::parse();
     let mut stdout = std::io::stdout().lock();
     let mut stderr = std::io::stderr().lock();

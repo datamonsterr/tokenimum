@@ -15,6 +15,7 @@ name = "tkm_cli"
 path = "src/lib.rs"
 
 [dependencies]
+tempfile = { workspace = true }
 clap = { workspace = true }
 rusqlite = { workspace = true }
 serde = { workspace = true }
@@ -38,7 +39,6 @@ tkmd = { workspace = true }
 tkm-hook = { workspace = true }
 
 [dev-dependencies]
-tempfile = { workspace = true }
 serde_json = { workspace = true }
 
 [[bin]]

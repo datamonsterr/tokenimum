@@ -200,7 +200,7 @@ pub fn run(ctx: &mut Ctx<'_>, args: &InitArgs) -> Result<ExitCode, CliError> {
         }
         // Fake service managers need not start a live daemon; diagnostics remain visible but
         // do not turn a successfully applied installation into an installation failure.
-        let _ = super::doctor::run(ctx, &DoctorArgs { probe: false })?;
+        let _ = super::doctor::run(ctx, &DoctorArgs { probe: None })?;
         for target in &targets {
             for instruction in &target.report.instructions {
                 writeln!(ctx.stdout, "trust {}: {instruction}", target.host.as_str())?;

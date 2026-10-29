@@ -1,6 +1,9 @@
 //! Installation diagnostics and durable health recovery with bounded harness version checks.
 
 mod models;
+mod probe;
+
+pub use probe::record_probe_hook;
 
 use std::process::ExitCode;
 
@@ -23,6 +26,16 @@ use crate::{cli::DoctorArgs, ctx::Ctx, error::CliError};
 /// attempts in the database; other checks use read-only database access.
 pub fn run(ctx: &mut Ctx<'_>, args: &DoctorArgs) -> Result<ExitCode, CliError> {
     let mut failed = false;
+    // Validate host before diagnostics mutate any health state.
+    let probe_host = args
+        .probe
+        .as_deref()
+        .filter(|host| *host != "models")
+        .map(|host| {
+            host.parse::<tkm_proto::Host>()
+                .map_err(|_| CliError::Usage(format!("unknown probe host: {host}")))
+        })
+        .transpose()?;
     match daemon::probe(&ctx.paths) {
         DaemonState::Running { version, .. } => line(
             ctx,
@@ -115,7 +128,10 @@ pub fn run(ctx: &mut Ctx<'_>, args: &DoctorArgs) -> Result<ExitCode, CliError> {
                     &adapter.reason,
                 )?;
             }
-            failed |= !check_key(ctx, &config, args.probe)?;
+            if let Some(host) = probe_host {
+                failed |= !probe::run(ctx, host)?;
+            }
+            failed |= !check_key(ctx, &config, args.probe.as_deref() == Some("models"))?;
         }
         Err(error) => {
             line(ctx, "fail", "configuration", &error.to_string())?;

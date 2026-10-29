@@ -67,6 +67,16 @@ CREATE TABLE facts (
     PRIMARY KEY(repo_key, fact_id)
 );
 
+-- table host_event_probes
+CREATE TABLE host_event_probes (
+    host TEXT NOT NULL,
+    native TEXT NOT NULL,
+    event TEXT NOT NULL,
+    arrived INTEGER NOT NULL,
+    probed_at INTEGER NOT NULL,
+    PRIMARY KEY(host, native)
+);
+
 -- table host_health
 CREATE TABLE host_health (
     host TEXT PRIMARY KEY,

@@ -427,9 +427,9 @@ impl Args for RunArgs {
 /// Diagnostic report options.
 #[derive(Debug, Args)]
 pub struct DoctorArgs {
-    /// Include live model and harness capability probes.
-    #[arg(long)]
-    pub probe: bool,
+    /// Probe a host in an isolated HOME; without HOST, probe decision models.
+    #[arg(long, num_args = 0..=1, default_missing_value = "models", value_name = "HOST")]
+    pub probe: Option<String>,
 }
 
 /// Repository state export options.
