@@ -30,11 +30,40 @@ jobs:
         run: rm -rf target/criterion
       - name: Run Criterion placeholder
         run: cargo bench --locked -p tkm-core --bench placeholder -- --output-format bencher | tee criterion.txt
+      - name: Test bench scripts
+        run: |
+          python3 scripts/tests/test_check_bench_budget.py
+          python3 scripts/tests/test_check_hook_latency.py
+      - name: Run tkmd tool_done benchmark (budget 200 us)
+        run: |
+          cargo bench --locked -p tkmd --bench tool_done -- --output-format bencher | tee tkmd-criterion.txt
+          python3 scripts/check_bench_budget.py tkmd-criterion.txt tool_done_ 200000
+          cat tkmd-criterion.txt >> criterion.txt
       - name: Run hook benchmark
         run: |
           cargo build --release --locked -p tkm-hook
           hyperfine --warmup 20 --runs 200 --input null --export-json hyperfine.json 'target/release/tkm-hook'
           python3 scripts/hyperfine_to_benchmark.py hyperfine.json hook-benchmark.json
+      - name: Hook round trip against a running tkmd (p50 < 3 ms, p99 < 10 ms)
+        run: |
+          cargo build --release --locked -p tkmd -p tkm-hook
+          scratch="$(mktemp -d)"
+          export HOME="$scratch/home" XDG_DATA_HOME="$scratch/data" XDG_CONFIG_HOME="$scratch/config" XDG_RUNTIME_DIR="$scratch/run"
+          mkdir -p "$HOME" "$XDG_DATA_HOME" "$XDG_CONFIG_HOME" "$XDG_RUNTIME_DIR"
+          chmod 700 "$XDG_RUNTIME_DIR"
+          TKM_DECIDE_ENABLED=false target/release/tkmd &
+          daemon=$!
+          for _ in $(seq 1 100); do
+            [ -S "$XDG_RUNTIME_DIR/tokenimum/tkmd.sock" ] && break
+            sleep 0.1
+          done
+          test -S "$XDG_RUNTIME_DIR/tokenimum/tkmd.sock" || { echo "tkmd socket never appeared" >&2; exit 1; }
+          hyperfine --warmup 20 --runs 500 --shell=none \
+            --input fixtures/claude/hooks/PostToolUse-bash.json \
+            --export-json roundtrip.json \
+            'target/release/tkm-hook --host claude --event tool_done'
+          kill "$daemon"
+          python3 scripts/check_hook_latency.py roundtrip.json --p50-ms 3 --p99-ms 10 --summary "$GITHUB_STEP_SUMMARY"
       - uses: actions/cache/restore@v6
         with:
           path: benchmark-data

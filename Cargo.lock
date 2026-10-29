@@ -3064,6 +3064,9 @@ name = "tkm-hook"
 version = "0.0.0"
 dependencies = [
  "serde_json",
+ "tempfile",
+ "tkm-config",
+ "tkm-hosts",
  "tkm-proto",
 ]
 
@@ -3071,8 +3074,8 @@ dependencies = [
 name = "tkm-hosts"
 version = "0.0.0"
 dependencies = [
- "ruzstd",
  "rusqlite",
+ "ruzstd",
  "serde",
  "serde_json",
  "sha2",
@@ -3089,6 +3092,8 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 2.0.21",
+ "tkm-core",
+ "tkm-proto",
  "tracing",
 ]
 
@@ -3127,8 +3132,14 @@ dependencies = [
 name = "tkmd"
 version = "0.0.0"
 dependencies = [
+ "criterion",
  "globset",
  "notify",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.21",
  "tkm-config",
  "tkm-core",
  "tkm-decide",
@@ -3152,6 +3163,7 @@ dependencies = [
  "libc",
  "mio",
  "pin-project-lite",
+ "signal-hook-registry",
  "socket2",
  "tokio-macros",
  "windows-sys 0.61.2",

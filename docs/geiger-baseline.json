@@ -753,7 +753,7 @@
   },
   "tokio": {
     "version": "1.54.1",
-    "used_unsafe": 2424
+    "used_unsafe": 2610
   },
   "tokio-rustls": {
     "version": "0.26.6",

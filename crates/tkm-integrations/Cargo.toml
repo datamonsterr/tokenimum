@@ -11,6 +11,8 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
+tkm-core = { workspace = true }
+tkm-proto = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }

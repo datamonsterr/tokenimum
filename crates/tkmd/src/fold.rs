@@ -1,0 +1,723 @@
+//! E4.5 fold workers: session-end fold, idle-fold watcher, repository and session resolution
+//! (SPEC 6.2 rules, 7.1, 7.3, 7.5).
+//!
+//! A fold runs detached on a blocking task. Every error is logged to `errors.log` and recorded
+//! as `fold_status = 'error'`; nothing here can panic the daemon (a panicking task becomes a
+//! `JoinError`).
+
+use std::collections::{BTreeSet, HashSet};
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+
+use notify::{RecursiveMode, Watcher};
+use tkm_config::repo::repo_identity;
+use tkm_core::facts::lifecycle::{Lifecycle, Status};
+use tkm_core::facts::{
+    self, Candidate, Fact, FactEvent, FactEventKind, FactsState, Params, SessionEvidence,
+};
+use tkm_core::model::{Host, RepoKey, StopReason, Timestamp};
+use tkm_core::prune::{self, PruneEvidence};
+use tkm_hosts::{HostAdapter, SessionSource};
+use tkm_proto::monitor::{FactNotice, MonitorMessage};
+use tkm_store::{
+    CalibrationRecord, FactRecord, FactState, LedgerRecord, SessionKey, SessionRecord, Store,
+};
+use tokio::sync::mpsc;
+use tokio::task::JoinHandle;
+
+use crate::backing::Backing;
+use crate::daemon::{Daemon, HResult, HandlerError, SessionSeed, lock};
+use crate::persist::SessionUpsert;
+use crate::settings::Settings;
+use crate::state::{StateMap, Tag};
+
+/// Fraction of skipped records above which a session is partial (SPEC 6.4): ledger only.
+const PARTIAL_PERCENT: u64 = 20;
+
+/// Result of resolving a session's repository, settings and stored snapshot.
+pub(crate) struct Resolved {
+    pub repo: RepoKey,
+    pub label: String,
+    pub root: PathBuf,
+    pub settings: Arc<Settings>,
+    pub turn_base: i64,
+    pub envelope: Vec<u32>,
+    pub calibration: Vec<CalibrationRecord>,
+    pub stale: Vec<SessionRecord>,
+    pub error: Option<String>,
+}
+
+/// Everything a fold needs, captured when the session leaves memory.
+pub(crate) struct FoldJob {
+    pub key: SessionKey,
+    pub host: Host,
+    pub repo: RepoKey,
+    pub cwd: PathBuf,
+    pub agent_home: PathBuf,
+    pub log_path: Option<PathBuf>,
+    pub settings: Arc<Settings>,
+    pub injected: BTreeSet<String>,
+    pub overhead: (u64, f64),
+    pub ended_ms: i64,
+}
+
+/// What a fold did.
+pub(crate) struct FoldReport {
+    pub status: &'static str,
+    pub events: Vec<FactEvent>,
+}
+
+/// Filesystem watcher over session log directories (activity signal for idle detection).
+#[derive(Default)]
+pub struct LogWatch {
+    watcher: Option<notify::RecommendedWatcher>,
+    dirs: HashSet<PathBuf>,
+}
+
+fn json_string<T: serde::Serialize>(value: &T) -> Option<String> {
+    match serde_json::to_value(value).ok()? {
+        serde_json::Value::String(text) => Some(text),
+        _ => None,
+    }
+}
+
+/// Maps a stored fact to the core fact; `None` when the stored JSON no longer parses.
+pub(crate) fn fact_from_record(record: &FactRecord) -> Option<Fact> {
+    let family = serde_json::from_value(serde_json::Value::String(record.family.clone())).ok()?;
+    let scope = serde_json::from_str(&record.scope).ok()?;
+    let params: Params = serde_json::from_value(record.text_params.get("params")?.clone()).ok()?;
+    let streak = record
+        .text_params
+        .get("contradiction_streak")
+        .and_then(serde_json::Value::as_u64)
+        .and_then(|v| u32::try_from(v).ok())
+        .unwrap_or(0);
+    let status = match record.state {
+        FactState::Candidate => Status::Candidate,
+        FactState::Active => Status::Active,
+        FactState::Retired => Status::Retired,
+    };
+    Some(Fact {
+        candidate: Candidate {
+            id: record.fact_id.clone(),
+            family,
+            params,
+            scope,
+            evidence: Vec::new(),
+        },
+        life: Lifecycle {
+            status,
+            confirmations: record.confirmations,
+            contradictions: record.contradictions,
+            score: record.score,
+            fire_num: record.fire_count,
+            fire_den: record.fire_sessions,
+            contradiction_streak: streak,
+        },
+    })
+}
+
+fn record_from_fact(repo: &RepoKey, fact: &Fact) -> Option<FactRecord> {
+    Some(FactRecord {
+        repo_key: repo.clone(),
+        fact_id: fact.candidate.id.clone(),
+        family: json_string(&fact.candidate.family)?,
+        scope: serde_json::to_string(&fact.candidate.scope).ok()?,
+        text_params: text_params(fact)?,
+        state: match fact.life.status {
+            Status::Candidate => FactState::Candidate,
+            Status::Active => FactState::Active,
+            Status::Retired => FactState::Retired,
+        },
+        score: fact.life.score,
+        confirmations: fact.life.confirmations,
+        contradictions: fact.life.contradictions,
+        fire_count: fact.life.fire_num,
+        fire_sessions: fact.life.fire_den,
+    })
+}
+
+fn text_params(fact: &Fact) -> Option<serde_json::Value> {
+    Some(serde_json::json!({
+        "params": serde_json::to_value(&fact.candidate.params).ok()?,
+        "contradiction_streak": fact.life.contradiction_streak,
+    }))
+}
+
+fn persist_facts(
+    store: &Store,
+    repo: &RepoKey,
+    before: &[FactRecord],
+    after: &FactsState,
+) -> HResult<()> {
+    for fact in after.facts.values() {
+        let Some(record) = record_from_fact(repo, fact) else {
+            continue;
+        };
+        let existing = before.iter().find(|r| r.fact_id == record.fact_id);
+        if let Some(old) = existing {
+            {
+                if let Some(params) = text_params(fact) {
+                    store.update_fact_params(repo, &record.fact_id, &params)?;
+                }
+                store.update_fact_stats(
+                    repo,
+                    &record.fact_id,
+                    record.score,
+                    record.confirmations,
+                    record.contradictions,
+                    record.fire_count,
+                    record.fire_sessions,
+                )?;
+                if old.state != record.state && old.state != FactState::Retired {
+                    store.transition_fact(repo, &record.fact_id, record.state)?;
+                }
+            }
+        } else {
+            {
+                store.insert_candidate_fact(&record)?;
+                if record.state != FactState::Candidate {
+                    store.transition_fact(repo, &record.fact_id, record.state)?;
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+fn fold_prune(store: &Store, session: &tkm_core::model::Session, ended: Timestamp) -> HResult<()> {
+    let mut evidence = PruneEvidence::default();
+    prune::fold(&mut evidence, session);
+    for name in &evidence.used_tools {
+        store.record_tool_used(&session.repo_key, session.host, name, ended)?;
+    }
+    for (name, e) in &evidence.tools {
+        if evidence.used_tools.contains(name) {
+            continue;
+        }
+        for _ in 0..e.prompts.min(1_000) {
+            store.record_tool_unused_prompt(&session.repo_key, session.host, name)?;
+        }
+        if e.sessions > 0 {
+            store.record_tool_unused_session(&session.repo_key, session.host, name)?;
+        }
+    }
+    Ok(())
+}
+
+fn fold_inner(
+    store: &Store,
+    record: &SessionRecord,
+    adapter: &dyn HostAdapter,
+    job: &FoldJob,
+) -> HResult<FoldReport> {
+    let Some(path) = job.log_path.clone() else {
+        store.set_session_fold_status(record.id, "skipped")?;
+        return Ok(FoldReport {
+            status: "skipped",
+            events: Vec::new(),
+        });
+    };
+    let source = SessionSource {
+        agent_home: job.agent_home.clone(),
+        path,
+        session_id: job.key.session_id.clone(),
+        repo_key: job.repo.clone(),
+        cwd: job.cwd.clone(),
+    };
+    let mut session = adapter.read_session(&source)?;
+    session.repo_key = job.repo.clone();
+    session.host = job.host;
+    let skipped_too_many = session.total_records > 0
+        && session.skipped_records.saturating_mul(100)
+            > session.total_records.saturating_mul(PARTIAL_PERCENT);
+    session.partial = session.partial || skipped_too_many;
+
+    store.upsert_ledger(&LedgerRecord {
+        session_id: record.id,
+        usage: session.usage,
+        priced_cost: 0.0,
+        overhead_tokens: job.overhead.0,
+        overhead_cost: job.overhead.1,
+    })?;
+    if session.partial {
+        store.set_session_fold_status(record.id, "partial")?;
+        return Ok(FoldReport {
+            status: "partial",
+            events: Vec::new(),
+        });
+    }
+    let mut events = Vec::new();
+    if record.fold_status != "folded" {
+        let before = store.list_facts(&job.repo, None)?;
+        let mut state = FactsState::default();
+        for fact in before.iter().filter_map(fact_from_record) {
+            state.facts.insert(fact.candidate.id.clone(), fact);
+        }
+        for earlier in store.list_sessions_by_repo(&job.repo, 10_000)? {
+            if earlier.fold_status == "folded" && earlier.id != record.id {
+                state.processed.insert((
+                    earlier.key.host.as_str().to_owned(),
+                    PathBuf::from(&earlier.key.agent_home),
+                    earlier.key.session_id,
+                ));
+            }
+        }
+        let evidence = SessionEvidence {
+            session: session.clone(),
+            injected_ids: job.injected.clone(),
+            decisions: None,
+        };
+        let (after, fact_events) = facts::update(state, &evidence, &job.settings.facts);
+        persist_facts(store, &job.repo, &before, &after)?;
+        events = fact_events;
+        fold_prune(store, &session, Timestamp(job.ended_ms))?;
+    }
+    store.set_session_fold_status(record.id, "folded")?;
+    Ok(FoldReport {
+        status: "folded",
+        events,
+    })
+}
+
+/// Runs one fold on the calling (blocking) thread.
+pub(crate) fn run_fold(
+    backing: &dyn Backing,
+    adapter: &dyn HostAdapter,
+    job: &FoldJob,
+) -> HResult<FoldReport> {
+    let store = backing.open()?;
+    let Some(record) = store.find_session(&job.key)? else {
+        return Err(HandlerError::Other(format!(
+            "fold: session {} has no row",
+            job.key.session_id
+        )));
+    };
+    let result = fold_inner(&store, &record, adapter, job);
+    if result.is_err() {
+        let _ = store.set_session_fold_status(record.id, "error");
+    }
+    result
+}
+
+fn derived_log_path(
+    host: Host,
+    agent_home: &Path,
+    cwd: &Path,
+    session_id: &str,
+) -> Option<PathBuf> {
+    if host != Host::Claude {
+        return None;
+    }
+    let slug: String = cwd
+        .to_string_lossy()
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+        .collect();
+    Some(
+        agent_home
+            .join("projects")
+            .join(slug)
+            .join(format!("{session_id}.jsonl")),
+    )
+}
+
+impl Daemon {
+    /// Repository identity, settings and stored snapshot for a session. Blocking.
+    pub(crate) fn resolve_blocking(&self, seed: &SessionSeed) -> Resolved {
+        let cached = lock(&self.repo_cache).get(&seed.cwd).cloned();
+        let (repo, label, root) = cached.unwrap_or_else(|| {
+            let var = |name: &str| {
+                self.env
+                    .iter()
+                    .rev()
+                    .find(|(k, _)| k == name)
+                    .map(|(_, v)| v.clone())
+            };
+            let home = var("HOME").map(PathBuf::from);
+            let identity = repo_identity(
+                &seed.cwd,
+                &var("GIT_CEILING_DIRECTORIES").unwrap_or_default(),
+                home.as_deref(),
+            );
+            let entry = (identity.key, identity.label, identity.root);
+            lock(&self.repo_cache).insert(seed.cwd.clone(), entry.clone());
+            entry
+        });
+        let settings = self.settings_source.settings_for(Some(&root));
+        let mut resolved = Resolved {
+            repo: repo.clone(),
+            label,
+            root,
+            settings,
+            turn_base: 0,
+            envelope: Vec::new(),
+            calibration: Vec::new(),
+            stale: Vec::new(),
+            error: None,
+        };
+        let outcome = (|| -> Result<(), tkm_store::StoreError> {
+            let store = self.backing.open()?;
+            resolved.envelope = store.envelope_samples(&repo, seed.host)?;
+            resolved.calibration = store.list_calibration()?;
+            let key = SessionKey {
+                host: seed.host,
+                agent_home: seed.agent_home.to_string_lossy().into_owned(),
+                session_id: seed.session_id.clone(),
+            };
+            if let Some(record) = store.find_session(&key)? {
+                resolved.turn_base = store
+                    .list_turns(record.id)?
+                    .last()
+                    .map_or(0, |turn| turn.turn_idx.saturating_add(1));
+            }
+            let now = i64::try_from(self.clock.now_ms()).unwrap_or(i64::MAX);
+            let grace = i64::try_from(self.stale_after.as_millis()).unwrap_or(i64::MAX);
+            resolved.stale = store
+                .list_sessions_by_repo(&repo, 50)?
+                .into_iter()
+                .filter(|r| {
+                    r.key.session_id != seed.session_id
+                        && matches!(r.fold_status.as_str(), "open" | "pending")
+                        && now.saturating_sub(r.ended.unwrap_or(r.started).0) >= grace
+                })
+                .collect();
+            Ok(())
+        })();
+        if let Err(error) = outcome {
+            resolved.error = Some(format!("storage: {error}"));
+        }
+        resolved
+    }
+
+    /// Removes a live session from memory and folds it in the background.
+    pub(crate) fn fold_live_session(self: &Arc<Self>, tag: &Tag, ended: bool) {
+        let job = {
+            let mut guard = lock(&self.state);
+            let mut outbox = lock(&self.outbox);
+            self.finish_turn(&mut guard, tag, StopReason::Interrupted, &mut outbox);
+            let StateMap {
+                sessions,
+                turn_bases,
+                ..
+            } = &mut *guard;
+            let Some(session) = sessions.remove(tag) else {
+                return;
+            };
+            turn_bases.insert(tag.clone(), session.next_turn_idx);
+            let now = i64::try_from(self.clock.now_ms()).unwrap_or(i64::MAX);
+            let ended_ms = if ended {
+                now
+            } else {
+                i64::try_from(session.last_activity_ms).unwrap_or(now)
+            };
+            outbox.push_session(SessionUpsert {
+                key: session.key.clone(),
+                repo_key: session.repo.clone(),
+                cwd: session.cwd.clone(),
+                started: session.started,
+                ended: Some(Timestamp(ended_ms)),
+                fold_status: "pending".into(),
+                shadow: session.shadow,
+                integration_level: "hooks".into(),
+            });
+            self.publish(|| {
+                MonitorMessage::Session(Self::session_update(
+                    &session,
+                    if ended { "ended" } else { "idle" },
+                ))
+            });
+            let overhead = self.ledger.session_overhead(&format!(
+                "{}:{}",
+                session.host.as_str(),
+                session.session_id
+            ));
+            FoldJob {
+                key: session.key.clone(),
+                host: session.host,
+                repo: session.repo.clone(),
+                cwd: session.cwd.clone(),
+                agent_home: session.agent_home.clone(),
+                log_path: session.log_path.clone(),
+                settings: session.settings.clone(),
+                injected: session.injected.clone(),
+                overhead,
+                ended_ms,
+            }
+        };
+        self.spawn_fold(job);
+    }
+
+    /// Folds earlier unfinished sessions found in the database (not live in memory).
+    pub(crate) fn fold_stored_sessions(
+        self: &Arc<Self>,
+        resolved: &Resolved,
+        seed: &SessionSeed,
+        _now: u64,
+    ) {
+        for record in &resolved.stale {
+            let tag: Tag = (record.key.host, record.key.session_id.clone());
+            if lock(&self.state).sessions.contains_key(&tag) {
+                continue;
+            }
+            let agent_home = PathBuf::from(&record.key.agent_home);
+            self.spawn_fold(FoldJob {
+                key: record.key.clone(),
+                host: record.key.host,
+                repo: record.repo_key.clone(),
+                cwd: record.cwd.clone(),
+                log_path: derived_log_path(
+                    record.key.host,
+                    &agent_home,
+                    &record.cwd,
+                    &record.key.session_id,
+                ),
+                agent_home,
+                settings: resolved.settings.clone(),
+                injected: BTreeSet::new(),
+                overhead: (0, 0.0),
+                ended_ms: record.ended.unwrap_or(record.started).0,
+            });
+            let _ = seed;
+        }
+    }
+
+    pub(crate) fn spawn_fold(self: &Arc<Self>, job: FoldJob) {
+        self.folds.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let me = self.clone();
+        tokio::spawn(async move {
+            me.flush_now().await;
+            let worker = me.clone();
+            let session_id = job.key.session_id.clone();
+            let repo = job.repo.clone();
+            let host = job.host;
+            let joined = tokio::task::spawn_blocking(move || {
+                let adapter = worker.adapters.get(job.host);
+                let report = run_fold(worker.backing.as_ref(), adapter.as_ref(), &job)?;
+                let store = worker.backing.open()?;
+                let durable = if let Some(record) = store.find_session(&job.key)? {
+                    store
+                        .list_turns(record.id)?
+                        .last()
+                        .map_or(0, |turn| turn.turn_idx.saturating_add(1))
+                } else {
+                    0
+                };
+                Ok::<_, HandlerError>((report, durable))
+            })
+            .await;
+            match joined {
+                Ok(Ok((report, durable))) => {
+                    let tag = (host, session_id.clone());
+                    let mut state = lock(&me.state);
+                    if !state.sessions.contains_key(&tag)
+                        && state
+                            .turn_bases
+                            .get(&tag)
+                            .is_some_and(|base| *base <= durable)
+                    {
+                        state.turn_bases.remove(&tag);
+                    }
+                    drop(state);
+                    for event in report.events {
+                        me.publish(|| {
+                            MonitorMessage::Fact(FactNotice {
+                                repo: repo.0.clone(),
+                                fact_id: event.fact_id.clone(),
+                                kind: match event.kind {
+                                    FactEventKind::Confirmed => "confirmed",
+                                    FactEventKind::Contradicted => "contradicted",
+                                    FactEventKind::Promoted => "promoted",
+                                    FactEventKind::Retired => "retired",
+                                }
+                                .to_owned(),
+                            })
+                        });
+                    }
+                    me.publish(|| {
+                        MonitorMessage::Session(tkm_proto::monitor::SessionUpdate {
+                            host,
+                            session_id: session_id.clone(),
+                            repo: Some(repo.0.clone()),
+                            phase: "folded".into(),
+                            turn_calls: 0,
+                            envelope: None,
+                            loop_state: report.status.to_owned(),
+                        })
+                    });
+                }
+                Ok(Err(error)) => {
+                    me.log_error(&format!("fold {} {session_id}: {error}", host.as_str()));
+                }
+                Err(error) => me.log_error(&format!("fold task {session_id}: {error}")),
+            }
+            me.folds.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+        });
+    }
+
+    /// Folds every session idle for at least `idle_after`.
+    #[allow(clippy::unused_async, clippy::unused_async_trait_impl)]
+    pub async fn scan_idle(self: &Arc<Self>) {
+        let now = self.clock.now_ms();
+        let idle = u64::try_from(self.idle_after.as_millis()).unwrap_or(u64::MAX);
+        let due: Vec<Tag> = lock(&self.state)
+            .sessions
+            .iter()
+            .filter(|(_, s)| now.saturating_sub(s.last_activity_ms) >= idle)
+            .map(|(tag, _)| tag.clone())
+            .collect();
+        for tag in due {
+            self.fold_live_session(&tag, false);
+        }
+    }
+
+    /// Wakes every `scan_interval` while sessions exist; sleeps until a session appears otherwise.
+    pub(crate) async fn idle_loop(self: Arc<Self>) {
+        loop {
+            if lock(&self.state).sessions.is_empty() {
+                self.activity.notified().await;
+            } else {
+                tokio::select! {
+                    () = tokio::time::sleep(self.scan_interval) => {}
+                    () = self.activity.notified() => {}
+                }
+            }
+            self.scan_idle().await;
+        }
+    }
+
+    /// Registers the directory of a session log with the filesystem watcher, if one runs.
+    pub(crate) fn watch_log(&self, seed: &SessionSeed) {
+        let Some(dir) = seed.log_path.as_deref().and_then(Path::parent) else {
+            return;
+        };
+        let mut watch = lock(&self.log_watch);
+        let LogWatch { watcher, dirs } = &mut *watch;
+        let Some(watcher) = watcher.as_mut() else {
+            return;
+        };
+        // Best effort: a directory that does not exist yet (or cannot be watched) falls back to
+        // the periodic scan, which needs no log line.
+        if dirs.insert(dir.to_path_buf()) {
+            let _ = watcher.watch(dir, RecursiveMode::NonRecursive);
+        }
+    }
+
+    /// A log file changed: the session behind it is active.
+    pub(crate) fn touch_log(&self, path: &Path) {
+        let now = self.clock.now_ms();
+        for session in lock(&self.state).sessions.values_mut() {
+            if session.log_path.as_deref() == Some(path) {
+                session.last_activity_ms = now;
+            }
+        }
+    }
+}
+
+/// Starts the filesystem watcher. When it cannot start, the periodic scan of
+/// [`Daemon::idle_loop`] remains the only activity source.
+pub(crate) fn spawn_log_watcher(daemon: Arc<Daemon>) -> JoinHandle<()> {
+    tokio::spawn(async move {
+        let (tx, mut rx) = mpsc::unbounded_channel::<PathBuf>();
+        let created = notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
+            if let Ok(event) = event {
+                for path in event.paths {
+                    let _ = tx.send(path);
+                }
+            }
+        });
+        match created {
+            Ok(watcher) => lock(&daemon.log_watch).watcher = Some(watcher),
+            Err(error) => {
+                daemon.log_error(&format!(
+                    "log watcher unavailable, using the 60 s scan: {error}"
+                ));
+                return;
+            }
+        }
+        while let Some(path) = rx.recv().await {
+            daemon.touch_log(&path);
+        }
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tkm_core::facts::Family;
+
+    #[tokio::test]
+    async fn folded_sessions_release_turn_bases() {
+        use tkm_proto::{EventKind, PROTOCOL_VERSION, Request};
+        let dir = tempfile::tempdir().unwrap();
+        let paths = tkm_config::paths::Paths::from_dirs(
+            dir.path(),
+            Some(&dir.path().join("data")),
+            Some(&dir.path().join("config")),
+            Some(&dir.path().join("run")),
+        );
+        let daemon = Daemon::new(crate::daemon::DaemonOptions::new(paths));
+        for index in 0..20 {
+            let session_id = format!("session-{index}");
+            for (event, native) in [
+                (EventKind::SessionStart, "SessionStart"),
+                (EventKind::SessionEnd, "SessionEnd"),
+            ] {
+                let request = Request {
+                    version: PROTOCOL_VERSION,
+                    host: Host::Claude,
+                    event,
+                    host_event: Some(native.into()),
+                    payload: serde_json::json!({"session_id": session_id, "hook_event_name": native, "cwd": "/tmp"}),
+                    env: std::collections::BTreeMap::default(),
+                    cwd: None,
+                };
+                daemon.handle(request).await;
+            }
+            daemon.settle().await;
+        }
+        assert!(lock(&daemon.state).turn_bases.is_empty());
+    }
+
+    #[test]
+    fn fact_round_trips_through_the_store_record() {
+        let mut params = Params::default();
+        params.hosts.insert("example.com".into(), 2);
+        let fact = Fact {
+            candidate: Candidate {
+                id: "boundary:example.com".into(),
+                family: Family::Boundary,
+                params,
+                scope: tkm_core::facts::Scope::Neutral,
+                evidence: Vec::new(),
+            },
+            life: Lifecycle {
+                status: Status::Active,
+                confirmations: 3,
+                contradictions: 1,
+                score: 2.0,
+                fire_num: 3,
+                fire_den: 4,
+                contradiction_streak: 1,
+            },
+        };
+        let record = record_from_fact(&RepoKey("r".into()), &fact).unwrap();
+        assert_eq!(record.family, "boundary");
+        assert_eq!(record.scope, "\"neutral\"");
+        let back = fact_from_record(&record).unwrap();
+        assert_eq!(back, fact);
+    }
+
+    #[test]
+    fn claude_log_path_is_derived_from_the_cwd() {
+        let path = derived_log_path(
+            Host::Claude,
+            Path::new("/h/.claude"),
+            Path::new("/a/b.c"),
+            "s1",
+        )
+        .unwrap();
+        assert_eq!(path, Path::new("/h/.claude/projects/-a-b-c/s1.jsonl"));
+        assert!(derived_log_path(Host::Codex, Path::new("/h"), Path::new("/a"), "s").is_none());
+    }
+}

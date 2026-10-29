@@ -1,0 +1,14 @@
+[Unit]
+Description=tokenimum daemon (tkmd)
+Documentation=https://github.com/datamonsterr/tokenimum
+
+[Service]
+Type=simple
+ExecStart={{EXE}}
+Restart=on-failure
+RestartSec=2
+StandardOutput=null
+StandardError=append:{{ERRORS_LOG}}
+
+[Install]
+WantedBy=default.target
