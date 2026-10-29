@@ -1,0 +1,3 @@
+{"type": "assistant", "isSidechain": true, "timestamp": "2026-10-22T23:22:00Z", "message": {"id": "agent-1", "model": "synthetic-model", "content": [{"type": "tool_use", "id": "t", "name": "Bash", "input": {}}], "stop_reason": "tool_use", "usage": {"input_tokens": 1, "output_tokens": 2}}}
+{"type": "user", "isSidechain": true, "timestamp": "2026-10-23T06:22:01+07:00", "message": {"content": [{"type": "tool_result", "tool_use_id": "t", "is_error": true, "content": "synthetic"}]}}
+{"type": "assistant", "isSidechain": true, "timestamp": "2026-10-22T23:22:02Z", "message": {"id": "agent-2", "model": "synthetic-model", "content": [], "stop_reason": "end_turn", "usage": {"input_tokens": 1, "output_tokens": 3}}}

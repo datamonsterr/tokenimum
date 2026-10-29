@@ -91,7 +91,7 @@ fn accounting_rejects_orphans_cycles_and_missing_prices() {
 }
 #[test]
 fn anchoring_uses_latest_commit_at_or_before_first_timestamp() {
-    let commits = vec![
+    let commits = [
         Commit {
             hash: "b".repeat(40),
             timestamp_ms: 2000,
@@ -194,4 +194,76 @@ fn report_contains_only_aggregates_and_counts_decision_overhead() {
     assert!(!output.contains("Create a synthetic widget"));
     assert!(output.contains("123 tokens, $0.250000"));
     assert!(output.contains("Qualifying total saving: false"));
+}
+
+#[test]
+fn promptless_sidechain_agents_keep_usage_timing_and_tool_metrics() {
+    let transcript = load_transcript(&spec(
+        "so/promptless",
+        "promptless-agent.jsonl",
+        Some("main"),
+    ))
+    .unwrap();
+    assert!(transcript.intact);
+    assert!(extract_prompts(&transcript.records).is_empty());
+    assert_eq!(transcript.metrics.tool_calls, 1);
+    assert_eq!(transcript.metrics.tool_errors, 1);
+    assert_eq!(transcript.metrics.wall_ms, 2000);
+    assert_eq!(transcript.metrics.tokens.output, 5);
+    let commits = tkm_cli::replay_bench::parse_git_log(
+        &std::fs::read_to_string(fixture("git-log.tsv")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        anchor(&commits, transcript.started_ms),
+        Some("a".repeat(40))
+    );
+}
+
+#[test]
+fn anchor_retains_branch_log_order_for_same_second_commits() {
+    let commits = [
+        Commit {
+            hash: "b".repeat(40),
+            timestamp_ms: 1000,
+        },
+        Commit {
+            hash: "a".repeat(40),
+            timestamp_ms: 1000,
+        },
+    ];
+    assert_eq!(anchor(&commits, 1000), Some("b".repeat(40)));
+}
+
+#[test]
+fn config_guard_accepts_actual_claude_installer_and_generated_skill() {
+    use tkm_hosts::{HostAdapter, InstallContext, claude::ClaudeAdapter, fold_only::skill};
+    let temporary = tempfile::tempdir().unwrap();
+    let a = temporary.path().join("a");
+    let b = temporary.path().join("b");
+    for root in [&a, &b] {
+        std::fs::create_dir_all(root.join(".claude")).unwrap();
+        std::fs::copy(
+            fixture("config-a/.claude/settings.json"),
+            root.join(".claude/settings.json"),
+        )
+        .unwrap();
+    }
+    let agent_home = b.join(".claude");
+    ClaudeAdapter::new()
+        .install(&InstallContext {
+            agent_home: agent_home.clone(),
+            ..InstallContext::default()
+        })
+        .unwrap();
+    skill::install(
+        tkm_proto::Host::Claude,
+        &agent_home,
+        None,
+        skill::SkillOptions::default(),
+    )
+    .unwrap();
+    check_config(&a, &b).unwrap();
+    std::fs::write(b.join("CLAUDE.md"), "synthetic unauthorized change").unwrap();
+    assert!(check_config(&a, &b).is_err());
 }
