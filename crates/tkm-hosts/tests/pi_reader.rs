@@ -198,3 +198,57 @@ fn missing_file_is_an_io_error() {
         .unwrap_err();
     assert!(matches!(error, AdapterError::Io(_)), "{error:?}");
 }
+
+fn fixture_text() -> String {
+    fs::read_to_string(fixture()).unwrap()
+}
+
+fn sum_by_model(session: &Session) -> Usage {
+    session
+        .usage_by_model
+        .values()
+        .fold(Usage::default(), |total, usage| total + *usage)
+}
+
+#[test]
+fn parent_links_through_unknown_entry_types_still_reach_the_root() {
+    let header = fixture_text().lines().next().unwrap().to_owned();
+    let text = format!(
+        "{header}\n{}\n{}\n{}\n",
+        r#"{"type":"future-kind","id":"z0000001","parentId":null,"timestamp":"2026-10-20T10:00:01.000Z"}"#,
+        r#"{"type":"message","id":"u0000001","parentId":"z0000001","timestamp":"2026-10-20T10:00:02.000Z","message":{"role":"user","content":"Hello"}}"#,
+        r#"{"type":"message","id":"u0000002","parentId":"u0000001","timestamp":"2026-10-20T10:00:03.000Z","message":{"role":"user","content":"Again"}}"#,
+    );
+    let session = read(&temporary(&text));
+    let prompts: Vec<_> = session
+        .turns
+        .iter()
+        .map(|turn| turn.prompt.as_str())
+        .collect();
+    assert_eq!(prompts, vec!["Hello", "Again"]);
+    // The unknown entry is not interpreted, so it is still counted as skipped.
+    assert_eq!((session.total_records, session.skipped_records), (4, 1));
+}
+
+#[test]
+fn usage_entries_count_wherever_they_sit_but_abandoned_messages_do_not() {
+    let usage_entry = r#"{"type":"usage","id":"x0000002","parentId":"a0000003","timestamp":"2026-10-20T10:02:30.000Z","kind":"cache_warm","provider":"example","model":"example-model-a","usage":{"input":0,"output":0,"cacheRead":7,"cacheWrite":0,"totalTokens":7}}"#;
+    let session = read(&temporary(&format!("{}{usage_entry}\n", fixture_text())));
+    // 5,000 input tokens of the abandoned assistant message stay out; the 7 cached tokens are in.
+    assert_eq!(session.usage, usage(870, 105, 51_707, 10));
+    // A usage entry is not a conversation entry: it never becomes the active leaf.
+    assert_eq!(session.turns.len(), 2);
+    assert_eq!(session.turns[1].prompt, "Write a file\nnow");
+    assert_eq!(sum_by_model(&session), session.usage);
+}
+
+#[test]
+fn nested_tool_result_usage_is_attributed_to_the_turn_and_its_model() {
+    let nested = r#""isError":false,"usage":{"input":1,"output":2,"cacheRead":3,"cacheWrite":4,"totalTokens":10},"timestamp""#;
+    let text = fixture_text().replacen(r#""isError":false,"timestamp""#, nested, 1);
+    let session = read(&temporary(&text));
+    assert_eq!(session.turns[0].usage, usage(221, 52, 203, 14));
+    assert_eq!(session.usage, usage(871, 107, 51_703, 14));
+    assert_eq!(sum_by_model(&session), session.usage);
+    assert_eq!(sum_by_model(&read(&fixture())), read(&fixture()).usage);
+}

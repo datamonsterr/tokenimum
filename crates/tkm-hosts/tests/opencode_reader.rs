@@ -202,11 +202,44 @@ fn only_the_requested_session_is_read() {
     assert_eq!(session.turns[0].model.as_deref(), Some("example-model-b"));
 }
 
+fn insert_part(path: &Path, id: &str, data: &str) {
+    Connection::open(path)
+        .unwrap()
+        .execute(
+            "INSERT INTO part VALUES (?1, 'msg_9002', 'ses_example1', 1791437100999, 1791437100999, ?2)",
+            (id, data),
+        )
+        .unwrap();
+}
+
 #[test]
-fn unknown_part_types_are_counted_as_skipped_without_marking_partial() {
+fn parts_with_valid_json_and_a_type_are_never_skipped() {
     let scratch = Scratch::new();
-    let session = read(&scratch.database(), "ses_example1");
-    assert_eq!((session.total_records, session.skipped_records), (37, 1));
+    let path = scratch.database();
+    // The fixture already holds a `future-widget` part.
+    let session = read(&path, "ses_example1");
+    assert_eq!((session.total_records, session.skipped_records), (37, 0));
+    insert_part(
+        &path,
+        "prt_s1",
+        r#"{"type":"snapshot","snapshot":"0000000000000000000000000000000000000005"}"#,
+    );
+    insert_part(&path, "prt_s2", r#"{"type":"another-future-type"}"#);
+    let session = read(&path, "ses_example1");
+    assert_eq!((session.total_records, session.skipped_records), (39, 0));
+    assert!(!session.partial);
+}
+
+#[test]
+fn unreadable_or_untyped_parts_are_skipped() {
+    let scratch = Scratch::new();
+    let path = scratch.database();
+    insert_part(&path, "prt_b1", "not json");
+    insert_part(&path, "prt_b2", r#"{"text":"no type"}"#);
+    insert_part(&path, "prt_b3", r#"{"type":7}"#);
+    insert_part(&path, "prt_b4", "[1,2]");
+    let session = read(&path, "ses_example1");
+    assert_eq!((session.total_records, session.skipped_records), (41, 4));
     assert!(!session.partial);
 }
 
@@ -214,17 +247,11 @@ fn unknown_part_types_are_counted_as_skipped_without_marking_partial() {
 fn more_than_twenty_percent_skipped_marks_the_session_partial() {
     let scratch = Scratch::new();
     let path = scratch.database();
-    let db = Connection::open(&path).unwrap();
     for index in 0..20 {
-        db.execute(
-            "INSERT INTO part VALUES (?1, 'msg_9002', 'ses_example1', 1791437100999, 1791437100999, ?2)",
-            (format!("prt_x{index}"), if index % 2 == 0 { r#"{"type":"future-widget"}"# } else { "not json" }),
-        )
-        .unwrap();
+        insert_part(&path, &format!("prt_x{index}"), "not json");
     }
-    drop(db);
     let session = read(&path, "ses_example1");
-    assert_eq!((session.total_records, session.skipped_records), (57, 21));
+    assert_eq!((session.total_records, session.skipped_records), (57, 20));
     assert!(session.partial);
 }
 
