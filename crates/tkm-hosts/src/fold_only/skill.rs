@@ -54,18 +54,35 @@ pub fn render(host: Host) -> String {
 /// | Host | User scope | Project scope |
 /// |---|---|---|
 /// | Claude Code | `<agent_home>/skills` | `.claude/skills` |
+/// | Codex | `<agent_home>/skills` | `.agents/skills` |
+/// | Antigravity CLI | `<agent_home>/antigravity-cli/skills` | `.agents/skills` |
+/// | Cursor | `<agent_home>/skills` | `.cursor/skills` |
+/// | Kimi Code | `<agent_home>/skills` | `.kimi/skills` |
+/// | Codewhale | `<agent_home>/skills` | `.codewhale/skills` |
 /// | opencode | `<agent_home>/skills` | `.opencode/skills` |
-/// | Kimi Code | `<agent_home>/skills` | none |
-/// | Pi | none | `.agents/skills` |
+/// | Pi | `<agent_home>/skills` | `.agents/skills` |
 ///
-/// Other harnesses have no verified location (ADR 0026).
+/// Evidence for these locations is recorded in ADR 0026.
 #[must_use]
 pub fn skill_path(host: Host, agent_home: &Path, repo_root: Option<&Path>) -> Option<PathBuf> {
     let skills = match (host, repo_root) {
         (Host::Claude, Some(repo)) => repo.join(".claude/skills"),
         (Host::Opencode, Some(repo)) => repo.join(".opencode/skills"),
-        (Host::Pi, Some(repo)) => repo.join(".agents/skills"),
-        (Host::Claude | Host::Opencode | Host::Kimi, None) => agent_home.join("skills"),
+        (Host::Pi | Host::Codex | Host::Agy, Some(repo)) => repo.join(".agents/skills"),
+        (Host::Cursor, Some(repo)) => repo.join(".cursor/skills"),
+        (Host::Kimi, Some(repo)) => repo.join(".kimi/skills"),
+        (Host::Deepseek, Some(repo)) => repo.join(".codewhale/skills"),
+        (Host::Agy, None) => agent_home.join("antigravity-cli/skills"),
+        (
+            Host::Claude
+            | Host::Opencode
+            | Host::Kimi
+            | Host::Codex
+            | Host::Cursor
+            | Host::Deepseek
+            | Host::Pi,
+            None,
+        ) => agent_home.join("skills"),
         _ => return None,
     };
     Some(skills.join("tokenimum").join("SKILL.md"))

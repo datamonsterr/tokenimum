@@ -207,3 +207,69 @@ async fn resumed_session_start_refreshes_mcp_token() {
         "renewed"
     );
 }
+
+#[tokio::test]
+async fn pending_signal_tracks_queued_and_cleared_context() {
+    let dir = tempfile::tempdir().unwrap();
+    let paths = tkm_config::paths::Paths::from_dirs(dir.path(), None, None, None);
+    let daemon = Daemon::new(crate::daemon::DaemonOptions::new(paths));
+    let request = session_request(dir.path(), tkm_proto::EventKind::SessionStart, "unused");
+    daemon.handle(request.clone()).await;
+    let tag = (Host::Claude, "s".to_owned());
+    {
+        let mut state = crate::daemon::lock(&daemon.state);
+        state.sessions.get_mut(&tag).unwrap().pending_inject = Some("queued".into());
+    }
+    assert_eq!(
+        daemon
+            .stamp_pending(&request, crate::daemon::noop_reply(Host::Claude))
+            .pending,
+        Some(true)
+    );
+    {
+        let mut state = crate::daemon::lock(&daemon.state);
+        state.sessions.get_mut(&tag).unwrap().pending_inject = None;
+    }
+    assert_eq!(
+        daemon
+            .stamp_pending(&request, crate::daemon::noop_reply(Host::Claude))
+            .pending,
+        Some(false)
+    );
+    let tool = session_request(dir.path(), tkm_proto::EventKind::ToolDone, "unused");
+    daemon.handle_tool_done(&tool);
+    {
+        let mut state = crate::daemon::lock(&daemon.state);
+        state
+            .sessions
+            .get_mut(&tag)
+            .unwrap()
+            .turn
+            .as_mut()
+            .unwrap()
+            .pending_redirect = Some("steer".into());
+    }
+    assert_eq!(
+        daemon
+            .stamp_pending(&tool, crate::daemon::noop_reply(Host::Claude))
+            .pending,
+        Some(true)
+    );
+    {
+        let mut state = crate::daemon::lock(&daemon.state);
+        state
+            .sessions
+            .get_mut(&tag)
+            .unwrap()
+            .turn
+            .as_mut()
+            .unwrap()
+            .pending_redirect = None;
+    }
+    assert_eq!(
+        daemon
+            .stamp_pending(&tool, crate::daemon::noop_reply(Host::Claude))
+            .pending,
+        Some(false)
+    );
+}

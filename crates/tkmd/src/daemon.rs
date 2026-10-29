@@ -181,6 +181,7 @@ pub(crate) fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 pub(crate) fn noop_reply(host: Host) -> Reply {
     Reply {
         version: PROTOCOL_VERSION,
+        pending: None,
         action: ReplyAction::Nothing,
         stdout: host.noop_reply().to_owned(),
     }
@@ -418,7 +419,24 @@ impl Daemon {
                 noop_reply(host)
             }
         };
-        cap_reply(reply, host)
+        cap_reply(self.stamp_pending(&request, reply), host)
+    }
+
+    pub(crate) fn stamp_pending(&self, request: &Request, mut reply: Reply) -> Reply {
+        if let Ok(Some(event)) = self.adapters.get(request.host).map_event(request) {
+            let state = lock(&self.state);
+            reply.pending = state
+                .sessions
+                .get(&(event.host, event.session_id))
+                .map(|session| {
+                    session.pending_inject.is_some()
+                        || session
+                            .turn
+                            .as_ref()
+                            .is_some_and(|turn| turn.pending_redirect.is_some())
+                });
+        }
+        reply
     }
 
     async fn dispatch(self: &Arc<Self>, request: &Request) -> HResult<Reply> {
@@ -494,7 +512,7 @@ impl Daemon {
             Err(error) => Err(error.into()),
         };
         match result {
-            Ok(reply) => cap_reply(reply, host),
+            Ok(reply) => cap_reply(self.stamp_pending(request, reply), host),
             Err(error) => {
                 self.log_error(&format!("{} tool_done: {error}", host.as_str()));
                 noop_reply(host)
@@ -523,6 +541,7 @@ impl Daemon {
         (
             Reply {
                 version: PROTOCOL_VERSION,
+                pending: None,
                 action,
                 stdout,
             },
@@ -548,7 +567,17 @@ impl Daemon {
                 var("CLAUDE_CONFIG_DIR").map_or_else(|| home.join(".claude"), PathBuf::from)
             }
             Host::Codex => var("CODEX_HOME").map_or_else(|| home.join(".codex"), PathBuf::from),
-            other => home.join(format!(".{}", other.as_str())),
+            Host::Agy => home.join(".gemini"),
+            Host::Cursor => home.join(".cursor"),
+            Host::Kimi => var("KIMI_SHARE_DIR").map_or_else(|| home.join(".kimi"), PathBuf::from),
+            Host::Deepseek => {
+                var("CODEWHALE_HOME").map_or_else(|| home.join(".codewhale"), PathBuf::from)
+            }
+            Host::Opencode => home.join(".config/opencode"),
+            Host::Pi => {
+                var("PI_CODING_AGENT_DIR").map_or_else(|| home.join(".pi/agent"), PathBuf::from)
+            }
+            _ => home.join(".tokenimum-unknown"),
         }
     }
 
@@ -567,15 +596,44 @@ impl Daemon {
             .clone()
             .or_else(|| request.cwd.as_ref().map(PathBuf::from))
             .unwrap_or_default();
-        let log_path = ["transcript_path", "rollout_path", "session_path"]
-            .iter()
-            .find_map(|field| {
-                request
-                    .payload
-                    .get(field)
-                    .and_then(serde_json::Value::as_str)
+        let log_path = [
+            "transcript_path",
+            "transcriptPath",
+            "rollout_path",
+            "session_path",
+        ]
+        .iter()
+        .find_map(|field| {
+            request
+                .payload
+                .get(field)
+                .and_then(serde_json::Value::as_str)
+        })
+        .map(|text| self.expand_home(text))
+        .or_else(|| {
+            request
+                .env
+                .get("CURSOR_TRANSCRIPT_PATH")
+                .filter(|_| event.host == Host::Cursor)
+                .map(|text| self.expand_home(text))
+        })
+        .or_else(|| {
+            if event.host != Host::Opencode {
+                return None;
+            }
+            let var = |key: &str| {
+                request.env.get(key).cloned().or_else(|| {
+                    self.env
+                        .iter()
+                        .rev()
+                        .find(|(name, _)| name == key)
+                        .map(|(_, value)| value.clone())
+                })
+            };
+            var("OPENCODE_DB").map(PathBuf::from).or_else(|| {
+                var("XDG_DATA_HOME").map(|path| PathBuf::from(path).join("opencode/opencode.db"))
             })
-            .map(|text| self.expand_home(text));
+        });
         SessionSeed {
             host: event.host,
             session_id: event.session_id.clone(),

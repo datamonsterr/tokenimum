@@ -408,11 +408,12 @@ session `partial` and the fold uses it for the ledger only.
   DeepSeek has since published an official CLI, DeepSeek Harness (`dsh`, developer preview,
   https://github.com/deepseek-ai/deepseek-harness); it is a separate future adapter.
 - Config: global `~/.codewhale/config.toml` `[hooks]` with `[[hooks.hooks]]`; legacy
-  `~/.deepseek/config.toml`; project `<repo>/.codewhale/hooks.toml` (needs workspace trust and
-  `/hooks approve`). Source: https://github.com/Hmbown/DeepSeek-TUI/blob/main/docs/HOOKS.md
+  `~/.deepseek/config.toml`; project `<repo>/.codewhale/hooks.toml` with `[[hooks]]` (needs
+  workspace trust and `/hooks approve <digest>`). Source: https://github.com/Hmbown/DeepSeek-TUI/blob/main/docs/HOOKS.md
 - Events used: `session_start`, `message_submit`, `tool_call_before`, `tool_call_after`,
   `turn_end`, `session_end`, `session_idle`. The current upstream docs state that
-  `codewhale exec` does not fire hooks; use interactive session observations for these events.
+  `codewhale exec` fires no hooks by default; `--hooks` opts into engine-side `tool_call_before`
+  and `shell_env` only. Use interactive session observations for the other events.
 - Input: env `DEEPSEEK_SESSION_ID`, `DEEPSEEK_WORKSPACE`, `DEEPSEEK_TOOL_NAME`,
   `DEEPSEEK_TOOL_EXIT_CODE`, ...; stdin JSON for `message_submit`, `turn_end` and tool events.
   `tkm-hook --host deepseek` reads both.

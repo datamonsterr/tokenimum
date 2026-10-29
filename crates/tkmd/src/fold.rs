@@ -573,7 +573,11 @@ fn fold_inner(
     job: &FoldJob,
     context: Option<&FoldDecider<'_>>,
 ) -> HResult<FoldReport> {
-    let Some(path) = job.log_path.clone() else {
+    let Some(path) = job
+        .log_path
+        .clone()
+        .or_else(|| derived_log_path(job.host, &job.agent_home, &job.cwd, &job.key.session_id))
+    else {
         store.set_session_fold_status(record.id, "skipped")?;
         return Ok(FoldReport {
             status: "skipped",
@@ -720,20 +724,120 @@ fn derived_log_path(
     cwd: &Path,
     session_id: &str,
 ) -> Option<PathBuf> {
-    if host != Host::Claude {
+    // IDs enter from host payloads; never let them escape a session store.
+    if session_id.is_empty()
+        || (session_id.contains('/') || session_id.contains('\\'))
+        || session_id == "."
+        || session_id == ".."
+    {
         return None;
     }
-    let slug: String = cwd
-        .to_string_lossy()
-        .chars()
-        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
-        .collect();
-    Some(
-        agent_home
-            .join("projects")
-            .join(slug)
-            .join(format!("{session_id}.jsonl")),
-    )
+    let file = |path: PathBuf| path.is_file().then_some(path);
+    match host {
+        Host::Claude => {
+            let slug: String = cwd
+                .to_string_lossy()
+                .chars()
+                .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+                .collect();
+            Some(
+                agent_home
+                    .join("projects")
+                    .join(slug)
+                    .join(format!("{session_id}.jsonl")),
+            )
+        }
+        Host::Codex => find_session(&agent_home.join("sessions"), session_id, 4, Host::Codex),
+        Host::Agy => {
+            let logs = agent_home
+                .join("antigravity-cli/brain")
+                .join(session_id)
+                .join(".system_generated/logs");
+            file(logs.join("transcript_full.jsonl")).or_else(|| file(logs.join("transcript.jsonl")))
+        }
+        Host::Cursor => find_session(&agent_home.join("projects"), session_id, 5, Host::Cursor),
+        Host::Kimi => file(
+            tkm_hosts::kimi::session_dir(agent_home, &cwd.to_string_lossy(), session_id)
+                .join("context.jsonl"),
+        ),
+        Host::Deepseek => file(
+            agent_home
+                .join("sessions")
+                .join(format!("{session_id}.json")),
+        ),
+        Host::Opencode => agent_home.parent().and_then(Path::parent).map(|home| {
+            let data = home.join(".local/share/opencode");
+            let db = data.join("opencode.db");
+            if db.is_file() { db } else { data }
+        }),
+        Host::Pi => find_session(&agent_home.join("sessions"), session_id, 2, Host::Pi),
+        _ => None,
+    }
+}
+
+fn find_session(root: &Path, session_id: &str, depth: usize, host: Host) -> Option<PathBuf> {
+    fn collect(
+        root: &Path,
+        session_id: &str,
+        depth: usize,
+        host: Host,
+        matches: &mut Vec<PathBuf>,
+    ) {
+        if depth == 0 || (host != Host::Codex && matches.len() > 1) {
+            return;
+        }
+        let Ok(entries) = std::fs::read_dir(root) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let Ok(kind) = entry.file_type() else {
+                continue;
+            };
+            let path = entry.path();
+            if kind.is_dir() {
+                collect(&path, session_id, depth - 1, host, matches);
+            } else if kind.is_file() {
+                let name = entry.file_name();
+                let name = name.to_string_lossy();
+                let is_match = match host {
+                    Host::Codex => {
+                        name.starts_with("rollout-")
+                            && [
+                                format!("-{session_id}.jsonl"),
+                                format!("-{session_id}.jsonl.zst"),
+                            ]
+                            .iter()
+                            .any(|suffix| name.ends_with(suffix))
+                    }
+                    Host::Cursor => {
+                        name == format!("{session_id}.jsonl")
+                            && path
+                                .parent()
+                                .and_then(Path::file_name)
+                                .is_some_and(|name| name == session_id)
+                    }
+                    Host::Pi => name.ends_with(&format!("_{session_id}.jsonl")),
+                    _ => false,
+                };
+                if is_match {
+                    matches.push(path);
+                }
+            }
+        }
+    }
+    let mut matches = Vec::new();
+    collect(root, session_id, depth, host, &mut matches);
+    // Rollout snapshots can share a session ID; the later dated path is current.
+    if host == Host::Codex {
+        matches.sort();
+        return matches.pop();
+    }
+    // An ambiguous ID must not fold another session.
+    if matches.len() == 1 {
+        matches.pop()
+    } else {
+        None
+    }
 }
 
 impl Daemon {
@@ -886,12 +990,32 @@ impl Daemon {
                 host: record.key.host,
                 repo: record.repo_key.clone(),
                 cwd: record.cwd.clone(),
-                log_path: derived_log_path(
-                    record.key.host,
-                    &agent_home,
-                    &record.cwd,
-                    &record.key.session_id,
-                ),
+                log_path: if record.key.host == Host::Opencode {
+                    let var = |key: &str| {
+                        self.env
+                            .iter()
+                            .rev()
+                            .find(|(name, _)| name == key)
+                            .map(|(_, value)| value)
+                    };
+                    var("OPENCODE_DB")
+                        .map(|value| PathBuf::from(value.as_str()))
+                        .or_else(|| {
+                            var("XDG_DATA_HOME").map(|path| {
+                                PathBuf::from(path.as_str()).join("opencode/opencode.db")
+                            })
+                        })
+                } else {
+                    None
+                }
+                .or_else(|| {
+                    derived_log_path(
+                        record.key.host,
+                        &agent_home,
+                        &record.cwd,
+                        &record.key.session_id,
+                    )
+                }),
                 agent_home,
                 settings: resolved.settings.clone(),
                 injected: BTreeSet::new(),
@@ -1216,7 +1340,77 @@ mod tests {
         )
         .unwrap();
         assert_eq!(path, Path::new("/h/.claude/projects/-a-b-c/s1.jsonl"));
-        assert!(derived_log_path(Host::Codex, Path::new("/h"), Path::new("/a"), "s").is_none());
+    }
+
+    #[test]
+    fn discovers_host_session_files_from_fixture_homes() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let cwd = root.join("repo");
+        let cases = [
+            (
+                Host::Claude,
+                root.join(".claude"),
+                claude,
+                fixtures
+                    .join("claude/sessions")
+                    .join(format!("{claude}.jsonl")),
+                root.join(".claude/projects/-home-user-project")
+                    .join(format!("{claude}.jsonl")),
+            ),
+            (
+                Host::Codex,
+                root.join(".codex"),
+                root.join(".codex/sessions/2026/01/02/rollout-2026-s.jsonl"),
+            ),
+            (
+                Host::Agy,
+                root.join(".gemini"),
+                root.join(
+                    ".gemini/antigravity-cli/brain/s/.system_generated/logs/transcript_full.jsonl",
+                ),
+            ),
+            (
+                Host::Cursor,
+                root.join(".cursor"),
+                root.join(".cursor/projects/project/agent-transcripts/s/s.jsonl"),
+            ),
+            (
+                Host::Kimi,
+                root.join(".kimi"),
+                tkm_hosts::kimi::session_dir(&root.join(".kimi"), cwd.to_str().unwrap(), "s")
+                    .join("context.jsonl"),
+            ),
+            (
+                Host::Deepseek,
+                root.join(".codewhale"),
+                root.join(".codewhale/sessions/s.json"),
+            ),
+            (
+                Host::Opencode,
+                root.join(".config/opencode"),
+                root.join(".local/share/opencode/opencode.db"),
+            ),
+            (
+                Host::Pi,
+                root.join(".pi/agent"),
+                root.join(".pi/agent/sessions/--project--/2026_s.jsonl"),
+            ),
+        ];
+        for (host, home, file) in cases {
+            std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+            std::fs::write(&file, "fixture").unwrap();
+            let found = derived_log_path(host, &home, &cwd, "s").unwrap();
+            assert_eq!(found, file, "{host:?}");
+        }
+        assert!(derived_log_path(Host::Codex, &root.join(".codex"), &cwd, "missing").is_none());
+        let newer = root.join(".codex/sessions/2026/01/03/rollout-2026-s.jsonl");
+        std::fs::create_dir_all(newer.parent().unwrap()).unwrap();
+        std::fs::write(&newer, "newer").unwrap();
+        assert_eq!(
+            derived_log_path(Host::Codex, &root.join(".codex"), &cwd, "s"),
+            Some(newer)
+        );
     }
 }
 
@@ -1225,6 +1419,231 @@ mod tests {
 mod replay_tests {
     use super::*;
     use tkm_hosts::claude::ClaudeAdapter;
+    #[test]
+    fn fold_discovers_kimi_fixture_without_hook_path() {
+        let scratch = tempfile::tempdir().unwrap();
+        let home = scratch.path().join(".kimi");
+        let cwd = PathBuf::from("/home/user/project");
+        let session_id = "9a1b2c3d-4e5f-6a7b-8c9d-0e1f2a3b4c5d";
+        let destination = tkm_hosts::kimi::session_dir(&home, cwd.to_str().unwrap(), session_id);
+        std::fs::create_dir_all(&destination).unwrap();
+        let fixture = Path::new(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../fixtures/kimi/sessions/90722f2638004be06d790eaac9ac1f8a/9a1b2c3d-4e5f-6a7b-8c9d-0e1f2a3b4c5d"
+        ));
+        for name in ["context.jsonl", "wire.jsonl"] {
+            std::fs::copy(fixture.join(name), destination.join(name)).unwrap();
+        }
+        let store = Store::open_in_memory().unwrap();
+        let repo = RepoKey("fixture".into());
+        store
+            .upsert_repo(&tkm_store::Repo {
+                repo_key: repo.clone(),
+                display_name: "fixture".into(),
+                first_seen: Timestamp(0),
+                last_seen: Timestamp(0),
+                delegated_runs: 0,
+            })
+            .unwrap();
+        let key = SessionKey {
+            host: Host::Kimi,
+            agent_home: home.to_string_lossy().into_owned(),
+            session_id: session_id.into(),
+        };
+        let id = store
+            .upsert_session(&tkm_store::NewSession {
+                key: key.clone(),
+                repo_key: repo.clone(),
+                cwd: cwd.clone(),
+                started: Timestamp(0),
+                ended: Some(Timestamp(1)),
+                fold_status: "pending".into(),
+                shadow: false,
+                integration_level: "hooks".into(),
+            })
+            .unwrap();
+        let job = FoldJob {
+            key,
+            host: Host::Kimi,
+            repo,
+            cwd,
+            agent_home: home,
+            log_path: None,
+            settings: Arc::new(Settings::default()),
+            injected: BTreeSet::new(),
+            overhead: (0, Some(0.0)),
+            ended_ms: 1,
+        };
+        let record = store.get_session(id).unwrap().unwrap();
+        let report = fold_inner(
+            &store,
+            &record,
+            &tkm_hosts::kimi::KimiAdapter::new(),
+            &job,
+            None,
+        )
+        .unwrap();
+        assert_eq!(report.status, "folded");
+        assert_eq!(
+            store.get_session(id).unwrap().unwrap().fold_status,
+            "folded"
+        );
+    }
+
+    #[test]
+    fn fold_discovers_every_other_host_without_hook_path() {
+        let scratch = tempfile::tempdir().unwrap();
+        let root = scratch.path();
+        let fixtures = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures"));
+        let claude = "e928a2cf-e31b-4154-805b-919991d042ea";
+        let codex = "01a18562-fb1c-7522-9939-dda89fa83662";
+        let agy = "1def34bb-9ae9-4260-99c1-e7f59d3ef14d";
+        let cursor = "c1a2b3c4-d5e6-7f8a-9b0c-1d2e3f4a5b6c";
+        let codewhale = "550e8400-e29b-41d4-a716-446655440000";
+        let pi = "00000000-0000-4000-8000-000000000001";
+        let codex_file =
+            format!("codex/sessions/2026/10/29/rollout-2026-10-29T09-00-20-{codex}.jsonl");
+        let agy_file = format!("agy/brain/{agy}/.system_generated/logs/transcript_full.jsonl");
+        let cursor_file = format!("cursor/transcripts/{cursor}.jsonl");
+        let codewhale_file = format!("codewhale/sessions/{codewhale}.json");
+        let cases = [
+            (
+                Host::Claude,
+                root.join(".claude"),
+                claude,
+                fixtures
+                    .join("claude/sessions")
+                    .join(format!("{claude}.jsonl")),
+                root.join(".claude/projects/-home-user-project")
+                    .join(format!("{claude}.jsonl")),
+            ),
+            (
+                Host::Codex,
+                root.join(".codex"),
+                codex,
+                fixtures.join(&codex_file),
+                root.join(".codex/sessions/2026/10/29")
+                    .join(Path::new(&codex_file).file_name().unwrap()),
+            ),
+            (
+                Host::Agy,
+                root.join(".gemini"),
+                agy,
+                fixtures.join(&agy_file),
+                root.join(".gemini/antigravity-cli/brain")
+                    .join(agy)
+                    .join(".system_generated/logs/transcript_full.jsonl"),
+            ),
+            (
+                Host::Cursor,
+                root.join(".cursor"),
+                cursor,
+                fixtures.join(&cursor_file),
+                root.join(".cursor/projects/project/agent-transcripts")
+                    .join(cursor)
+                    .join(format!("{cursor}.jsonl")),
+            ),
+            (
+                Host::Deepseek,
+                root.join(".codewhale"),
+                codewhale,
+                fixtures.join(&codewhale_file),
+                root.join(".codewhale/sessions")
+                    .join(format!("{codewhale}.json")),
+            ),
+            (
+                Host::Pi,
+                root.join(".pi/agent"),
+                pi,
+                PathBuf::from(concat!(
+                    env!("CARGO_MANIFEST_DIR"),
+                    "/../tkm-hosts/tests/fixtures/pi/session.jsonl"
+                )),
+                root.join(".pi/agent/sessions/--project--")
+                    .join(format!("2026_{pi}.jsonl")),
+            ),
+        ];
+        let registry = crate::registry::AdapterRegistry::standard();
+        for (host, home, session_id, fixture, destination) in cases {
+            std::fs::create_dir_all(destination.parent().unwrap()).unwrap();
+            std::fs::copy(fixture, destination).unwrap();
+            assert_fixture_fold(&registry, host, home, session_id);
+        }
+        let db_path = root.join(".local/share/opencode/opencode.db");
+        std::fs::create_dir_all(db_path.parent().unwrap()).unwrap();
+        let db = rusqlite::Connection::open(&db_path).unwrap();
+        db.execute_batch("PRAGMA foreign_keys = OFF;").unwrap();
+        db.execute_batch(include_str!(
+            "../../tkm-hosts/tests/fixtures/opencode/session.sql"
+        ))
+        .unwrap();
+        drop(db);
+        assert_fixture_fold(
+            &registry,
+            Host::Opencode,
+            root.join(".config/opencode"),
+            "ses_example1",
+        );
+    }
+
+    fn assert_fixture_fold(
+        registry: &crate::registry::AdapterRegistry,
+        host: Host,
+        home: PathBuf,
+        session_id: &str,
+    ) {
+        let store = Store::open_in_memory().unwrap();
+        let repo = RepoKey("fixture".into());
+        let cwd = PathBuf::from("/home/user/project");
+        store
+            .upsert_repo(&tkm_store::Repo {
+                repo_key: repo.clone(),
+                display_name: "fixture".into(),
+                first_seen: Timestamp(0),
+                last_seen: Timestamp(0),
+                delegated_runs: 0,
+            })
+            .unwrap();
+        let key = SessionKey {
+            host,
+            agent_home: home.to_string_lossy().into_owned(),
+            session_id: session_id.into(),
+        };
+        let id = store
+            .upsert_session(&tkm_store::NewSession {
+                key: key.clone(),
+                repo_key: repo.clone(),
+                cwd: cwd.clone(),
+                started: Timestamp(0),
+                ended: Some(Timestamp(1)),
+                fold_status: "pending".into(),
+                shadow: false,
+                integration_level: "hooks".into(),
+            })
+            .unwrap();
+        let job = FoldJob {
+            key,
+            host,
+            repo,
+            cwd,
+            agent_home: home,
+            log_path: None,
+            settings: Arc::new(Settings::default()),
+            injected: BTreeSet::new(),
+            overhead: (0, Some(0.0)),
+            ended_ms: 1,
+        };
+        let record = store.get_session(id).unwrap().unwrap();
+        let adapter = registry.get(host);
+        let report = fold_inner(&store, &record, adapter.as_ref(), &job, None).unwrap();
+        assert_eq!(report.status, "folded", "{host:?}");
+        assert_eq!(
+            store.get_session(id).unwrap().unwrap().fold_status,
+            "folded",
+            "{host:?}"
+        );
+    }
+
     #[test]
     fn fold_batches_candidate_and_exercised_fact_questions() {
         let source = SessionSource {

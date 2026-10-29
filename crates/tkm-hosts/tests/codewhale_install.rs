@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use tkm_hosts::codewhale::CodewhaleAdapter;
-use tkm_hosts::{AdapterError, HostAdapter, InstallContext};
+use tkm_hosts::{HostAdapter, InstallContext};
 
 const FIXTURES: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
@@ -216,22 +216,29 @@ default_timeout_secs = 20
 }
 
 #[test]
-fn project_scope_is_unsupported() {
+fn project_scope_preserves_foreign_hooks_and_uses_project_shape() {
     let temp = Scratch::new();
-    let adapter = CodewhaleAdapter::new();
+    let path = temp.0.join(".codewhale/hooks.toml");
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    let original = "# user hooks\n[[hooks]]\nevent = \"turn_end\"\ncommand = \"echo foreign\"\n";
+    fs::write(&path, original).unwrap();
     let mut ctx = temp.context();
-    ctx.repo_root = Some(PathBuf::from("/home/user/project"));
-
-    let err = adapter.install(&ctx).unwrap_err();
-    match err {
-        AdapterError::Unsupported { operation } => {
-            assert!(
-                operation.contains("codewhale project hooks need /hooks approve; use user scope"),
-                "unexpected operation message: {operation}"
-            );
-        }
-        other => panic!("expected Unsupported, got {other:?}"),
-    }
+    ctx.repo_root = Some(temp.0.clone());
+    let adapter = CodewhaleAdapter::new();
+    let report = adapter.install(&ctx).unwrap();
+    assert!(
+        report
+            .instructions
+            .iter()
+            .any(|text| text.contains("/hooks approve"))
+    );
+    let text = fs::read_to_string(&path).unwrap();
+    assert_foreign_bytes_preserved(original.as_bytes(), text.as_bytes());
+    let doc: toml_edit::DocumentMut = text.parse().unwrap();
+    assert_eq!(doc["hooks"].as_array_of_tables().unwrap().len(), 8);
+    assert!(adapter.install(&ctx).unwrap().changed_files.is_empty());
+    adapter.uninstall(&ctx).unwrap();
+    assert_eq!(fs::read_to_string(path).unwrap(), original);
 }
 
 #[test]

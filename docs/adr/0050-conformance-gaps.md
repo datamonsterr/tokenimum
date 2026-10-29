@@ -3,7 +3,7 @@
 Status: refreshed 2026-10-30 for pruning, decision-calibration and agreement changes, based on
 `da6a44d` on `epic/e10` (baseline CI green; new Rust checks pending controller CI). This record documents
 observed gaps; it does not change SPEC.md or assert that unfinished work satisfies the spec.
-The row-level status is in [spec-conformance.md](../spec-conformance.md): 514 met, 31 deferred,
+The row-level status is in [spec-conformance.md](../spec-conformance.md): 522 met, 23 deferred,
 11 not applicable. Each deferred row carries one category: (a) needs live or real-world data or
 user action, (b) intentionally out of scope or limited per an ADR, (c) not implemented.
 
@@ -122,13 +122,10 @@ for controller CI; locally, formatting, workspace metadata and the conformance c
 - Superorchestrator spend ingestion (SPEC 4.2, 9.2, 9.3, 15 M7, 17 Q5): ADR 0040 item 5. tokenimum
   writes the JSONL sink; ingestion needs an upstream change.
 - Connect timeout 10 ms instead of 2 ms: ADR 0014.
-- Legacy opencode `storage/` tree and awaited shim `tool_done`: ADR 0025.
-- Kimi and Codewhale user-scope-only installers: ADR 0020.
-- Instructions file and skill path for hosts without a verified location (agy, Codex, Cursor,
-  Codewhale skills): ADR 0026.
+- Kimi user-scope-only installer: ADR 0020.
 - otherskill selection limited to four host names: ADR 0040 item 7.
 
 ## Open (c): not implemented
 
-C7. Session log discovery without a hook transcript path for hosts other than Claude (SPEC 6.12).
-    See `crates/tkmd/src/fold.rs` and ADR 0018 item 5.
+None. C1-C7 are implemented: deny writers, write deadline, `prune.protect` and the 30-day cap
+(SPEC 7.3), calibration and agreement (SPEC 8.5), and stored-session discovery (SPEC 6.12).

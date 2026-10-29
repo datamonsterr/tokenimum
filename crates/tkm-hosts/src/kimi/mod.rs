@@ -59,7 +59,7 @@ pub const EXPECTED_EVENTS: &[ExpectedEvent] = &[
 ];
 
 /// Environment variables forwarded from Kimi Code to `tkm-hook`.
-pub const ENV_MARKERS: &[&str] = &[];
+pub const ENV_MARKERS: &[&str] = &["KIMI_SHARE_DIR"];
 
 /// Computes the session directory path for a Kimi Code session.
 ///

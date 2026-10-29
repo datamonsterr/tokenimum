@@ -192,15 +192,18 @@ pub fn remove(existing: &str) -> String {
 /// Instructions file read by `host`, or `None` when no read of one is verified.
 ///
 /// Claude Code reads `CLAUDE.md`; Codex, Cursor, Kimi Code, Codewhale, opencode
-/// and Pi read `AGENTS.md` (evidence in ADR 0026). Antigravity is unverified, so
-/// it is report-only.
+/// Pi and Antigravity read `AGENTS.md` (evidence in ADR 0026).
 #[must_use]
 pub const fn instructions_file(host: Host) -> Option<&'static str> {
     match host {
         Host::Claude => Some("CLAUDE.md"),
-        Host::Codex | Host::Cursor | Host::Kimi | Host::Deepseek | Host::Opencode | Host::Pi => {
-            Some("AGENTS.md")
-        }
+        Host::Agy
+        | Host::Codex
+        | Host::Cursor
+        | Host::Kimi
+        | Host::Deepseek
+        | Host::Opencode
+        | Host::Pi => Some("AGENTS.md"),
         // `Host` is non-exhaustive: unverified and future harnesses are report-only.
         _ => None,
     }

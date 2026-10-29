@@ -225,6 +225,7 @@ async fn a_live_daemons_socket_is_never_stolen() {
 fn reply_larger_than_the_frame_limit_becomes_the_noop_reply() {
     let huge = Reply {
         version: PROTOCOL_VERSION,
+        pending: None,
         action: ReplyAction::Inject {
             text: "x".repeat(MAX_REPLY_FRAME),
         },
@@ -235,6 +236,7 @@ fn reply_larger_than_the_frame_limit_becomes_the_noop_reply() {
     assert_eq!(capped.action, ReplyAction::Nothing);
     let small = Reply {
         version: PROTOCOL_VERSION,
+        pending: None,
         action: ReplyAction::Nothing,
         stdout: "ok".into(),
     };

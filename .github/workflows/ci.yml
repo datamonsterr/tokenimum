@@ -18,6 +18,14 @@ jobs:
       - uses: actions/checkout@v7
       - run: rustup show
       - run: cargo fmt --all --check
+  shim-test:
+    runs-on: namespace-profile-datamonster01
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '26'
+      - run: node scripts/test_shim_pending.mjs
   # The pinned toolchain is also the MSRV; clippy and test exercise that version.
   clippy:
     runs-on: namespace-profile-linux-xl
