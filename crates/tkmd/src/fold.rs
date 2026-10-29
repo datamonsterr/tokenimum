@@ -527,7 +527,7 @@ impl Daemon {
     }
 
     /// Folds every session idle for at least `idle_after`.
-    #[allow(clippy::unused_async)]
+    #[allow(clippy::unused_async, clippy::unused_async_trait_impl)]
     pub async fn scan_idle(self: &Arc<Self>) {
         let now = self.clock.now_ms();
         let idle = u64::try_from(self.idle_after.as_millis()).unwrap_or(u64::MAX);
