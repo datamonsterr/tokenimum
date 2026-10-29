@@ -379,6 +379,7 @@ mod tests {
             contradictions: 0,
             fire_count: 0,
             fire_sessions: 0,
+            state_changed_at: None,
         })?;
         let daemon = Daemon::new(crate::daemon::DaemonOptions::new(paths.clone()));
         let mut receiver = daemon.subscribe();

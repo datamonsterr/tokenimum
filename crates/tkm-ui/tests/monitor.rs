@@ -404,6 +404,7 @@ fn snapshot_reads_persisted_decision() {
             contradictions: 0,
             fire_count: 0,
             fire_sessions: 0,
+            state_changed_at: None,
         })
         .unwrap();
     let event_id = store.insert_event(&NewEvent { kind: "loop.redirect".into(), session_id: session, inputs: serde_json::json!({"shadow": false}), evidence_ids: vec![], explanation_template_id: "redirect".into(), params: serde_json::json!({"event":"event", "detail":"try again", "why":"reason", "model_checks":"none", "cost":"0", "undo":"none"}) }).unwrap();
