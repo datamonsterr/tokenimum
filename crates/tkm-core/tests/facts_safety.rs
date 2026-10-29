@@ -316,3 +316,61 @@ fn code_contradictions_apply_configured_recency_weight_despite_low_model_score()
         assert!(events.iter().any(|e| e.kind == FactEventKind::Contradicted));
     }
 }
+#[test]
+fn failure_of_the_recommended_form_is_always_a_code_contradiction() {
+    let id = "form_repair:run_tests:pytest";
+    let candidate = Candidate {
+        id: id.into(),
+        family: Family::FormRepair,
+        params: Params {
+            intent: Some(Intent::RunTests),
+            bad_form: "pytest".into(),
+            forms: BTreeMap::from([("python -m pytest".into(), 4)]),
+            errors: BTreeMap::from([(ErrorClass::CommandMissing, 4)]),
+            ..Params::default()
+        },
+        scope: Scope::Neutral,
+        evidence: Vec::new(),
+    };
+    let state = FactsState {
+        facts: BTreeMap::from([(
+            id.into(),
+            Fact {
+                candidate,
+                life: lifecycle::Lifecycle {
+                    status: lifecycle::Status::Active,
+                    score: 2.952,
+                    confirmations: 4,
+                    fire_num: 4,
+                    fire_den: 4,
+                    ..lifecycle::Lifecycle::default()
+                },
+            },
+        )]),
+        ..FactsState::default()
+    };
+    let input = SessionEvidence {
+        session: session(vec![sh(
+            "python -m pytest -q",
+            "python: No module named pytest",
+            1,
+        )]),
+        injected_ids: BTreeSet::from([id.into()]),
+        decisions: Some(Decisions {
+            t_low: 0.3,
+            t_high: 0.8,
+            scores: BTreeMap::from([(
+                id.into(),
+                DecisionScores {
+                    stable: Some(1.0),
+                    safe: Some(1.0),
+                    contradicts: Some(0.0),
+                },
+            )]),
+        }),
+    };
+    let (state, events) = facts::update(state, &input, &FactsConfig::default());
+    assert_eq!(state.facts[id].life.contradictions, 1);
+    assert_eq!(state.facts[id].life.status, lifecycle::Status::Retired);
+    assert!(events.iter().any(|e| e.kind == FactEventKind::Contradicted));
+}
