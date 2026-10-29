@@ -9,7 +9,7 @@
 use std::io::{self, Read, Write};
 
 use tkm_config::paths::Paths;
-use tkm_hook::{parse_host_and_event, run_hook, run_with_panic_guard};
+use tkm_hook::{parse_host_and_event, run_hook_with_stdin, run_with_panic_guard};
 use tkm_proto::Host;
 
 fn main() {
@@ -31,14 +31,15 @@ fn main() {
                 return;
             };
 
-            let mut stdin_bytes = Vec::new();
-            let _ = io::stdin().read_to_end(&mut stdin_bytes);
-
             let mut output_buf = Vec::new();
-            run_hook(
+            run_hook_with_stdin(
                 &raw_args,
                 std::env::vars(),
-                &stdin_bytes,
+                || {
+                    let mut bytes = Vec::new();
+                    let _ = io::stdin().read_to_end(&mut bytes);
+                    bytes
+                },
                 Some(&paths.socket),
                 Some(&paths.errors_log),
                 &mut output_buf,

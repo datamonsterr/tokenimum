@@ -21,6 +21,14 @@ tkm-hook --host <host> --event <event>
 - **Hand-rolled argument parsing**: We do not use `clap` or external CLI parsing libraries. Parsing is implemented with a single linear pass over `std::env::args()` using string matching and `Host::from_str` / `EventKind::from_str` from `tkm-proto`. This eliminates binary bloat and parsing startup cost.
 - **Missing or unrecognized arguments**: If `--host` is valid and recognized but `--event` is missing or unrecognized, `tkm-hook` outputs the recognized host's no-op reply (`Host::noop_reply`), logs one error to `errors.log` (if paths are known), and exits 0. If `--host` is missing or unrecognized, it outputs empty stdout `""`, logs one error, and exits 0.
 
+## Shim options (E6)
+
+The shim accepts two additional options in any order alongside `--host` and `--event`:
+- `--host-event <name>` sets `Request.host_event`, taking precedence over the payload's `hook_event_name` value.
+- `--payload <json>` supplies the request payload instead of stdin. When present, stdin is not read, so hosts such as Pi that do not provide stdin cannot block the hook. Invalid JSON fails open: the request is still sent with a JSON `null` payload and one error line is appended to `errors.log`.
+
+Unknown options and options with a missing value are ignored. The library keeps its byte-based `run_hook` API and provides a lazy stdin entry point for the binary so stdin is only read when `--payload` is absent.
+
 ## Environment allowlist
 
 Host processes may have extensive or sensitive environment variables. To prevent leaking credentials or unrelated data across process boundaries, `tkm-hook` never dumps or forwards the full environment.

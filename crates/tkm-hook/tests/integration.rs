@@ -871,8 +871,17 @@ fn test_payload_flag_does_not_read_open_stdin() {
     let start = Instant::now();
     let mut child = cmd.spawn().unwrap();
     // Keep the pipe open until after the hook exits. Eager stdin reads hang here.
-    assert_eq!(child.wait().unwrap().code(), Some(0));
-    assert!(start.elapsed() < Duration::from_millis(500));
+    let status = loop {
+        if let Some(status) = child.try_wait().unwrap() {
+            break status;
+        }
+        assert!(
+            start.elapsed() < Duration::from_millis(500),
+            "hook waited on open stdin"
+        );
+        thread::sleep(Duration::from_millis(5));
+    };
+    assert_eq!(status.code(), Some(0));
     drop(child.stdin.take());
     assert_eq!(
         received.lock().unwrap().as_ref().unwrap().payload,

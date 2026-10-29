@@ -93,6 +93,10 @@ pub struct HookArgs {
     pub host: Host,
     /// Event kind.
     pub event: EventKind,
+    /// Optional host lifecycle event override.
+    pub host_event: Option<String>,
+    /// Optional JSON payload supplied on the command line.
+    pub payload: Option<String>,
 }
 
 /// Parse `--host <host> --event <event>` from raw args (without program name).
@@ -104,10 +108,30 @@ where
     I: IntoIterator<Item = S>,
     S: AsRef<str>,
 {
-    let (host, event) = parse_host_and_event(args);
+    let args: Vec<String> = args.into_iter().map(|s| s.as_ref().to_owned()).collect();
+    let (host, event) = parse_host_and_event(args.iter());
+    let mut host_event = None;
+    let mut payload = None;
+    let mut i = 0;
+    while i < args.len() {
+        if args[i] == "--host-event" || args[i] == "--payload" {
+            let is_host_event = args[i] == "--host-event";
+            if args.get(i + 1).is_some_and(|v| !v.starts_with("--")) {
+                if is_host_event {
+                    host_event = args.get(i + 1).cloned();
+                } else {
+                    payload = args.get(i + 1).cloned();
+                }
+                i += 1;
+            }
+        }
+        i += 1;
+    }
     Some(HookArgs {
         host: host?,
         event: event?,
+        host_event,
+        payload,
     })
 }
 
@@ -128,14 +152,14 @@ where
     while i < args.len() {
         match args[i].as_str() {
             "--host" => {
-                i += 1;
-                if i < args.len() {
+                if args.get(i + 1).is_some_and(|v| !v.starts_with("--")) {
+                    i += 1;
                     host = args[i].parse::<Host>().ok();
                 }
             }
             "--event" => {
-                i += 1;
-                if i < args.len() {
+                if args.get(i + 1).is_some_and(|v| !v.starts_with("--")) {
+                    i += 1;
                     event = args[i].parse::<EventKind>().ok();
                 }
             }
@@ -441,7 +465,7 @@ where
 /// # Parameters
 /// - `args`: raw argument strings (without the program name).
 /// - `env_iter`: iterator over `(key, value)` env pairs.
-/// - `stdin_bytes`: raw stdin bytes.
+/// - `stdin_bytes`: raw stdin bytes (ignored when `--payload` is provided).
 /// - `socket_path`: path to the daemon socket (if resolved).
 /// - `log_path`: path to the error log (if resolved).
 /// - `out`: where to write the reply or noop.
@@ -457,10 +481,38 @@ pub fn run_hook<I, S, E>(
     S: AsRef<str>,
     E: IntoIterator<Item = (String, String)>,
 {
+    run_hook_with_stdin(
+        args,
+        env_iter,
+        || stdin_bytes.to_vec(),
+        socket_path,
+        log_path,
+        out,
+    );
+}
+
+/// Core hook logic with lazy stdin access. The callback is called only when
+/// `--payload` is absent, allowing callers to avoid blocking on unused stdin.
+/// Other parameters and fail-open behavior match [`run_hook`].
+pub fn run_hook_with_stdin<I, S, E, F>(
+    args: I,
+    env_iter: E,
+    read_stdin: F,
+    socket_path: Option<&Path>,
+    log_path: Option<&Path>,
+    out: &mut dyn Write,
+) where
+    I: IntoIterator<Item = S>,
+    S: AsRef<str>,
+    E: IntoIterator<Item = (String, String)>,
+    F: FnOnce() -> Vec<u8>,
+{
     let args: Vec<String> = args.into_iter().map(|s| s.as_ref().to_owned()).collect();
     let env: Vec<(String, String)> = env_iter.into_iter().collect();
 
-    let (parsed_host, parsed_event) = parse_host_and_event(&args);
+    let parsed = parse_args(&args);
+    let parsed_host = parsed.as_ref().map(|a| a.host);
+    let parsed_event = parsed.as_ref().map(|a| a.event);
 
     let (host, event) = match (parsed_host, parsed_event) {
         (Some(h), Some(e)) => (h, e),
@@ -495,12 +547,30 @@ pub fn run_hook<I, S, E>(
         return;
     };
 
-    let payload = read_payload(std::io::Cursor::new(stdin_bytes));
+    let Some(parsed) = parsed else {
+        return;
+    };
+    let payload = if let Some(raw_payload) = parsed.payload {
+        match serde_json::from_str(&raw_payload) {
+            Ok(payload) => payload,
+            Err(_) => {
+                if let Some(log) = log_path {
+                    append_error_log(log, "invalid --payload JSON");
+                }
+                serde_json::Value::Null
+            }
+        }
+    } else {
+        read_payload(std::io::Cursor::new(read_stdin()))
+    };
     let filtered_env = collect_env(env);
     let process_cwd = std::env::current_dir()
         .ok()
         .and_then(|p| p.to_str().map(str::to_owned));
-    let request = build_request(host, event, payload, filtered_env, process_cwd);
+    let mut request = build_request(host, event, payload, filtered_env, process_cwd);
+    if let Some(host_event) = parsed.host_event {
+        request.host_event = Some(host_event);
+    }
 
     match connect_and_exchange(socket_path, &request) {
         ExchangeOutcome::Reply(reply) => {
@@ -554,5 +624,37 @@ mod arg_tests {
         let (host, event) = parse_host_and_event(["--host", "claude", "--event"]);
         assert_eq!(host, Some(Host::Claude));
         assert_eq!(event, None);
+    }
+
+    #[test]
+    fn parses_payload_and_host_event_options_in_any_order() {
+        let parsed = parse_args([
+            "--payload",
+            "{\"x\":1}",
+            "--event",
+            "prompt",
+            "--host-event",
+            "PiBeforeTool",
+            "--host",
+            "claude",
+        ])
+        .unwrap();
+        assert_eq!(parsed.host_event.as_deref(), Some("PiBeforeTool"));
+        assert_eq!(parsed.payload.as_deref(), Some("{\"x\":1}"));
+    }
+
+    #[test]
+    fn missing_optional_values_are_ignored() {
+        let parsed = parse_args([
+            "--host",
+            "claude",
+            "--event",
+            "prompt",
+            "--host-event",
+            "--payload",
+        ])
+        .unwrap();
+        assert_eq!(parsed.host_event, None);
+        assert_eq!(parsed.payload, None);
     }
 }
