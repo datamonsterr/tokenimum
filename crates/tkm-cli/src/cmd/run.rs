@@ -2,6 +2,7 @@
 
 #[cfg(unix)]
 use std::collections::BTreeMap;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -54,7 +55,6 @@ impl Observer<'_, '_> {
         #[cfg(not(unix))]
         {
             self.failed = true;
-            return;
         }
         #[cfg(unix)]
         {
@@ -143,10 +143,13 @@ fn executable(path: &Path) -> bool {
 /// # Errors
 /// Returns a usage error for an unknown harness, or an I/O error if signal setup fails.
 pub fn run(ctx: &mut Ctx<'_>, args: &RunArgs) -> Result<ExitCode, CliError> {
-    let host: Host = args
-        .harness
-        .parse()
-        .map_err(|_| CliError::Usage(format!("unknown harness: {}", args.harness)))?;
+    let host: Host = match args.harness.as_str() {
+        "codewhale" => "deepseek",
+        "cursor-agent" | "agent" => "cursor",
+        name => name,
+    }
+    .parse()
+    .map_err(|_| CliError::Usage(format!("unknown harness: {}", args.harness)))?;
     let Some(program) = program(host, &std::env::var_os("PATH").unwrap_or_default()) else {
         writeln!(
             ctx.stderr,
