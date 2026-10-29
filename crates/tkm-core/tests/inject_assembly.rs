@@ -1,3 +1,6 @@
+#![forbid(unsafe_code)]
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use std::collections::BTreeMap;
 use tkm_core::inject::{self, Cache, Config, InjectCandidate, Source};
 use tkm_core::model::Timestamp;

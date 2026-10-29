@@ -2,6 +2,7 @@
 use serde::{Deserialize, Serialize};
 /// Action kind from SPEC 11.5.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum ActionKind {
     /// Fact injected.
     FactInjected,
@@ -48,8 +49,64 @@ pub struct Explanation {
     /// Typed template parameters.
     pub params: Params,
 }
-/// Render an explanation with sanitized parameters.
+// Limit each supplied field to one line and 512 Unicode characters. Treat all
+// controls and whitespace as separators, so parameters cannot forge sections.
+fn clean(value: &str) -> String {
+    value
+        .chars()
+        .take(512)
+        .map(|c| if c.is_control() { ' ' } else { c })
+        .collect::<String>()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+fn wrap(prefix: &str, text: &str) -> String {
+    let mut result = prefix.to_owned();
+    let mut width = prefix.chars().count();
+    for word in text.split_whitespace() {
+        let len = word.chars().count();
+        if width > 0 && width + 1 + len > 79 {
+            result.push('\n');
+            width = 0;
+        } else if width > 0 && !result.ends_with(' ') {
+            result.push(' ');
+            width += 1;
+        }
+        result.push_str(word);
+        width += len;
+    }
+    result
+}
+/// Render the five SPEC 11.5 sections from a code-owned action template.
+/// Parameter fields are collapsed to one line and capped at 512 characters.
 #[must_use]
-pub fn render(_explanation: &Explanation) -> String {
-    String::new()
+pub fn render(explanation: &Explanation) -> String {
+    let p = &explanation.params;
+    let action = match explanation.template_id {
+        ActionKind::FactInjected => "tokenimum added a short note to the agent's context",
+        ActionKind::FactPromoted => "tokenimum promoted a repository fact",
+        ActionKind::FactRetired => "tokenimum retired a repository fact",
+        ActionKind::Redirect => "tokenimum redirected the agent",
+        ActionKind::Escalation => "tokenimum escalated the turn",
+        ActionKind::DenyListProposal => "tokenimum proposed a deny-list change",
+        ActionKind::DenyListWrite => "tokenimum wrote a deny-list change",
+        ActionKind::Restore => "tokenimum restored a tool",
+        ActionKind::BudgetReached => "tokenimum reached a budget",
+        ActionKind::AdapterDisabled => "tokenimum disabled an adapter",
+    };
+    let detail = clean(&p.detail);
+    let detail = if explanation.template_id == ActionKind::FactInjected {
+        format!("  \"{detail}\"")
+    } else {
+        format!("  {detail}")
+    };
+    format!(
+        "{}\n\nWhat happened: {action}:\n{detail}\n\n{}\n\nModel checks: {}\nCost of those checks: {}.\n\nUndo: {}",
+        clean(&p.event),
+        wrap("Why: ", &clean(&p.why)),
+        clean(&p.model_checks),
+        clean(&p.cost),
+        clean(&p.undo)
+    )
 }
