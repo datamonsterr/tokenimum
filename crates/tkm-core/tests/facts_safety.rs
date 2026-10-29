@@ -248,3 +248,71 @@ fn boundary_success_with_failure_in_same_session_never_promotes() {
     assert!(events.iter().any(|e| e.kind == FactEventKind::Contradicted));
     assert!(events.iter().any(|e| e.kind == FactEventKind::Retired));
 }
+#[test]
+fn code_contradictions_apply_configured_recency_weight_despite_low_model_score() {
+    for (weight, expected) in [
+        (0.0, lifecycle::Status::Active),
+        (5.0, lifecycle::Status::Retired),
+    ] {
+        let candidate = Candidate {
+            id: "arg".into(),
+            family: Family::ArgumentRepair,
+            params: Params {
+                form: "python tests/runtests.py".into(),
+                rule: Some(LabelRule::Strip("tests.".into())),
+                examples: BTreeMap::from([("tests.app".into(), "app".into())]),
+                ..Params::default()
+            },
+            scope: Scope::Neutral,
+            evidence: Vec::new(),
+        };
+        let state = FactsState {
+            facts: BTreeMap::from([(
+                "arg".into(),
+                Fact {
+                    candidate,
+                    life: lifecycle::Lifecycle {
+                        status: lifecycle::Status::Active,
+                        score: 2.0,
+                        confirmations: 3,
+                        fire_num: 4,
+                        fire_den: 4,
+                        ..lifecycle::Lifecycle::default()
+                    },
+                },
+            )]),
+            ..FactsState::default()
+        };
+        let input = SessionEvidence {
+            session: session(vec![sh(
+                "python tests/runtests.py tests.app",
+                "1 passed",
+                0,
+            )]),
+            injected_ids: BTreeSet::new(),
+            decisions: Some(Decisions {
+                t_low: 0.3,
+                t_high: 0.8,
+                scores: BTreeMap::from([(
+                    "arg".into(),
+                    DecisionScores {
+                        stable: Some(1.0),
+                        safe: Some(1.0),
+                        contradicts: Some(0.0),
+                    },
+                )]),
+            }),
+        };
+        let (state, events) = facts::update(
+            state,
+            &input,
+            &FactsConfig {
+                contradiction_weight: weight,
+                ..FactsConfig::default()
+            },
+        );
+        assert!((state.facts["arg"].life.score - (2.0 * 0.8 - weight)).abs() < 1e-10);
+        assert_eq!(state.facts["arg"].life.status, expected);
+        assert!(events.iter().any(|e| e.kind == FactEventKind::Contradicted));
+    }
+}
