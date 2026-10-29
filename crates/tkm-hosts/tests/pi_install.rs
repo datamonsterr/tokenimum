@@ -218,3 +218,31 @@ fn symlinked_shim_file_outside_home_is_refused_and_left_alone() {
             .is_symlink()
     );
 }
+
+#[cfg(unix)]
+#[test]
+fn shim_that_is_a_symlink_inside_the_root_is_refused_by_install_and_uninstall() {
+    let scratch = Scratch::new();
+    let real = scratch.home().join("extensions/real.ts");
+    fs::create_dir_all(real.parent().unwrap()).unwrap();
+    fs::write(&real, expected()).unwrap();
+    std::os::unix::fs::symlink(&real, scratch.shim()).unwrap();
+    let adapter = PiAdapter::new();
+    assert!(matches!(
+        adapter.install(&scratch.user()),
+        Err(AdapterError::UnsafeTarget { .. })
+    ));
+    assert!(matches!(
+        adapter.uninstall(&scratch.user()),
+        Err(AdapterError::UnsafeTarget { .. })
+    ));
+    assert_eq!(fs::read(&real).unwrap(), expected());
+    assert!(
+        scratch
+            .shim()
+            .symlink_metadata()
+            .unwrap()
+            .file_type()
+            .is_symlink()
+    );
+}

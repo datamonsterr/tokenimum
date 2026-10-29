@@ -123,3 +123,27 @@ fn shims_use_only_type_imports_and_the_documented_commands() {
     assert!(opencode.contains("chat.message"));
     assert!(opencode.contains("showToast"));
 }
+
+#[test]
+fn opencode_shim_part_id_has_the_prt_prefix_opencode_validates() {
+    let text = String::from_utf8(render(Host::Opencode, "1.0.0").unwrap()).unwrap();
+    assert!(
+        text.contains("\"prt_tkm_\""),
+        "part ids must start with prt"
+    );
+    assert!(!text.contains("\"tkm-\""));
+}
+
+#[test]
+fn shims_never_let_reply_handling_throw_and_opencode_clears_its_timer() {
+    let opencode = String::from_utf8(render(Host::Opencode, "1.0.0").unwrap()).unwrap();
+    let pi = String::from_utf8(render(Host::Pi, "1.0.0").unwrap()).unwrap();
+    assert!(opencode.contains("clearTimeout"));
+    assert!(opencode.contains("100000"), "payload size cap");
+    assert!(pi.contains("100000"));
+    // Reply application (the part push) sits inside a try block in opencode.
+    let push = opencode.find("output.parts.push").unwrap();
+    let try_before = opencode[..push].rfind("try {").unwrap();
+    let catch_after = opencode[push..].find("catch").unwrap();
+    assert!(try_before < push && catch_after > 0);
+}
