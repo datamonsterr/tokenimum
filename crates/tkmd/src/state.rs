@@ -92,6 +92,8 @@ pub struct SessionState {
     pub loop_state: &'static str,
     /// Exact model decision behind the current turn, resolved to its stored ID by the flusher.
     pub loop_evidence: Option<Arc<std::sync::atomic::AtomicI64>>,
+    /// Native hook names already queued for doctor/status coverage in this session.
+    pub observed_hooks: BTreeSet<String>,
 }
 
 /// Envelope tracker with its cached value, so `tool_done` never sorts samples.

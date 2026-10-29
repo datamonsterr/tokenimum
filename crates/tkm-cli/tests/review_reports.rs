@@ -84,6 +84,80 @@ fn fact_and_explanation_reports_redact_env_value_credentials() {
 }
 
 #[test]
+fn fact_reports_preserve_templates_while_redacting_secret_settings() {
+    let f = Fixture::new();
+    let event = secret_fact(&f).to_string();
+    let claim = "Code that imports the project needs `OPENROUTER_API_KEY` set here: `OPENROUTER_API_KEY=[redacted:openrouter]` works.";
+    for args in [
+        vec!["facts"],
+        vec!["facts", "--brief"],
+        vec!["why", &event],
+        vec!["status"],
+        vec!["status", "--json"],
+    ] {
+        let out = f.run(&args);
+        assert!(out.status.success(), "{args:?}: {out:?}");
+        let text = String::from_utf8(out.stdout).unwrap();
+        assert!(text.contains(claim), "{args:?}: {text}");
+        assert!(!text.contains(SECRET), "{args:?}: {text}");
+    }
+}
+
+#[test]
+fn why_and_status_redact_stored_parameters_before_rendering_templates() {
+    let f = Fixture::new();
+    let stored = f.store().get_event(secret_fact(&f)).unwrap().unwrap();
+    for nested in [false, true] {
+        let values = serde_json::json!({
+            "detail": format!("retry the failing command with {SECRET}"),
+            "why": format!("recorded evidence {SECRET}"),
+            "model_checks": format!("stored check {SECRET}"),
+            "cost": SECRET,
+            "undo": format!("remove {SECRET}"),
+        });
+        let params = if nested {
+            serde_json::json!({"kind": "redirect", "values": values})
+        } else {
+            values
+        };
+        let event = f
+            .store()
+            .insert_event(&NewEvent {
+                kind: "loop.redirect".into(),
+                session_id: stored.session_id,
+                inputs: serde_json::json!({}),
+                evidence_ids: vec![],
+                explanation_template_id: "redirect".into(),
+                params,
+            })
+            .unwrap()
+            .to_string();
+        let out = f.run(&["why", &event]);
+        assert!(out.status.success(), "{out:?}");
+        let text = String::from_utf8(out.stdout).unwrap();
+        for expected in [
+            "What happened: tokenimum redirected the agent:",
+            "retry the failing command with [redacted:openrouter]",
+            "Why: recorded evidence [redacted:openrouter]",
+            "Model checks: stored check [redacted:openrouter]",
+            "Cost of those checks: [redacted:openrouter].",
+            "Undo: remove [redacted:openrouter]",
+        ] {
+            assert!(text.contains(expected), "{text}");
+        }
+        assert!(!text.contains(SECRET), "{text}");
+        let out = f.run(&["status", "--json"]);
+        assert!(out.status.success(), "{out:?}");
+        let report: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+        assert_eq!(
+            report["repositories"][0]["last_actions"][0]["explanation"],
+            "tokenimum redirected the agent: retry the failing command with [redacted:openrouter]"
+        );
+        assert!(!report.to_string().contains(SECRET), "{report}");
+    }
+}
+
+#[test]
 fn why_session_without_event_defaults_to_last() {
     let f = Fixture::new();
     secret_fact(&f);

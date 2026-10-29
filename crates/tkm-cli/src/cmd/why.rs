@@ -3,6 +3,7 @@ use super::status::report;
 use crate::{cli::WhyArgs, ctx::Ctx, error::CliError};
 use std::process::ExitCode;
 use tkm_core::explain::{self, ActionKind, ActionParams, Explanation, Params};
+use tkm_decide::redact::Redactor;
 use tkm_store::{EventRecord, SessionRecord, Store};
 
 /// Execute `tkm why` with optional native or local session filtering.
@@ -37,10 +38,10 @@ pub fn run(ctx: &mut Ctx<'_>, args: &WhyArgs) -> Result<ExitCode, CliError> {
         {
             continue;
         }
-        let explanation =
-            explanation(&store, &event, &session).map_err(|e| report::store_error(ctx, e))?;
+        let explanation = explanation(&store, &event, &session, &report::redactor(ctx))
+            .map_err(|e| report::store_error(ctx, e))?;
         if let Some(explanation) = explanation {
-            let rendered = report::redactor(ctx).redact(&explain::render(&explanation));
+            let rendered = explain::render(&explanation);
             writeln!(ctx.stdout, "{rendered}")?;
             return Ok(ExitCode::SUCCESS);
         }
@@ -87,6 +88,7 @@ pub(crate) fn explanation(
     store: &Store,
     event: &EventRecord,
     session: &SessionRecord,
+    redactor: &Redactor,
 ) -> Result<Option<Explanation>, tkm_store::StoreError> {
     let Some(kind) = action_kind(event) else {
         return Ok(None);
@@ -100,18 +102,19 @@ pub(crate) fn explanation(
         ("cost", &mut params.cost),
         ("undo", &mut params.undo),
     ] {
-        *target = values
+        values
             .get(name)
             .and_then(serde_json::Value::as_str)
             .unwrap_or_default()
-            .to_owned();
+            .clone_into(target);
+        *target = redactor.redact(target);
     }
     params.event = format!(
         "Event {}, {}, {}, repo {}",
         event.id,
         report::time(event.created_at),
         report::host_name(session.key.host),
-        session.repo_key.0
+        redactor.redact(&session.repo_key.0)
     );
     let mut checks = Vec::new();
     let mut cost = 0.0;
@@ -162,10 +165,14 @@ pub(crate) fn explanation(
             if let (Some(stable), Some(safe)) = (probability("stable"), probability("safe")) {
                 checks.push(format!(
                     "{} rated it stable ({stable:.2}) and safe ({safe:.2}).",
-                    decision.model
+                    redactor.redact(&decision.model)
                 ));
             } else {
-                checks.push(format!("{} ({})", decision.model, decision.purpose));
+                checks.push(format!(
+                    "{} ({})",
+                    redactor.redact(&decision.model),
+                    redactor.redact(&decision.purpose)
+                ));
             }
         }
     }
@@ -188,7 +195,7 @@ pub(crate) fn explanation(
         for id in ids.iter().filter_map(serde_json::Value::as_str) {
             if let Some(fact) = store.get_fact(&session.repo_key, id)? {
                 if params.detail.is_empty() {
-                    params.detail = super::facts::claim(&fact);
+                    params.detail = super::facts::claim(&fact, redactor);
                 }
                 if params.why.is_empty() {
                     params.why = format!(
@@ -202,13 +209,14 @@ pub(crate) fn explanation(
                 if params.undo.is_empty()
                     && matches!(kind, ActionKind::FactInjected | ActionKind::FactPromoted)
                 {
-                    params.undo = format!("tkm facts forget {id}");
+                    params.undo = format!("tkm facts forget {}", redactor.redact(id));
                 }
             }
         }
     }
     if params.detail.is_empty() {
-        params.detail = event.kind.clone();
+        params.detail.clone_from(&event.kind);
+        params.detail = redactor.redact(&params.detail);
     }
     if params.why.is_empty() {
         params.why = "no additional evidence was recorded".into();
