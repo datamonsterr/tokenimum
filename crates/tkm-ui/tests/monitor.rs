@@ -261,6 +261,90 @@ fn help_and_why_match_whole_buffer_snapshots() {
 }
 
 #[test]
+fn spec_113_gap_panes_show_turn_call_context_cost_share_and_sparkline() {
+    let mut state = MonitorState::default();
+    let mut session = serde_json::to_value(SessionUpdate {
+        host: Host::Claude,
+        session_id: "s".into(),
+        repo: Some("repo".into()),
+        phase: "active".into(),
+        turn_calls: 4,
+        envelope: Some(8.0),
+        loop_state: "watching".into(),
+    })
+    .unwrap();
+    session["type"] = serde_json::json!("session");
+    session["turn_id"] = serde_json::json!(7);
+    state.apply(serde_json::from_value(session).unwrap());
+
+    let mut redirect = serde_json::to_value(RedirectNotice {
+        host: Host::Claude,
+        session_id: "s".into(),
+        kind: "redirect".into(),
+        text: "retry".into(),
+        shadow: false,
+    })
+    .unwrap();
+    redirect["type"] = serde_json::json!("redirect");
+    redirect["triggering_calls"] = serde_json::json!(["Bash: cargo test"]);
+    state.apply(serde_json::from_value(redirect).unwrap());
+    state.unknown_decision_costs = 2;
+    state.spend_days = (1..=7)
+        .map(|day| (format!("2026-10-{day:02}"), f64::from(day)))
+        .collect();
+    state.decisions.push_back(DecisionNotice {
+        purpose: "loop_guard".into(),
+        model: "model-a".into(),
+        latency_ms: 2,
+        cost_usd: 0.25,
+        shadow: false,
+        answers: serde_json::json!({}),
+    });
+    let mut view = ViewState::default();
+    for (pane, expected) in [
+        (Pane::Sessions, "turn 7"),
+        (Pane::Redirects, "Bash: cargo test"),
+        (Pane::Spend, "model-a"),
+        (Pane::Spend, "unknown"),
+    ] {
+        view.pane = pane;
+        let mut terminal = Terminal::new(TestBackend::new(120, 8)).unwrap();
+        terminal
+            .draw(|frame| tui::render(&state, &view, frame))
+            .unwrap();
+        let rendered = terminal
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect::<String>();
+        assert!(
+            rendered.contains(expected),
+            "missing {expected:?} in {rendered:?}"
+        );
+    }
+    view.pane = Pane::Spend;
+    let mut terminal = Terminal::new(TestBackend::new(120, 8)).unwrap();
+    terminal
+        .draw(|frame| tui::render(&state, &view, frame))
+        .unwrap();
+    let rendered = terminal
+        .backend()
+        .buffer()
+        .content
+        .iter()
+        .map(|cell| cell.symbol())
+        .collect::<String>();
+    assert!(
+        rendered
+            .chars()
+            .any(|character| "▁▂▃▄▅▆▇█".contains(character)),
+        "missing sparkline in {rendered:?}"
+    );
+}
+
+#[test]
 fn missing_socket_is_read_only() {
     let dir = tempfile::tempdir().unwrap();
     let paths = tkm_config::paths::Paths::from_dirs(dir.path(), None, None, None);
