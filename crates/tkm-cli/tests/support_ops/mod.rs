@@ -33,6 +33,9 @@ impl Sandbox {
         Self { home, repo }
     }
     pub fn run(&self, args: &[&str]) -> Output {
+        self.run_with_env(args, &[])
+    }
+    pub fn run_with_env(&self, args: &[&str], env: &[(&str, &str)]) -> Output {
         Command::new(env!("CARGO_BIN_EXE_tkm"))
             .args(args)
             .env_clear()
@@ -43,6 +46,7 @@ impl Sandbox {
             .env("XDG_CONFIG_HOME", self.home.path().join("config"))
             .env("XDG_CACHE_HOME", self.home.path().join("cache"))
             .env("XDG_RUNTIME_DIR", self.home.path().join("run"))
+            .envs(env.iter().copied())
             .current_dir(&self.repo)
             .output()
             .unwrap()
