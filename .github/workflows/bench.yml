@@ -34,6 +34,8 @@ jobs:
         run: |
           python3 scripts/tests/test_check_bench_budget.py
           python3 scripts/tests/test_check_hook_latency.py
+          python3 scripts/tests/test_roundtrip_benchmark.py
+          python3 scripts/tests/test_perf_budget_table.py
       - name: Run tkmd tool_done benchmark (budget 200 us)
         run: |
           cargo bench --locked -p tkmd --bench tool_done -- --output-format bencher | tee tkmd-criterion.txt
@@ -69,6 +71,7 @@ jobs:
             'target/release/tkm-hook --host claude --event tool_done'
           kill "$daemon"
           python3 scripts/check_hook_latency.py roundtrip.json --p50-ms 3 --p99-ms 10 --summary "$GITHUB_STEP_SUMMARY"
+          python3 scripts/roundtrip_to_benchmark.py roundtrip.json roundtrip-benchmark.json
       - uses: actions/cache/restore@v6
         with:
           path: benchmark-data
@@ -96,6 +99,16 @@ jobs:
           external-data-json-path: benchmark-data/hook.json
           alert-threshold: '120%'
           fail-on-alert: ${{ github.event_name == 'pull_request' }}
+      - name: Compare hook round trip percentiles
+        uses: benchmark-action/github-action-benchmark@v1.22.2
+        with:
+          name: Hook round trip
+          tool: customSmallerIsBetter
+          github-token: ${{ github.token }}
+          output-file-path: roundtrip-benchmark.json
+          external-data-json-path: benchmark-data/roundtrip.json
+          alert-threshold: '120%'
+          fail-on-alert: ${{ github.event_name == 'pull_request' }}
       - name: Save main baseline
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: actions/cache/save@v6
@@ -112,7 +125,9 @@ jobs:
           shared-key: workspace-idle-memory
           save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
       - name: Test memory budget checker
-        run: python3 scripts/tests/test_check_idle_memory.py
+        run: |
+          python3 scripts/tests/test_check_idle_memory.py
+          python3 scripts/tests/test_idle_metrics.py
       - name: Measure daemon idle memory
         run: |
           set -eu
@@ -158,7 +173,40 @@ jobs:
               sleep 1
             done
             python3 scripts/check_idle_memory.py "$samples" "$limit" "$variant"
+            python3 scripts/idle_metrics.py "$daemon" "$variant" "$samples" "idle-$variant.json"
             kill "$daemon"
             wait "$daemon" || true
             daemon=""
           done
+      - uses: actions/cache/restore@v6
+        with:
+          path: idle-benchmark-data
+          key: idle-benchmark-v1-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: idle-benchmark-v1-
+      - run: mkdir -p idle-benchmark-data
+      - name: Compare default idle CPU and memory
+        uses: benchmark-action/github-action-benchmark@v1.22.2
+        with:
+          name: Default idle
+          tool: customSmallerIsBetter
+          github-token: ${{ github.token }}
+          output-file-path: idle-default.json
+          external-data-json-path: idle-benchmark-data/default.json
+          alert-threshold: '120%'
+          fail-on-alert: ${{ github.event_name == 'pull_request' }}
+      - name: Compare web idle CPU and memory
+        uses: benchmark-action/github-action-benchmark@v1.22.2
+        with:
+          name: Web idle
+          tool: customSmallerIsBetter
+          github-token: ${{ github.token }}
+          output-file-path: idle-web.json
+          external-data-json-path: idle-benchmark-data/web.json
+          alert-threshold: '120%'
+          fail-on-alert: ${{ github.event_name == 'pull_request' }}
+      - name: Save main idle baseline
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/cache/save@v6
+        with:
+          path: idle-benchmark-data
+          key: idle-benchmark-v1-${{ github.run_id }}-${{ github.run_attempt }}
