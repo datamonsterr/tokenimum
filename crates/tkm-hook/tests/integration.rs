@@ -798,3 +798,117 @@ fn test_connect_full_backlog_bounded_treated_as_busy() {
     );
     drop(holders);
 }
+
+#[test]
+fn test_host_event_flag_overrides_payload_hook_event_name() {
+    let tmp = TempDir::new().unwrap();
+    let sock = socket_path(&tmp);
+    let received = Arc::new(std::sync::Mutex::new(None));
+    let received_clone = Arc::clone(&received);
+    std::fs::create_dir_all(sock.parent().unwrap()).unwrap();
+    let listener = UnixListener::bind(&sock).unwrap();
+    let _srv = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let req: tkm_proto::Request = read_frame(&mut stream, MAX_REQUEST_FRAME).unwrap();
+        *received_clone.lock().unwrap() = Some(req);
+        let reply = Reply {
+            version: PROTOCOL_VERSION,
+            action: ReplyAction::Nothing,
+            stdout: String::new(),
+        };
+        write_frame(&mut stream, &reply, MAX_REPLY_FRAME).unwrap();
+    });
+    let mut cmd = hook_cmd(&tmp, "claude", "prompt");
+    cmd.arg("--host-event").arg("PiBeforeTool");
+    cmd.stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    let mut child = cmd.spawn().unwrap();
+    child
+        .stdin
+        .as_mut()
+        .unwrap()
+        .write_all(br#"{"hook_event_name":"OtherEvent"}"#)
+        .unwrap();
+    drop(child.stdin.take());
+    assert_eq!(child.wait().unwrap().code(), Some(0));
+    assert_eq!(
+        received
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .host_event
+            .as_deref(),
+        Some("PiBeforeTool")
+    );
+}
+
+#[test]
+fn test_payload_flag_does_not_read_open_stdin() {
+    let tmp = TempDir::new().unwrap();
+    let sock = socket_path(&tmp);
+    let received = Arc::new(std::sync::Mutex::new(None));
+    let received_clone = Arc::clone(&received);
+    std::fs::create_dir_all(sock.parent().unwrap()).unwrap();
+    let listener = UnixListener::bind(&sock).unwrap();
+    let _srv = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let req: tkm_proto::Request = read_frame(&mut stream, MAX_REQUEST_FRAME).unwrap();
+        *received_clone.lock().unwrap() = Some(req);
+        let reply = Reply {
+            version: PROTOCOL_VERSION,
+            action: ReplyAction::Nothing,
+            stdout: String::new(),
+        };
+        write_frame(&mut stream, &reply, MAX_REPLY_FRAME).unwrap();
+    });
+    let mut cmd = hook_cmd(&tmp, "claude", "prompt");
+    cmd.arg("--payload").arg(r#"{"source":"flag"}"#);
+    cmd.stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    let start = Instant::now();
+    let mut child = cmd.spawn().unwrap();
+    // Keep the pipe open until after the hook exits. Eager stdin reads hang here.
+    assert_eq!(child.wait().unwrap().code(), Some(0));
+    assert!(start.elapsed() < Duration::from_millis(500));
+    drop(child.stdin.take());
+    assert_eq!(
+        received.lock().unwrap().as_ref().unwrap().payload,
+        serde_json::json!({"source":"flag"})
+    );
+}
+
+#[test]
+fn test_invalid_payload_flag_sends_null_and_logs_error() {
+    let tmp = TempDir::new().unwrap();
+    let sock = socket_path(&tmp);
+    let received = Arc::new(std::sync::Mutex::new(None));
+    let received_clone = Arc::clone(&received);
+    std::fs::create_dir_all(sock.parent().unwrap()).unwrap();
+    let listener = UnixListener::bind(&sock).unwrap();
+    let _srv = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let req: tkm_proto::Request = read_frame(&mut stream, MAX_REQUEST_FRAME).unwrap();
+        *received_clone.lock().unwrap() = Some(req);
+        let reply = Reply {
+            version: PROTOCOL_VERSION,
+            action: ReplyAction::Nothing,
+            stdout: String::new(),
+        };
+        write_frame(&mut stream, &reply, MAX_REPLY_FRAME).unwrap();
+    });
+    let mut cmd = hook_cmd(&tmp, "claude", "prompt");
+    cmd.args(["--payload", "not-json"]);
+    cmd.stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    assert_eq!(cmd.output().unwrap().status.code(), Some(0));
+    assert_eq!(
+        received.lock().unwrap().as_ref().unwrap().payload,
+        serde_json::Value::Null
+    );
+    let log = std::fs::read_to_string(errors_log_path(&tmp)).unwrap();
+    assert_eq!(log.lines().count(), 1);
+}

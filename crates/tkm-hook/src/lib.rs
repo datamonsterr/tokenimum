@@ -533,3 +533,26 @@ pub fn run_hook<I, S, E>(
         }
     }
 }
+
+#[cfg(test)]
+mod arg_tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+
+    use super::{parse_args, parse_host_and_event};
+    use tkm_proto::{EventKind, Host};
+
+    #[test]
+    fn parses_host_and_event_in_either_order_ignoring_unknown_flags() {
+        let args = ["--event", "prompt", "--ignored", "x", "--host", "cursor"];
+        let parsed = parse_args(args).unwrap();
+        assert_eq!(parsed.host, Host::Cursor);
+        assert_eq!(parsed.event, EventKind::Prompt);
+    }
+
+    #[test]
+    fn ignores_flag_missing_its_value() {
+        let (host, event) = parse_host_and_event(["--host", "claude", "--event"]);
+        assert_eq!(host, Some(Host::Claude));
+        assert_eq!(event, None);
+    }
+}
