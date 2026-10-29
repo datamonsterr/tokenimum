@@ -2,8 +2,23 @@
 // Copyright (c) Microsoft Corporation, licensed under the Apache License, Version 2.0.
 //! Turn fold, asynchronous verdict correlation, and the redirect/escalation ladder.
 use super::{JudgeScores, JudgeThresholds, JudgeVerdict, LoopConfig, RedirectKind, SpiralState};
+use super::{
+    RedirectParams, combine_verdict, gate_for_judge, is_stuck, redirect::sanitize, verification,
+};
 use crate::model::Call;
 use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+struct FailureEvidence {
+    command: String,
+    error: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct ReadyRedirect {
+    kind: RedirectKind,
+    evidence: FailureEvidence,
+}
 /// Where the daemon should deliver a still-stuck notice (SPEC 7.4 step 6).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -35,7 +50,7 @@ pub enum LoopAction {
         /// Correlation token to return with the verdict.
         request: JudgeRequest,
     },
-    /// Inject a code-template redirect at this tool_done.
+    /// Inject a code-template redirect at this `tool_done`.
     Redirect {
         /// Selected redirect library entry.
         redirect_kind: RedirectKind,
@@ -64,7 +79,8 @@ pub struct TurnGuard {
     mode: EscalationMode,
     pending: Option<JudgeRequest>,
     last_judge_call: Option<u32>,
-    ready: Option<RedirectKind>,
+    ready: Option<ReadyRedirect>,
+    last_failure: FailureEvidence,
 }
 impl TurnGuard {
     /// Construct empty state with a caller-selected escalation delivery route.
@@ -80,27 +96,117 @@ impl TurnGuard {
             pending: None,
             last_judge_call: None,
             ready: None,
+            last_failure: FailureEvidence::default(),
         }
     }
-    /// Fold one tool_done and return advisory actions (SPEC 7.4).
+    /// Fold one `tool_done` and return advisory actions (SPEC 7.4).
     pub fn on_tool_done(
         &mut self,
-        _call: &Call,
-        _cfg: &LoopConfig,
-        _envelope: Option<f64>,
+        call: &Call,
+        cfg: &LoopConfig,
+        envelope: Option<f64>,
     ) -> Vec<LoopAction> {
+        let errors_before = self.whole.error_outputs;
+        self.segment.update(call);
+        self.whole.update(call);
+        if self.whole.error_outputs > errors_before {
+            self.last_failure = FailureEvidence {
+                command: sanitize(&call.args_digest),
+                error: sanitize(verification::error_line(&call.output_digest).unwrap_or_default()),
+            };
+        }
+        let Some(envelope) = envelope.filter(|n| n.is_finite() && *n > 0.0) else {
+            return Vec::new();
+        };
+        if self.escalated {
+            return Vec::new();
+        }
+        if let Some(ready) = self.ready.take() {
+            return vec![self.act(ready.kind, &ready.evidence, cfg)];
+        }
+        let backstop = envelope * cfg.backstop_mult;
+        if cfg.backstop_mult.is_finite()
+            && cfg.backstop_mult > 0.0
+            && backstop.is_finite()
+            && f64::from(self.whole.turns) > backstop
+            && is_stuck(&self.segment, cfg)
+        {
+            return vec![self.act(
+                RedirectKind::rule_default(),
+                &self.last_failure.clone(),
+                cfg,
+            )];
+        }
+        if self.pending.is_none()
+            && gate_for_judge(&self.segment, cfg)
+            && self
+                .last_judge_call
+                .is_none_or(|last| self.whole.turns.saturating_sub(last) >= 5)
+        {
+            let request = JudgeRequest {
+                segment: self.segment_id,
+                call_index: self.whole.turns,
+            };
+            self.pending = Some(request);
+            self.last_judge_call = Some(self.whole.turns);
+            return vec![LoopAction::RequestJudge { request }];
+        }
         Vec::new()
     }
-    /// Accept one matching judge response; Stuck queues delivery at the next tool_done.
+    /// Accept one matching judge response; Stuck queues delivery at the next `tool_done`.
     pub fn on_judge_verdict(
         &mut self,
-        _request: JudgeRequest,
-        _scores: JudgeScores,
-        _thresholds: JudgeThresholds,
-        _kind: RedirectKind,
+        request: JudgeRequest,
+        scores: JudgeScores,
+        thresholds: JudgeThresholds,
+        kind: RedirectKind,
     ) -> JudgeVerdict {
-        JudgeVerdict::Wait
+        if self.pending != Some(request) || request.segment != self.segment_id || self.escalated {
+            return JudgeVerdict::Wait;
+        }
+        self.pending = None;
+        let verdict = combine_verdict(scores, thresholds);
+        if verdict == JudgeVerdict::Stuck {
+            self.ready = Some(ReadyRedirect {
+                kind,
+                evidence: self.last_failure.clone(),
+            });
+        }
+        verdict
     }
     /// Release a failed or timed-out judge request; all clocks and I/O belong to the caller.
-    pub fn on_judge_unavailable(&mut self, _request: JudgeRequest) {}
+    pub fn on_judge_unavailable(&mut self, request: JudgeRequest) {
+        if self.pending == Some(request) {
+            self.pending = None;
+        }
+    }
+
+    fn act(
+        &mut self,
+        kind: RedirectKind,
+        evidence: &FailureEvidence,
+        cfg: &LoopConfig,
+    ) -> LoopAction {
+        self.pending = None;
+        self.ready = None;
+        if self.redirects_done >= cfg.redirects_per_turn {
+            self.escalated = true;
+            return LoopAction::Escalate {
+                mode: self.mode.clone(),
+            };
+        }
+        let text = kind.render(&RedirectParams {
+            calls: self.segment.turns,
+            failing_command: &evidence.command,
+            error_line: &evidence.error,
+        });
+        self.redirects_done = self.redirects_done.saturating_add(1);
+        self.segment_id = self.segment_id.saturating_add(1);
+        self.segment = SpiralState::default();
+        self.last_failure = FailureEvidence::default();
+        LoopAction::Redirect {
+            redirect_kind: kind,
+            text,
+        }
+    }
 }

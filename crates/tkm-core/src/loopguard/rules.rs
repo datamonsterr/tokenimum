@@ -31,7 +31,7 @@ pub struct LoopConfig {
     pub backstop_mult: f64,
     /// Redirect budget before escalation (SPEC 4.3).
     pub redirects_per_turn: u32,
-    /// Legacy TE preset value; calibrated scores use JudgeThresholds.
+    /// Legacy TE preset value; calibrated scores use `JudgeThresholds`.
     pub judge_confidence: f64,
     /// Legacy TE aggressive flag; SPEC 7.4 still waits on ambiguity.
     pub nudge_on_ambiguous: bool,
@@ -59,8 +59,35 @@ impl Default for LoopConfig {
 impl LoopConfig {
     /// TE named preset; unknown levels fall back to default.
     #[must_use]
-    pub fn preset(_level: &str) -> Self {
-        Self::default()
+    pub fn preset(level: &str) -> Self {
+        match level {
+            "conservative" => Self {
+                judge_confidence: 0.85,
+                envelope_margin: 1.5,
+                backstop_mult: 3.5,
+                stagnation: 0.30,
+                gate_min_turns: 24,
+                min_turns: 28,
+                edit_churn: 5,
+                error_outputs: 8,
+                envelope_min_samples: 7,
+                ..Self::default()
+            },
+            "aggressive" => Self {
+                judge_confidence: 0.55,
+                envelope_margin: 1.0,
+                backstop_mult: 1.8,
+                stagnation: 0.12,
+                gate_min_turns: 12,
+                min_turns: 14,
+                edit_churn: 3,
+                error_outputs: 4,
+                envelope_min_samples: 3,
+                nudge_on_ambiguous: true,
+                ..Self::default()
+            },
+            _ => Self::default(),
+        }
     }
 }
 /// Calibrated model thresholds supplied by the caller (SPEC 7.4 step 3).
@@ -94,16 +121,41 @@ pub enum JudgeVerdict {
 }
 /// Apply SPEC 7.4's calibrated probability table, failing open on invalid input.
 #[must_use]
-pub fn combine_verdict(_scores: JudgeScores, _thresholds: JudgeThresholds) -> JudgeVerdict {
-    JudgeVerdict::Wait
+pub fn combine_verdict(scores: JudgeScores, thresholds: JudgeThresholds) -> JudgeVerdict {
+    let valid = [
+        scores.stuck,
+        scores.progress,
+        thresholds.t_stuck,
+        thresholds.t_progress,
+        thresholds.t_low,
+    ]
+    .into_iter()
+    .all(|n| n.is_finite() && (0.0..=1.0).contains(&n));
+    if !valid || thresholds.t_low >= thresholds.t_stuck {
+        return JudgeVerdict::Wait;
+    }
+    if scores.stuck >= thresholds.t_stuck && scores.progress <= thresholds.t_progress {
+        JudgeVerdict::Stuck
+    } else if scores.stuck <= thresholds.t_low {
+        JudgeVerdict::NotStuck
+    } else {
+        JudgeVerdict::Wait
+    }
 }
 /// Free gate after the configured call floor (SPEC 7.4 step 2).
 #[must_use]
-pub fn gate_for_judge(_state: &SpiralState, _cfg: &LoopConfig) -> bool {
-    false
+pub fn gate_for_judge(state: &SpiralState, cfg: &LoopConfig) -> bool {
+    state.turns >= cfg.gate_min_turns
+        && (state.repeated_fail_sigs >= 1 || state.error_outputs >= cfg.gate_error_outputs)
 }
 /// Strict conjunction of age, churn/scatter, errors and repetition (SPEC 4.3).
 #[must_use]
-pub fn is_stuck(_state: &SpiralState, _cfg: &LoopConfig) -> bool {
-    false
+pub fn is_stuck(state: &SpiralState, cfg: &LoopConfig) -> bool {
+    state.turns >= cfg.min_turns
+        && (state.edit_churn() >= cfg.edit_churn
+            || state.distinct_edit_files() >= cfg.distinct_edit_files)
+        && state.error_outputs >= cfg.error_outputs
+        && cfg.stagnation.is_finite()
+        && (0.0..=1.0).contains(&cfg.stagnation)
+        && state.stagnation() >= cfg.stagnation
 }

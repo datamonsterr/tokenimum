@@ -3,12 +3,20 @@
 //! No action stops or cancels a turn. The synthetic golden trajectory opens the
 //! judge gate at call 18 and reaches the strict backstop at call 21 (envelope 8).
 //! Calls are numbered from one; segment resets retain whole-turn evidence.
+// A literal regex is compiled once without panicking. Invalid patterns fail open.
+macro_rules! pattern {
+    ($pattern:expr) => {{
+        static RE: std::sync::OnceLock<Option<regex::Regex>> = std::sync::OnceLock::new();
+        RE.get_or_init(|| regex::Regex::new($pattern).ok()).as_ref()
+    }};
+}
 pub mod envelope;
 pub mod redirect;
 pub mod rules;
 pub mod shell_edits;
 pub mod state;
 pub mod turn;
+mod verification;
 pub use envelope::{EnvelopeTracker, is_good_turn};
 pub use redirect::{RedirectKind, RedirectParams, stop_key};
 pub use rules::{

@@ -1,5 +1,6 @@
 // Portions ported from microsoft/TokenEconomizer (tests/test_live_core.py, experiments/tests/test_spiral.py, commit d0675a3),
 // Copyright (c) Microsoft Corporation, licensed under the Apache License, Version 2.0.
+#![forbid(unsafe_code)]
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 use tkm_core::loopguard::shell_edits::shell_edit_targets;
 use tkm_core::loopguard::*;

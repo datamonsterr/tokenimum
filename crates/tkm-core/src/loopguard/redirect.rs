@@ -39,8 +39,32 @@ impl RedirectKind {
     }
     /// Render only a code template, sanitizing every string parameter.
     #[must_use]
-    pub fn render(self, _params: &RedirectParams<'_>) -> String {
-        String::new()
+    pub fn render(self, params: &RedirectParams<'_>) -> String {
+        let command = sanitize(params.failing_command);
+        let error = sanitize(params.error_line);
+        let instruction = match self {
+            Self::RereadError => {
+                "Re-read the error and the failing expectation before editing again."
+            }
+            Self::CheckEnv => {
+                "Check the environment (imports, installed packages, working directory) before editing again."
+            }
+            Self::SmallerStep => {
+                "Try a smaller step that isolates one hypothesis before editing again."
+            }
+            Self::RevertLastEdit => {
+                "Revert the last edit if appropriate and compare the failure before trying another change."
+            }
+            Self::DifferentTest => "Try a different test that narrows the cause of this failure.",
+            Self::ReadMoreCode => "Read the surrounding code and its callers before editing again.",
+            Self::AskUser => {
+                "Ask the user for the missing context or constraint needed to make progress."
+            }
+        };
+        format!(
+            "tokenimum: the last {} calls repeated \"{error}\". {instruction} Failing command: \"{command}\".",
+            params.calls
+        )
     }
     /// Rule-only fallback, requiring no model choice.
     #[must_use]
@@ -51,7 +75,10 @@ impl RedirectKind {
 /// Unknown redirect name.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 #[error("unknown redirect kind: {0}")]
-pub struct ParseRedirectKindError(pub String);
+pub struct ParseRedirectKindError(
+    /// Unrecognized choice identifier.
+    pub String,
+);
 impl FromStr for RedirectKind {
     type Err = ParseRedirectKindError;
     fn from_str(value: &str) -> Result<Self, Self::Err> {
@@ -78,9 +105,25 @@ pub struct RedirectParams<'a> {
     pub error_line: &'a str,
 }
 /// Interactive stop key, for a notice only; never sent as a keypress.
-/// Claude/Codex/Pi: TE hosts.py d0675a3 interrupt fields; other hosts:
-/// task's SPEC 7.4 extension uses Esc pending host integration verification.
+/// Claude: TE `plugin/hosts.py` `Claude.interrupt` (2.1.306).
+/// Codex: TE `Codex.interrupt` (0.163.0; also mentions /stop for background commands).
+/// Pi: TE `Pi.interrupt`. Agy, Cursor, Kimi, Deepseek and Opencode: the task's
+/// SPEC 7.4 extension uses Esc pending host integration verification.
 #[must_use]
 pub const fn stop_key(_host: Host) -> &'static str {
     "Esc"
+}
+
+pub(super) fn sanitize(text: &str) -> String {
+    text.chars()
+        .filter(|c| *c != '`' && !matches!(*c, '\u{200b}'..='\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2060}'..='\u{206f}'))
+        .filter_map(|c| {
+            if c.is_whitespace() { Some(' ') }
+            else if c.is_control() { None }
+            else { Some(c) }
+        })
+        .take(160)
+        .collect::<String>()
+        .trim()
+        .to_owned()
 }
