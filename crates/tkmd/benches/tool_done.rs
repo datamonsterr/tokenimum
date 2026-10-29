@@ -117,7 +117,7 @@ fn request(event: EventKind, payload: &str) -> Request {
 fn bench_gate_open(
     c: &mut Criterion,
     runtime: &tokio::runtime::Runtime,
-    daemon: &Daemon,
+    daemon: &Arc<Daemon>,
     failing: &Request,
 ) {
     c.bench_function("tool_done_gate_open", |b| {
@@ -141,7 +141,7 @@ fn bench_gate_open(
 fn bench_pending_redirect(
     c: &mut Criterion,
     runtime: &tokio::runtime::Runtime,
-    daemon: &Daemon,
+    daemon: &Arc<Daemon>,
     failing: &Request,
     blind: &AtomicBool,
 ) {
