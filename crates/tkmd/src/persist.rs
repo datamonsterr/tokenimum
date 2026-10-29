@@ -275,6 +275,54 @@ mod tests {
     }
 
     #[test]
+    fn action_event_has_timestamp_and_real_decision_evidence() {
+        let store = Store::open_in_memory().unwrap();
+        let mut batch = FlushBatch::default();
+        batch.push_repo(Repo {
+            repo_key: RepoKey("r".into()),
+            display_name: "r".into(),
+            first_seen: Timestamp(1),
+            last_seen: Timestamp(1),
+            delegated_runs: 0,
+        });
+        batch.push_session(session("a", "open"));
+        batch.decisions.push_back(DecisionInsert {
+            decision: NewDecision {
+                model: "fixture".into(),
+                purpose: "loop_guard".into(),
+                questions: serde_json::json!({}),
+                answers: serde_json::json!({}),
+                cost_usd: 0.0,
+                latency_ms: 1,
+                shadow: false,
+            },
+            created_at: Timestamp(42),
+            repo: Some(RepoKey("r".into())),
+            key: Some(key("a")),
+            digest: Some("redacted digest".into()),
+        });
+        batch.events.push_back(EventInsert {
+            key: key("a"),
+            kind: "loop.redirect".into(),
+            inputs: serde_json::json!({}),
+            template: "redirect".into(),
+            params: serde_json::json!({}),
+            created_at: Timestamp(43),
+            evidence_ids: vec![],
+            decision_purpose: Some("loop_guard".into()),
+        });
+        apply(&store, &mut batch).unwrap();
+        let event = store.list_recent_events(1).unwrap().remove(0);
+        assert_eq!(event.created_at, Some(Timestamp(43)));
+        assert_eq!(event.evidence_ids.len(), 1);
+        let decision = store.get_decision(event.evidence_ids[0]).unwrap().unwrap();
+        assert_eq!(decision.created_at, Some(Timestamp(42)));
+        assert_eq!(decision.repo_key, Some(RepoKey("r".into())));
+        assert_eq!(decision.session_id, Some(event.session_id));
+        assert_eq!(decision.digest.as_deref(), Some("redacted digest"));
+    }
+
+    #[test]
     fn newer_session_upsert_replaces_the_queued_one() {
         let mut batch = FlushBatch::default();
         batch.push_session(session("a", "open"));
