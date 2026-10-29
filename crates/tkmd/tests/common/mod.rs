@@ -14,8 +14,8 @@ use tkm_config::paths::Paths;
 use tkm_core::model::{RepoKey, Timestamp};
 use tkm_decide::api::Answer;
 use tkm_decide::client::{DecideRequest, Decision, Outcome};
-use tkm_proto::{EventKind, Host, PROTOCOL_VERSION, Reply, Request};
 use tkm_hosts::HostAdapter as _;
+use tkm_proto::{EventKind, Host, PROTOCOL_VERSION, Reply, Request};
 use tkm_store::{Repo, Store, StoreError};
 use tkmd::backing::{Backing, SqliteBacking};
 use tkmd::clock::ManualClock;
@@ -271,7 +271,10 @@ pub async fn fake_openrouter(
 ) -> (String, Arc<AtomicUsize>) {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let url = format!("http://{}/api/alpha/decisions", listener.local_addr().unwrap());
+    let url = format!(
+        "http://{}/api/alpha/decisions",
+        listener.local_addr().unwrap()
+    );
     let hits = Arc::new(AtomicUsize::new(0));
     let counter = hits.clone();
     tokio::spawn(async move {
@@ -356,11 +359,15 @@ pub fn seed_fact(env: &Env, host_name: &str) {
             fire_sessions: 4,
         })
         .unwrap();
-    store.transition_fact(&repo, &id, FactState::Active).unwrap();
+    store
+        .transition_fact(&repo, &id, FactState::Active)
+        .unwrap();
 }
 
 pub fn fact_line(host_name: &str) -> String {
-    format!("Outbound connections to {host_name} are refused here; nothing can be fetched from them.")
+    format!(
+        "Outbound connections to {host_name} are refused here; nothing can be fetched from them."
+    )
 }
 
 /// Claude adapter that cannot inject on `prompt` (like Cursor's `beforeSubmitPrompt`).

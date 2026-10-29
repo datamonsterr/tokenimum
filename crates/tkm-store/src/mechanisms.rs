@@ -163,8 +163,22 @@ fn require_changed(count: usize) -> Result<(), StoreError> {
     }
     Ok(())
 }
-
 impl Store {
+    /// Replace the stored template parameters of a fact (additive; used by the daemon fold).
+    ///
+    /// # Errors
+    /// Returns an error if the fact does not exist or the operation fails.
+    pub fn update_fact_params(
+        &self,
+        repo: &RepoKey,
+        id: &str,
+        text_params: &serde_json::Value,
+    ) -> Result<(), StoreError> {
+        require_changed(self.conn.execute(
+            "UPDATE facts SET text_params = ?3 WHERE repo_key = ?1 AND fact_id = ?2",
+            params![repo.0, id, serde_json::to_string(text_params)?],
+        )?)
+    }
     /// Insert a fact as a candidate, regardless of its supplied state.
     ///
     /// # Errors

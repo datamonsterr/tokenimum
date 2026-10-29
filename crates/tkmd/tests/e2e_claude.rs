@@ -45,7 +45,10 @@ impl Daemon {
         let socket = this.env.paths.socket.clone();
         let deadline = std::time::Instant::now() + Duration::from_secs(20);
         while !socket.exists() {
-            assert!(std::time::Instant::now() < deadline, "tkmd socket never appeared");
+            assert!(
+                std::time::Instant::now() < deadline,
+                "tkmd socket never appeared"
+            );
             std::thread::sleep(Duration::from_millis(20));
         }
         this
@@ -108,7 +111,8 @@ fn claude_fixture_session_end_to_end() {
     seed_fact(&env, "example.com");
     let daemon = Daemon::spawn(env, &[]);
 
-    let block = serde_json::to_string(&format!("# Context\n{}\n", fact_line("example.com"))).unwrap();
+    let block =
+        serde_json::to_string(&format!("# Context\n{}\n", fact_line("example.com"))).unwrap();
     let injected = format!(
         "{{\"hookSpecificOutput\":{{\"hookEventName\":\"UserPromptSubmit\",\"additionalContext\":{block}}}}}"
     );
@@ -134,16 +138,28 @@ fn claude_fixture_session_end_to_end() {
     let count = |sql: &str| -> i64 { db.query_row(sql, [], |r| r.get(0)).unwrap() };
     assert_eq!(count("SELECT COUNT(*) FROM sessions"), 1);
     let (host, session, ended): (String, String, Option<i64>) = db
-        .query_row("SELECT host, session_id, ended_at FROM sessions", [], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+        .query_row("SELECT host, session_id, ended_at FROM sessions", [], |r| {
+            Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+        })
         .unwrap();
     assert_eq!(host, "claude");
     assert_eq!(session, "e928a2cf-e31b-4154-805b-919991d042ea");
     assert!(ended.is_some());
-    let mut turns = db.prepare("SELECT calls FROM turns ORDER BY turn_idx").unwrap();
-    let calls: Vec<i64> = turns.query_map([], |r| r.get(0)).unwrap().map(Result::unwrap).collect();
+    let mut turns = db
+        .prepare("SELECT calls FROM turns ORDER BY turn_idx")
+        .unwrap();
+    let calls: Vec<i64> = turns
+        .query_map([], |r| r.get(0))
+        .unwrap()
+        .map(Result::unwrap)
+        .collect();
     assert_eq!(calls, vec![2, 3]);
     assert!(count("SELECT COUNT(*) FROM repos WHERE repo_key = 'dir:~/dev/example'") == 1);
-    assert_eq!(count("SELECT COUNT(*) FROM decisions"), 0, "decide.enabled=false: no decisions");
+    assert_eq!(
+        count("SELECT COUNT(*) FROM decisions"),
+        0,
+        "decide.enabled=false: no decisions"
+    );
 }
 
 #[test]
@@ -151,7 +167,10 @@ fn stuck_loop_records_shadow_decisions_through_the_real_hook() {
     let env = Env::new();
     env.seed_envelope(FIXTURE_REPO, Host::Claude, &[5; 5]);
 
-    let runtime = tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap();
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .unwrap();
     let (url, hits) = runtime.block_on(fake_openrouter(200, decision_body(), Duration::ZERO));
     let daemon = Daemon::spawn(
         env,
@@ -166,12 +185,19 @@ fn stuck_loop_records_shadow_decisions_through_the_real_hook() {
     let failing: Value = fixture("PostToolUseFailure-bash");
     let payload = serde_json::to_vec(&failing).unwrap();
     for _ in 0..20 {
-        assert_eq!(daemon.hook_raw("tool_done", &payload), "", "shadow mode injects nothing");
+        assert_eq!(
+            daemon.hook_raw("tool_done", &payload),
+            "",
+            "shadow mode injects nothing"
+        );
     }
     // Wait for the decision, then stop (final flush).
     let deadline = std::time::Instant::now() + Duration::from_secs(20);
     while hits.load(std::sync::atomic::Ordering::SeqCst) == 0 {
-        assert!(std::time::Instant::now() < deadline, "fake OpenRouter never called");
+        assert!(
+            std::time::Instant::now() < deadline,
+            "fake OpenRouter never called"
+        );
         std::thread::sleep(Duration::from_millis(50));
     }
     std::thread::sleep(Duration::from_millis(500));
@@ -179,10 +205,20 @@ fn stuck_loop_records_shadow_decisions_through_the_real_hook() {
     let env = daemon.stop();
     let db = tkm_store::open_read_only(&env.paths.db).unwrap();
     let shadow: i64 = db
-        .query_row("SELECT COUNT(*) FROM decisions WHERE shadow = 1 AND purpose = 'loop_guard'", [], |r| r.get(0))
+        .query_row(
+            "SELECT COUNT(*) FROM decisions WHERE shadow = 1 AND purpose = 'loop_guard'",
+            [],
+            |r| r.get(0),
+        )
         .unwrap();
     assert!(shadow >= 1);
-    let events: i64 = db.query_row("SELECT COUNT(*) FROM events WHERE kind LIKE 'loop.%'", [], |r| r.get(0)).unwrap();
+    let events: i64 = db
+        .query_row(
+            "SELECT COUNT(*) FROM events WHERE kind LIKE 'loop.%'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
     assert!(events >= 1);
 }
 

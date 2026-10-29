@@ -33,16 +33,26 @@ async fn connect(env: &Env) -> UnixStream {
 async fn subscriber_gets_hello_then_session_and_decision_messages() {
     let env = Env::new();
     env.seed_envelope(FIXTURE_REPO, Host::Claude, &[5; 5]);
-    let settings = Settings { loop_mode: LoopMode::Shadow, ..Settings::default() };
+    let settings = Settings {
+        loop_mode: LoopMode::Shadow,
+        ..Settings::default()
+    };
     let daemon = daemon_with(&env, settings, ScriptedDecider::new(stuck_decision()));
     daemon.start_workers();
     let monitor = Monitor::bind(&daemon).await.unwrap();
-    let mode = std::os::unix::fs::PermissionsExt::mode(&std::fs::metadata(monitor.path()).unwrap().permissions());
+    let mode = std::os::unix::fs::PermissionsExt::mode(
+        &std::fs::metadata(monitor.path()).unwrap().permissions(),
+    );
     assert_eq!(mode & 0o777, 0o600);
     tokio::spawn(monitor.run(daemon.clone()));
 
     let mut stream = connect(&env).await;
-    assert_eq!(next_message(&mut stream).await, Some(MonitorMessage::Hello { version: PROTOCOL_VERSION }));
+    assert_eq!(
+        next_message(&mut stream).await,
+        Some(MonitorMessage::Hello {
+            version: PROTOCOL_VERSION
+        })
+    );
     assert!(eventually(5, || daemon.subscriber_count() == 1).await);
 
     daemon.handle(session_start()).await;
@@ -56,7 +66,9 @@ async fn subscriber_gets_hello_then_session_and_decision_messages() {
     let mut saw_decision = false;
     let deadline = Instant::now() + Duration::from_secs(5);
     while Instant::now() < deadline && !(saw_session && saw_decision) {
-        let Ok(Some(message)) = tokio::time::timeout(Duration::from_secs(2), next_message(&mut stream)).await else {
+        let Ok(Some(message)) =
+            tokio::time::timeout(Duration::from_secs(2), next_message(&mut stream)).await
+        else {
             break;
         };
         match message {
@@ -95,7 +107,10 @@ async fn slow_subscriber_is_dropped_and_handlers_never_block() {
     for _ in 0..20_000 {
         daemon.handle_tool_done(&tool_done());
     }
-    assert!(started.elapsed() < Duration::from_secs(5), "handlers must not wait for subscribers");
+    assert!(
+        started.elapsed() < Duration::from_secs(5),
+        "handlers must not wait for subscribers"
+    );
     assert!(
         eventually(10, || daemon.subscriber_count() == 0).await,
         "slow subscriber dropped"
