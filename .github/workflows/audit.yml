@@ -14,7 +14,7 @@ permissions:
   issues: write
 jobs:
   audit:
-    runs-on: ubuntu-latest
+    runs-on: namespace-profile-datamonster01
     steps:
       - uses: actions/checkout@v7
       - uses: rustsec/audit-check@v2.0.0
