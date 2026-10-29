@@ -105,7 +105,7 @@ impl Store {
         turn_idx: i64,
         at: Timestamp,
     ) -> Result<(), StoreError> {
-        self.conn.execute("INSERT OR IGNORE INTO shadow_judgments (host, agent_home, session_id, turn_idx, judged_at) VALUES (?1, ?2, ?3, ?4, ?5)", params![key.host.as_str(), key.agent_home, key.session_id, turn_idx, at.0])?;
+        self.conn.execute("INSERT OR IGNORE INTO shadow_judgments (host, agent_home, session_id, turn_idx, judged_at) VALUES (?1, ?2, ?3, ?4, MIN(?5, COALESCE((SELECT MIN(created_at) FROM decisions), ?5)))", params![key.host.as_str(), key.agent_home, key.session_id, turn_idx, at.0])?;
         Ok(())
     }
 
