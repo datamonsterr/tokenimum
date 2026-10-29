@@ -12,6 +12,10 @@ the Apache License, Version 2.0. Any code later ported from TokenEconomizer keep
 copyright notices and is marked as such.
 crates/tkm-config/src/repo.rs is ported from tokeneconomizer/plugin/paths.py at commit d0675a3385948d330a793863794a432f3490b1ac.
 
+Ported code (TokenEconomizer commit d0675a3; each file carries a header naming its TE sources):
+- crates/tkm-core/src/inject.rs (microskills/distiller.py, microskills/envfacts.py, microskills/stage.py)
+- crates/tkm-core/src/prune/ (toolprune/stage.py, toolprune/tools.py, plugin/denylist.py, plugin/adapter.py)
+
 Third-party agent skills
 ------------------------
 The directory .agents/skills/ contains skills copied from third-party repositories under their

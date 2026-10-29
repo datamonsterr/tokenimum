@@ -3032,11 +3032,14 @@ dependencies = [
 name = "tkm-decide"
 version = "0.0.0"
 dependencies = [
+ "regex",
  "reqwest",
  "serde",
  "serde_json",
  "thiserror 2.0.21",
+ "tkm-core",
  "tokio",
+ "toml_edit",
  "tracing",
 ]
 
