@@ -572,14 +572,10 @@ impl Daemon {
         let Some(watcher) = watcher.as_mut() else {
             return;
         };
-        if dirs.insert(dir.to_path_buf())
-            && let Err(error) = watcher.watch(dir, RecursiveMode::NonRecursive)
-        {
-            drop(watch);
-            self.log_error(&format!(
-                "log watcher cannot watch {}: {error}",
-                dir.display()
-            ));
+        // Best effort: a directory that does not exist yet (or cannot be watched) falls back to
+        // the periodic scan, which needs no log line.
+        if dirs.insert(dir.to_path_buf()) {
+            let _ = watcher.watch(dir, RecursiveMode::NonRecursive);
         }
     }
 

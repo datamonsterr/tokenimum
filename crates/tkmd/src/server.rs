@@ -11,6 +11,7 @@ use tkm_proto::{
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{UnixListener, UnixStream};
+use tokio::sync::oneshot;
 
 use crate::daemon::{Daemon, noop_reply};
 
@@ -70,13 +71,21 @@ impl Server {
     /// Accepts connections until `shutdown` completes.
     pub async fn run(self, shutdown: impl std::future::Future<Output = ()>) -> io::Result<()> {
         tokio::pin!(shutdown);
+        let (first, mut last) = oneshot::channel::<()>();
+        drop(first);
         loop {
             tokio::select! {
                 accepted = self.listener.accept() => {
                     match accepted {
                         Ok((stream, _)) => {
                             let daemon = self.daemon.clone();
-                            tokio::spawn(async move { serve_connection(stream, &daemon).await });
+                            // Hooks run one after another, so connection order is event order.
+                            // Handling follows accept order even when a slow hook gave up early.
+                            let (done, next) = oneshot::channel();
+                            let previous = std::mem::replace(&mut last, next);
+                            tokio::spawn(async move {
+                                serve_connection(stream, &daemon, Some(previous), done).await;
+                            });
                         }
                         Err(error) => self.daemon.log_error(&format!("accept: {error}")),
                     }
@@ -110,7 +119,16 @@ async fn read_request(stream: &mut UnixStream) -> Result<Option<Request>, String
         .map_err(|error| format!("bad frame body: {error}"))
 }
 
-async fn serve_connection(mut stream: UnixStream, daemon: &Arc<Daemon>) {
+/// Longest a request waits for the previous connection's request to finish.
+const ORDER_LIMIT: Duration = Duration::from_millis(250);
+
+async fn serve_connection(
+    mut stream: UnixStream,
+    daemon: &Arc<Daemon>,
+    mut previous: Option<oneshot::Receiver<()>>,
+    done: oneshot::Sender<()>,
+) {
+    let _done = done; // dropping it releases the next connection
     loop {
         let request = match read_request(&mut stream).await {
             Ok(Some(request)) => request,
@@ -121,6 +139,10 @@ async fn serve_connection(mut stream: UnixStream, daemon: &Arc<Daemon>) {
                 return;
             }
         };
+        // Only the first request of a connection is ordered; hooks send one per connection.
+        if let Some(previous) = previous.take() {
+            let _ = tokio::time::timeout(ORDER_LIMIT, previous).await;
+        }
         let host = request.host;
         let reply = daemon.handle(request).await;
         let frame = encode_frame(&reply, MAX_REPLY_FRAME)

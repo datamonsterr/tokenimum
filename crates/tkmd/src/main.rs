@@ -36,6 +36,12 @@ async fn main() -> ExitCode {
     };
     tkmd::logging::init(&paths);
     let env: Vec<(String, String)> = std::env::vars().collect();
+    // Daemon-only variables are not configuration keys; keep them out of the config loader.
+    let config_env: Vec<(String, String)> = env
+        .iter()
+        .filter(|(name, _)| name != "TKM_DECIDE_ENDPOINT" && name != "TKM_DELEGATED")
+        .cloned()
+        .collect();
     if is_disabled(&env) {
         return ExitCode::SUCCESS;
     }
@@ -47,9 +53,9 @@ async fn main() -> ExitCode {
     };
 
     let mut options = DaemonOptions::new(paths.clone());
-    options.settings = Arc::new(FileSettings::new(paths.clone(), env.clone()));
+    options.settings = Arc::new(FileSettings::new(paths.clone(), config_env.clone()));
     options.env = env.clone();
-    let decide = Settings::load(&paths, None, env.clone()).decide;
+    let decide = Settings::load(&paths, None, config_env).decide;
     if decide.enabled {
         let home = var("HOME")
             .map(std::path::PathBuf::from)
