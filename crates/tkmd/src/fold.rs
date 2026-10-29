@@ -652,12 +652,13 @@ fn derived_log_path(
             )
         }
         Host::Codex => find_session(&agent_home.join("sessions"), session_id, 4, Host::Codex),
-        Host::Agy => file(
-            agent_home
+        Host::Agy => {
+            let logs = agent_home
                 .join("antigravity-cli/brain")
                 .join(session_id)
-                .join(".system_generated/logs/transcript_full.jsonl"),
-        ),
+                .join(".system_generated/logs");
+            file(logs.join("transcript_full.jsonl")).or_else(|| file(logs.join("transcript.jsonl")))
+        }
         Host::Cursor => find_session(&agent_home.join("projects"), session_id, 5, Host::Cursor),
         Host::Kimi => file(
             tkm_hosts::kimi::session_dir(agent_home, &cwd.to_string_lossy(), session_id)
@@ -888,12 +889,32 @@ impl Daemon {
                 host: record.key.host,
                 repo: record.repo_key.clone(),
                 cwd: record.cwd.clone(),
-                log_path: derived_log_path(
-                    record.key.host,
-                    &agent_home,
-                    &record.cwd,
-                    &record.key.session_id,
-                ),
+                log_path: if record.key.host == Host::Opencode {
+                    let var = |key: &str| {
+                        self.env
+                            .iter()
+                            .rev()
+                            .find(|(name, _)| name == key)
+                            .map(|(_, value)| value)
+                    };
+                    var("OPENCODE_DB")
+                        .map(|value| PathBuf::from(value.as_str()))
+                        .or_else(|| {
+                            var("XDG_DATA_HOME").map(|path| {
+                                PathBuf::from(path.as_str()).join("opencode/opencode.db")
+                            })
+                        })
+                } else {
+                    None
+                }
+                .or_else(|| {
+                    derived_log_path(
+                        record.key.host,
+                        &agent_home,
+                        &record.cwd,
+                        &record.key.session_id,
+                    )
+                }),
                 agent_home,
                 settings: resolved.settings.clone(),
                 injected: BTreeSet::new(),
