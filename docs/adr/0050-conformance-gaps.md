@@ -1,8 +1,8 @@
 # ADR 0050: Conformance audit gaps and outstanding verification
 
-Status: refreshed 2026-10-29 against `da6a44d` on `epic/e10` (CI green). This record documents
+Status: refreshed 2026-10-30 for pruning changes based on `da6a44d` on `epic/e10` (baseline CI green). This record documents
 observed gaps; it does not change SPEC.md or assert that unfinished work satisfies the spec.
-The row-level status is in [spec-conformance.md](../spec-conformance.md): 498 met, 47 deferred,
+The row-level status is in [spec-conformance.md](../spec-conformance.md): 508 met, 37 deferred,
 11 not applicable. Each deferred row carries one category: (a) needs live or real-world data or
 user action, (b) intentionally out of scope or limited per an ADR, (c) not implemented.
 
@@ -21,6 +21,38 @@ fixed and now `met` in the conformance table, with tests named there:
 - Monitor panes (model share, sparkline, turn id, triggering calls).
 - Golden replay for eight hosts, TE parity on Claude and Codex logs, the fault matrix, and the
   fresh-install CI job.
+
+The pruning gaps C1-C4 are implemented (SPEC 7.3; ten rows moved to `met`):
+
+- C1: ownership-aware deny writers for Claude, Cursor, opencode and Pi, with backup, exclusion,
+  dry-run, tracked/symlink safety, idempotent apply and selective/full restore. Cursor MCP rules use
+  `Mcp(server:tool)`; opencode uses `server_tool`; Pi restores inherited `defaultTools` rather than
+  leaving an empty array. Tests: `four_host_deny_roundtrip_preserves_foreign_bytes_and_backup`,
+  `four_host_deny_refuses_tracked_and_escaping_targets`,
+  `restore_removes_created_containers_and_preserves_later_foreign_changes`,
+  `restoring_a_new_settings_file_returns_to_absence`, `prune_apply_one_and_restore_all_four_hosts`.
+- C2: V009 adds nullable `ready_since`. Fold records first eligibility with configured thresholds;
+  tool use clears it. CLI uses latest stored activity and the core 60-idle-minute/24-hour rule.
+  Tests: `mocked_clock_applies_at_idle_boundary_or_ready_deadline`,
+  `readiness_starts_once_at_threshold_and_resets_on_use_or_threshold_change`,
+  `v008_upgrade_preserves_evidence_with_unknown_ready_time`.
+- C3: layered, validated `prune.protect` string list reaches runtime and CLI; TE tools, native host
+  essentials and headroom are protected, and superorchestrator protection follows adapter detection.
+  Tests: `prune_protect_is_a_layered_string_list_and_rejects_wrong_types`,
+  `prune_protect_reaches_effective_settings`, `all_protection_sources_and_host_names_are_respected`,
+  `prune_honors_user_protection_and_disabled_orchestrator`.
+- C4: V010 adds deduplicated delegation timestamps. The daemon records them through its retrying
+  outbox; CLI queries the inclusive past 30 days and caps enabled-adapter pruning at propose.
+  Untimestamped lifetime counts are preserved without inventing historical dates. Tests:
+  `delegated_history_is_idempotent_scoped_and_queries_exact_thirty_day_window`,
+  `delegated_session_is_recorded_once_with_daemon_clock`,
+  `delegated_outbox_retries_without_double_counting`,
+  `prune_recent_delegation_caps_apply_only_when_adapter_enabled`.
+
+Each item has a separate red test commit followed by its implementation. The additional restore
+and activity regressions also have a red/implementation pair. Official formats and test-file links
+are recorded in [tool-pruning.md](../verified/tool-pruning.md). Rust suites and global CI gates
+remain for controller CI; no local Rust build/test/check/clippy/bench was run.
 
 ## Open (a): needs live or real-world data or user action
 
@@ -50,14 +82,6 @@ fixed and now `met` in the conformance table, with tests named there:
 
 ## Open (c): not implemented
 
-C1. Deny writers other than Claude: Cursor CLI config, opencode `permission.<tool>`, Pi
-    `defaultTools` (SPEC 6.8, 6.11, 7.3, 11 `tkm prune apply/restore`, G6). See
-    `crates/tkm-hosts/src/writer/deny.rs` and ADR 0032.
-C2. 24-hour latest deadline for writing the deny list: the store records no candidate-ready time
-    (SPEC 7.3). See `crates/tkm-cli/src/cmd/prune.rs` and `crates/tkm-store/src/migrations.rs`.
-C3. `prune.protect` config key (SPEC 7.3). See `crates/tkm-config/src/config.rs`.
-C4. 30-day delegated-run cap on pruning: the store keeps a lifetime count only (SPEC 7.3). See
-    `crates/tkm-store/src/migrations.rs`.
 C5. Fact and relevance label contracts and `tkm calibrate --purpose facts|relevance` (SPEC 8.5,
     11, 15 M8). See `crates/tkm-cli/src/cmd/calibrate.rs` and `crates/tkm-decide/src/calibrate.rs`.
 C6. Agreement mode: `decide_agreement` is never called and `decide.agreement` is only read (SPEC

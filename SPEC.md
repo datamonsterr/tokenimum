@@ -998,7 +998,7 @@ never model output.
 | `tkm dashboard` | start or open the local web dashboard |
 | `tkm why <event\|last> [--session id]` | plain-language explanation of an action |
 | `tkm facts [--all\|--brief]` / `tkm facts forget <id>` | facts with evidence; retire a fact |
-| `tkm prune [apply\|restore [tool]]` | deny-list proposal, evidence, apply, give back |
+| `tkm prune [apply [tool]\|restore [tool]]` | deny-list proposal, evidence, apply, give back |
 | `tkm skills [--json]` | skill loaded vs used evidence |
 | `tkm config ...` | section 10.4 |
 | `tkm models [probe]` | decision chain, availability, calibration state |
