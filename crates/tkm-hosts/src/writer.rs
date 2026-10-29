@@ -303,10 +303,11 @@ pub(super) fn update_with_backup(
         after_backup();
         Ok(())
     });
-    if created && !matches!(result, Ok(Update::Done(()))) {
-        if let Some(backup) = backup {
-            let _ = fs::remove_file(backup);
-        }
+    if created
+        && !matches!(result, Ok(Update::Done(())))
+        && let Some(backup) = backup
+    {
+        let _ = fs::remove_file(backup);
     }
     result
 }
