@@ -24,11 +24,10 @@ Checked 2026-10-29 against the official docs.
 | Codewhale | `AGENTS.md` | https://github.com/Hmbown/DeepSeek-TUI/blob/main/docs/CONFIGURATION.md ("AGENTS.md - cross-agent project instructions") |
 | opencode | `AGENTS.md` | https://opencode.ai/docs/rules/ ("Place an AGENTS.md in your project root") |
 | Pi | `AGENTS.md` | https://github.com/badlogic/pi-mono/blob/main/packages/coding-agent/docs/extensions.md (`contextFiles` lists AGENTS.md files) |
-| agy | none | not verified; the page for Antigravity rules could not be read. Report-only. |
+| agy | `AGENTS.md` | https://antigravity.google/docs/rules/ (workspace rules; verified 2026-10-29) |
 
 `instructions_file(host)` returns the file or `None`. For `None`, `apply` and `remove_from`
-return an `Ok` report with an `instructions` message and change nothing. Revisit agy when
-its docs are readable.
+return an `Ok` report with an `instructions` message and change nothing. Future hosts without a verified path remain report-only.
 
 ### 2. Block format and splice rules
 
