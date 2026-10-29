@@ -15,6 +15,7 @@ Ported code (TokenEconomizer commit d0675a3; each file carries a header naming i
 - crates/tkm-core/src/inject.rs (microskills/distiller.py, microskills/envfacts.py, microskills/stage.py)
 - crates/tkm-core/src/prune/ (toolprune/stage.py, toolprune/tools.py, plugin/denylist.py, plugin/adapter.py)
 - crates/tkm-core/src/ledger/ (ledger.py, pricing.py)
+- crates/tkm-core/src/loopguard/ (loopguard/turn.py, state.py, shell_edits.py, rules.py, envelope.py; plugin/hosts.py, plugin/controller.py)
 - crates/tkm-config/src/repo.rs (plugin/paths.py)
 
 Third-party agent skills
