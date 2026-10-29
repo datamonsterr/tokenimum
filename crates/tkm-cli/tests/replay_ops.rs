@@ -98,3 +98,29 @@ fn bench_rejects_missing_cached_responses() {
     let out = s.run(&["replay", "--bench", s.repo.to_str().unwrap()]);
     assert!(!out.status.success());
 }
+
+#[test]
+fn bench_rejects_cache_after_session_changes() {
+    let s = support_ops::Sandbox::new();
+    let source = std::path::Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/bench"));
+    let destination = s.repo.join("bench");
+    std::fs::create_dir_all(destination.join("sessions")).unwrap();
+    std::fs::copy(source.join("cache.json"), destination.join("cache.json")).unwrap();
+    for entry in std::fs::read_dir(source.join("sessions")).unwrap() {
+        let entry = entry.unwrap();
+        std::fs::copy(
+            entry.path(),
+            destination.join("sessions").join(entry.file_name()),
+        )
+        .unwrap();
+    }
+    let path = destination.join("sessions/claude-00.jsonl");
+    let content = std::fs::read_to_string(&path).unwrap();
+    std::fs::write(
+        path,
+        content.replace("example project", "different project"),
+    )
+    .unwrap();
+    let out = s.run(&["replay", "--bench", destination.to_str().unwrap()]);
+    assert!(!out.status.success(), "{out:?}");
+}
