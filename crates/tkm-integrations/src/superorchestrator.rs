@@ -243,7 +243,11 @@ fn write_message(input: &mut impl Write, value: &serde_json::Value) -> io::Resul
 fn response(reader: &mut impl BufRead, id: u64) -> io::Result<()> {
     loop {
         let mut bytes = Vec::new();
-        if reader.take(256 * 1024 + 1).read_until(b'\n', &mut bytes)? == 0 {
+        if (&mut *reader)
+            .take(256 * 1024 + 1)
+            .read_until(b'\n', &mut bytes)?
+            == 0
+        {
             return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "MCP closed"));
         }
         if bytes.len() > 256 * 1024 {

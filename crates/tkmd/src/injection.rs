@@ -45,6 +45,10 @@ struct PromptContext {
     injected: std::collections::BTreeSet<String>,
 }
 
+fn remaining(budget: Duration, elapsed: Duration) -> Duration {
+    budget.saturating_sub(elapsed)
+}
+
 fn fnv(text: &str) -> u64 {
     text.bytes().fold(0xcbf2_9ce4_8422_2325_u64, |hash, byte| {
         (hash ^ u64::from(byte)).wrapping_mul(0x0000_0100_0000_01b3)
@@ -178,8 +182,10 @@ impl Daemon {
             let ids = Self::ids_in_block(&items, &block);
             return Ok(Some((block, ids)));
         }
-        let wait = Duration::from_millis(context.settings.relevance_timeout_ms)
-            .saturating_sub(started.elapsed());
+        let wait = remaining(
+            Duration::from_millis(context.settings.relevance_timeout_ms),
+            started.elapsed(),
+        );
         let scores = self.score_candidates(context, &items, wait).await;
         let (selected, block) = if let Some(scores) = scores {
             let selected = inject::select(&items, Some(&scores), config);
