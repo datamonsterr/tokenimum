@@ -36,5 +36,5 @@ fn fact_redaction_keeps_template_and_allows_markers_after_validation() {
 #[test]
 fn fact_redaction_cannot_bypass_parameter_validation() {
     let fact = candidate("../private");
-    assert!(render::claim_redacted(&fact, |_| "safe".into()).is_empty());
+    assert_eq!(render::claim_redacted(&fact, |_| "safe".into()).len(), 0);
 }

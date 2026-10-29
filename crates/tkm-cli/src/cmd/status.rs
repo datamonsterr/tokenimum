@@ -191,7 +191,9 @@ pub fn run_at(ctx: &mut Ctx<'_>, args: &StatusArgs, now_ms: i64) -> Result<ExitC
                 .is_some_and(|t| t.0 >= day_start && t.0 <= now_ms)
         })
         .map(|d| d.cost_usd)
-        .sum();
+        .sum::<f64>()
+        // An empty f64 sum is -0.0, which would print as "-0"; adding +0.0 normalizes it.
+        + 0.0;
     let mut repositories = Vec::new();
     let redactor = report::redactor(ctx);
     for repo in &keys {
