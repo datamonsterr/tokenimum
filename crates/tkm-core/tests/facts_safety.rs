@@ -2,7 +2,7 @@
 // Copyright (c) Microsoft Corporation, licensed under the Apache License, Version 2.0.
 #![forbid(unsafe_code)]
 #![allow(clippy::unwrap_used, clippy::expect_used)]
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use tkm_core::{
     facts::{
         self,
@@ -179,7 +179,7 @@ fn invalid_thresholds_use_code_only_and_invalid_config_abstains() {
             s.session_id = format!("s{i}");
             let e = SessionEvidence {
                 session: s,
-                injected_ids: Default::default(),
+                injected_ids: BTreeSet::new(),
                 decisions: Some(Decisions {
                     t_low: thresholds.0,
                     t_high: thresholds.1,
@@ -202,7 +202,7 @@ fn invalid_thresholds_use_code_only_and_invalid_config_abstains() {
             sh("pytest", "command not found", 127),
             sh("python -m pytest", "1 passed", 0),
         ]),
-        injected_ids: Default::default(),
+        injected_ids: BTreeSet::new(),
         decisions: None,
     };
     for cfg in [
@@ -236,10 +236,10 @@ fn boundary_success_with_failure_in_same_session_never_promotes() {
             sh("curl https://api.example.org", "Connection refused", 7),
             sh("curl https://api.example.org", "{}", 0),
         ]),
-        injected_ids: Default::default(),
+        injected_ids: BTreeSet::new(),
         decisions: None,
     };
-    assert!(!facts::extract::extract(&digest).is_empty());
+    assert_eq!(facts::extract::extract(&digest).len(), 1);
     let (s, events) = facts::update(FactsState::default(), &e, &FactsConfig::default());
     assert_eq!(
         s.facts["boundary:fetch_remote"].life.status,

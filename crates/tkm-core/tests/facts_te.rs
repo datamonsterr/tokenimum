@@ -431,7 +431,7 @@ fn te_envfacts_test_the_classifier_sees_through_rtks_command_prefix() {
         "git status",
         "rg -n foo src",
     ] {
-        for pre in ["rtk ", "rtk proxy ", "rtk K=2 "] {
+        for pre in ["rtk ", "rtk proxy ", "rtk K=2 ", "rtk\t", "rtk\tproxy\t"] {
             let signature = |cmd: &str| {
                 observe::classify_command(cmd)
                     .into_iter()
