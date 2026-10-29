@@ -687,7 +687,7 @@ fn find_session(root: &Path, session_id: &str, depth: usize, host: Host) -> Opti
         host: Host,
         matches: &mut Vec<PathBuf>,
     ) {
-        if depth == 0 || matches.len() > 1 {
+        if depth == 0 || (host != Host::Codex && matches.len() > 1) {
             return;
         }
         let Ok(entries) = std::fs::read_dir(root) else {
@@ -731,6 +731,11 @@ fn find_session(root: &Path, session_id: &str, depth: usize, host: Host) -> Opti
     }
     let mut matches = Vec::new();
     collect(root, session_id, depth, host, &mut matches);
+    // Rollout snapshots can share a session ID; the later dated path is current.
+    if host == Host::Codex {
+        matches.sort();
+        return matches.pop();
+    }
     // An ambiguous ID must not fold another session.
     if matches.len() == 1 {
         matches.pop()
