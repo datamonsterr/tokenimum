@@ -38,7 +38,6 @@ fn other_commands_dispatch_to_stubs() {
         (vec!["prune"], "prune"),
         (vec!["prune", "apply"], "prune"),
         (vec!["prune", "restore", "shell"], "prune"),
-        (vec!["config", "show"], "config"),
         (vec!["models"], "models"),
         (vec!["models", "probe"], "models"),
         (vec!["calibrate"], "calibrate"),
