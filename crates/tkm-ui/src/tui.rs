@@ -385,6 +385,12 @@ fn subscribe_then_snapshot<F, S, E>(
     let state = snapshot()?;
     Ok((feed, state))
 }
+fn resync_snapshot<E>(
+    _feed: &feed::Feed,
+    load: impl FnOnce() -> Result<MonitorState, E>,
+) -> Result<MonitorState, E> {
+    load()
+}
 /// Run the terminal monitor against one initial snapshot and the live stream.
 ///
 /// # Errors
@@ -409,7 +415,7 @@ pub fn run(paths: &Paths) -> Result<(), Error> {
     let result = (|| -> Result<(), Error> {
         loop {
             if feed.resync.swap(false, std::sync::atomic::Ordering::AcqRel) {
-                state = model::load_snapshot(&conn)?;
+                state = resync_snapshot(&feed, || model::load_snapshot(&conn))?;
             }
             loop {
                 match feed.receiver.try_recv() {
@@ -460,6 +466,35 @@ pub fn run(paths: &Paths) -> Result<(), Error> {
 mod ordering_tests {
     use super::*;
     use std::{cell::RefCell, rc::Rc};
+    #[test]
+    fn overflow_does_not_replay_session_before_snapshot() -> Result<(), ()> {
+        use std::sync::{Arc, atomic::AtomicBool, mpsc};
+        let (sender, receiver) = mpsc::channel();
+        sender
+            .send(tkm_proto::monitor::MonitorMessage::Session(
+                tkm_proto::monitor::SessionUpdate {
+                    host: tkm_proto::Host::Claude,
+                    session_id: "ended".into(),
+                    repo: None,
+                    phase: "active".into(),
+                    turn_calls: 1,
+                    envelope: None,
+                    loop_state: "off".into(),
+                },
+            ))
+            .map_err(|_| ())?;
+        let feed = feed::Feed {
+            mode: Mode::Live,
+            receiver,
+            resync: Arc::new(AtomicBool::new(true)),
+        };
+        let mut state = resync_snapshot(&feed, || Ok::<_, ()>(MonitorState::default()))?;
+        while let Ok(message) = feed.receiver.try_recv() {
+            state.apply(message);
+        }
+        assert!(state.sessions.is_empty());
+        Ok(())
+    }
     #[test]
     fn subscribe_precedes_snapshot_and_buffered_messages_apply_afterward() -> Result<(), ()> {
         let trace = Rc::new(RefCell::new(Vec::new()));
