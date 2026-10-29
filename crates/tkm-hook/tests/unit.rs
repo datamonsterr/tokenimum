@@ -4,8 +4,8 @@
 
 use std::collections::BTreeMap;
 use tkm_hook::{
-    ENV_ALLOWLIST, build_request, is_allowed_env_key, is_disabled, parse_args,
-    parse_host_and_event, read_payload, run_with_panic_guard,
+    ConnectResult, ENV_ALLOWLIST, build_request, connect_bounded, is_allowed_env_key, is_disabled,
+    parse_args, parse_host_and_event, read_payload, run_with_panic_guard,
 };
 use tkm_proto::{EventKind, Host, PROTOCOL_VERSION};
 
@@ -147,4 +147,37 @@ fn test_read_payload_json_and_fallback() {
 
     let invalid = b"invalid json data";
     assert_eq!(read_payload(&invalid[..]), serde_json::Value::Null);
+}
+
+#[test]
+fn test_bounded_connect_timeout_returns_daemon_busy() {
+    let start = std::time::Instant::now();
+    let outcome = connect_bounded(std::time::Duration::from_millis(10), || {
+        std::thread::sleep(std::time::Duration::from_secs(1));
+        Err(std::io::Error::new(
+            std::io::ErrorKind::ConnectionRefused,
+            "late error",
+        ))
+    });
+    let elapsed = start.elapsed();
+
+    assert!(
+        matches!(outcome, ConnectResult::DaemonBusy),
+        "expected DaemonBusy on connect timeout"
+    );
+    assert!(
+        elapsed < std::time::Duration::from_millis(50),
+        "bounded connect took too long: {elapsed:?}"
+    );
+}
+
+#[test]
+fn test_bounded_connect_immediate_error_returns_down() {
+    let outcome = connect_bounded(std::time::Duration::from_millis(50), || {
+        Err(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "socket not found",
+        ))
+    });
+    assert!(matches!(outcome, ConnectResult::DaemonDown));
 }

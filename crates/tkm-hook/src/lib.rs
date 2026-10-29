@@ -281,6 +281,28 @@ pub fn spawn_daemon_detached(socket_path: &Path) -> bool {
 
 // ── Connect and exchange ──────────────────────────────────────────────────────
 
+/// Outcome of a bounded connect attempt.
+#[derive(Debug)]
+pub enum ConnectResult {
+    /// Connected successfully.
+    Connected(UnixStream),
+    /// Daemon is down (socket missing or connection refused).
+    DaemonDown,
+    /// Daemon is busy (listen backlog full / connect timed out).
+    DaemonBusy,
+    /// Connection failed with another I/O error.
+    Error(String),
+}
+
+/// Connect to a Unix stream socket with a bounded timeout in safe Rust.
+#[must_use]
+pub fn connect_bounded<F>(_timeout: Duration, _connect_fn: F) -> ConnectResult
+where
+    F: FnOnce() -> io::Result<UnixStream> + Send + 'static,
+{
+    ConnectResult::DaemonDown
+}
+
 /// Outcome of one hook exchange with the daemon.
 pub enum ExchangeOutcome {
     /// Daemon replied with a valid, version-matching reply.

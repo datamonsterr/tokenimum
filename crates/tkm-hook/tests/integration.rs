@@ -9,7 +9,7 @@
 //! process to avoid touching the real user environment.
 
 use std::io::{Read, Write};
-use std::os::unix::net::UnixListener;
+use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::Arc;
@@ -705,4 +705,96 @@ fn test_spawn_storm_guard() {
         count, 1,
         "storm guard should prevent second spawn; got {count}"
     );
+}
+
+// ── Test: slow write timeout ─────────────────────────────────────────────────
+
+/// Fake server accepts connection but never reads: hook writing a large payload
+/// (~4 MiB) for `tool_done` must not hang; write timeout (50 ms floor) bounds it.
+/// Hook exits 0 with noop within 500 ms and writes errors.log.
+#[test]
+fn test_socket_slow_write_timeout_large_payload() {
+    let tmp = TempDir::new().unwrap();
+    let sock = socket_path(&tmp);
+
+    std::fs::create_dir_all(sock.parent().unwrap()).unwrap();
+    let listener = UnixListener::bind(&sock).unwrap();
+    let _srv = thread::spawn(move || {
+        if let Ok((mut stream, _)) = listener.accept() {
+            // Never read from stream; keep connection open.
+            thread::sleep(Duration::from_secs(5));
+            let mut buf = [0u8; 1];
+            let _ = stream.read(&mut buf);
+        }
+    });
+
+    let large_string = "a".repeat(4 * 1024 * 1024);
+    let payload = format!(r#"{{"hook_event_name":"PostToolUse","data":"{large_string}"}}"#);
+
+    let mut cmd = hook_cmd(&tmp, "claude", "tool_done");
+    cmd.stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null());
+
+    let start = Instant::now();
+    let mut child = cmd.spawn().unwrap();
+    let mut stdin = child.stdin.take().unwrap();
+    let feeder = thread::spawn(move || {
+        let _ = stdin.write_all(payload.as_bytes());
+    });
+
+    let output = child.wait_with_output().unwrap();
+    let elapsed = start.elapsed();
+    let _ = feeder.join();
+
+    assert_eq!(output.status.code(), Some(0));
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "");
+    assert!(
+        elapsed < Duration::from_millis(500),
+        "hook took too long on slow write: {elapsed:?}"
+    );
+    let log = errors_log_path(&tmp);
+    assert!(
+        log.exists(),
+        "errors.log should be written on write timeout"
+    );
+}
+
+// ── Test: full backlog bounded connect ────────────────────────────────────────
+
+#[test]
+fn test_connect_full_backlog_bounded_treated_as_busy() {
+    let tmp = TempDir::new().unwrap();
+    let sock = socket_path(&tmp);
+
+    std::fs::create_dir_all(sock.parent().unwrap()).unwrap();
+    let _listener = UnixListener::bind(&sock).unwrap();
+
+    let mut holders = Vec::new();
+    for _ in 0..500 {
+        match UnixStream::connect(&sock) {
+            Ok(s) => {
+                let _ = s.set_nonblocking(true);
+                holders.push(s);
+            }
+            Err(_) => break,
+        }
+    }
+
+    let mut cmd = hook_cmd(&tmp, "claude", "tool_done");
+    cmd.stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null());
+
+    let start = Instant::now();
+    let output = cmd.output().unwrap();
+    let elapsed = start.elapsed();
+
+    assert_eq!(output.status.code(), Some(0));
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "");
+    assert!(
+        elapsed < Duration::from_millis(500),
+        "hook took too long on full backlog connect: {elapsed:?}"
+    );
+    drop(holders);
 }
