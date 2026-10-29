@@ -73,3 +73,18 @@ fn run_propagates_signal_exit_code() {
     harness.script("claude", "kill -TERM $$");
     assert_eq!(harness.run(&["run", "claude"]).status.code(), Some(143));
 }
+
+#[test]
+fn run_accepts_harness_binary_aliases() {
+    for (alias, canonical) in [
+        ("codewhale", "deepseek"),
+        ("agent", "cursor"),
+        ("cursor-agent", "cursor"),
+    ] {
+        let harness = Harness::new();
+        harness.script(alias, "printf '%s' \"$TKM_HOST\"");
+        let output = harness.run(&["run", alias]);
+        assert!(output.status.success(), "{alias}: {output:?}");
+        assert_eq!(output.stdout, canonical.as_bytes());
+    }
+}
