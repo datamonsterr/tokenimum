@@ -212,7 +212,7 @@ pub struct CacheKey {
 /// Construct a deterministic FNV-1a key over the prompt and ordered candidates.
 /// All selection-relevant fields participate in the candidate hash.
 #[must_use]
-pub fn cache_key(prompt: &str, items: &[InjectCandidate]) -> CacheKey {
+pub fn cache_key(prompt: &str, items: &[InjectCandidate], _config: Config) -> CacheKey {
     let mut bytes = Vec::new();
     for item in items {
         for field in [&item.id, &item.text] {
@@ -272,7 +272,7 @@ impl Cache {
     }
     /// Reuse the no-prompt fallback block while candidates and limits are unchanged.
     pub fn default_block(&mut self, items: &[InjectCandidate], config: Config) -> String {
-        let key = cache_key("", items).candidates;
+        let key = cache_key("", items, config).candidates;
         if let Some((stored_key, stored_config, block)) = &self.default
             && *stored_key == key
             && *stored_config == config

@@ -89,8 +89,8 @@ fn te_injection_fallback_caps_and_memory() {
 #[test]
 fn cache_ttl_and_candidate_change() {
     let items = vec![item("a", "alpha", Source::Facts, 1, false)];
-    let key = inject::cache_key("prompt", &items);
-    assert_ne!(key, inject::cache_key("other", &items));
+    let key = inject::cache_key("prompt", &items, Config::default());
+    assert_ne!(key, inject::cache_key("other", &items, Config::default()));
     let mut cache = Cache::default();
     cache.insert(key, Timestamp(100), "block".into());
     assert_eq!(cache.get(key, Timestamp(600_099)), Some("block"));
@@ -139,7 +139,7 @@ fn fallback_memory_and_fact_limits() {
 fn cache_roundtrip_and_default_invalidation() {
     let mut cache = Cache::default();
     let mut items = vec![item("a", "alpha", Source::Facts, 1, false)];
-    let key = inject::cache_key("prompt", &items);
+    let key = inject::cache_key("prompt", &items, Config::default());
     cache.insert(key, Timestamp(10), "stored".into());
     assert!(
         cache
@@ -150,7 +150,7 @@ fn cache_roundtrip_and_default_invalidation() {
     let mut cache: Cache = serde_json::from_str(&json).unwrap();
     assert_eq!(cache.get(key, Timestamp(11)), Some("stored"));
     items[0].text = "beta".into();
-    assert_ne!(key, inject::cache_key("prompt", &items));
+    assert_ne!(key, inject::cache_key("prompt", &items, Config::default()));
     assert!(
         cache
             .default_block(&items, Config::default())
@@ -349,4 +349,71 @@ fn rendered_budget_includes_header_and_separators_in_both_modes() {
             );
         }
     }
+}
+
+#[test]
+fn fact_budget_includes_all_fact_line_separators() {
+    let items = [("a", 148), ("b", 148), ("c", 148), ("d", 156)]
+        .into_iter()
+        .map(|(id, length)| item(id, &id.repeat(length), Source::Facts, length / 4, false))
+        .collect::<Vec<_>>();
+    let scores = BTreeMap::from([
+        ("a".into(), 3.0),
+        ("b".into(), 3.0),
+        ("c".into(), 3.0),
+        ("d".into(), 3.0),
+    ]);
+    for scores in [None, Some(&scores)] {
+        let selected = inject::select(&items, scores, Config::default());
+        let fact_lines: String = selected.iter().map(|x| format!("{}\n", x.text)).collect();
+        assert!(inject::estimate_tokens(&fact_lines) <= 150);
+        assert_eq!(selected.len(), 3);
+    }
+}
+#[test]
+fn cache_keys_isolate_memory_and_each_selection_limit() {
+    let items = vec![
+        item("m", "memory", Source::Memory, 1, false),
+        item("f", "fact", Source::Facts, 1, false),
+    ];
+    let enabled = Config {
+        memory: true,
+        ..Config::default()
+    };
+    let variants = [
+        Config::default(),
+        Config {
+            max_tokens: 1,
+            ..enabled
+        },
+        Config {
+            max_facts: 1,
+            ..enabled
+        },
+        Config {
+            max_fact_tokens: 1,
+            ..enabled
+        },
+    ];
+    let key = inject::cache_key("prompt", &items, enabled);
+    let mut cache = Cache::default();
+    cache.insert(
+        key,
+        Timestamp(0),
+        inject::render(&inject::select(&items, None, enabled)),
+    );
+    for config in variants {
+        let other = inject::cache_key("prompt", &items, config);
+        assert_ne!(other, key);
+        assert_eq!(cache.get(other, Timestamp(1)), None);
+    }
+}
+#[test]
+fn render_strips_unicode_format_characters() {
+    let dangerous = "X\u{00ad}Y\u{200b}Z\u{200c}A\u{200d}B\u{200e}C\u{200f}D\u{2060}E\u{2061}F\u{2062}G\u{2063}H\u{2064}I\u{feff}J\u{e0001}K\u{e0020}L";
+    let result = inject::render(&[item("x", dangerous, Source::Facts, 1, false)]);
+    for c in dangerous.chars().filter(|c| !c.is_ascii()) {
+        assert!(!result.contains(c), "format character {c:?}");
+    }
+    assert!(result.contains("X") && result.contains("L"));
 }

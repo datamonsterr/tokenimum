@@ -131,3 +131,23 @@ fn mismatched_template_and_parameters_are_rejected() {
     explanation.template_id = ActionKind::Restore;
     assert_eq!(render(&explanation), "");
 }
+
+#[test]
+fn explanation_sanitizes_controls_and_format_characters_in_every_field() {
+    let bad = "before\u{001b}\0\u{202e}\u{2066}\u{200b}\u{2060}\u{feff}\u{00ad}\u{e0001}after";
+    let mut e = explanation(ActionKind::Redirect);
+    if let ActionParams::Redirect(ref mut p) = e.params {
+        p.0.event = bad.into();
+        p.0.detail = bad.into();
+        p.0.why = bad.into();
+        p.0.model_checks = bad.into();
+        p.0.cost = bad.into();
+        p.0.undo = bad.into();
+    }
+    let result = render(&e);
+    for c in bad.chars().filter(|c| !c.is_ascii_alphanumeric()) {
+        assert!(!result.contains(c), "unsanitized {c:?}");
+    }
+    assert_eq!(result.matches("before").count(), 6);
+    assert_eq!(result.matches("after").count(), 6);
+}
