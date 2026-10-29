@@ -1056,3 +1056,208 @@ fn only_executable_python_commands_and_their_own_bodies_count_as_writes() {
         assert_eq!(shell_edit_targets(command), ["a.py"], "{command}");
     }
 }
+
+#[test]
+fn successful_writes_before_failed_checks_accumulate_churn() {
+    for (command, output, code, is_error, expected) in [
+        (
+            "sed -i 's/a/b/' a.py && pytest -q",
+            "ImportError: missing",
+            Some(1),
+            false,
+            1,
+        ),
+        (
+            "sed -i 's/a/b/' a.py && pytest -q",
+            "ImportError: missing",
+            None,
+            true,
+            1,
+        ),
+        (
+            "bash -lc \"sed -i 's/a/b/' a.py && pytest -q\"",
+            "ImportError: missing",
+            Some(1),
+            false,
+            1,
+        ),
+        (
+            "sed -i 's/a/b/' a.py",
+            "sed: cannot read a.py",
+            Some(1),
+            false,
+            0,
+        ),
+        (
+            "sed -i 's/a/b/' a.py && pytest -q",
+            "sed: cannot read a.py",
+            Some(1),
+            false,
+            0,
+        ),
+        (
+            "sed -i 's/a/b/' a.py; pytest -q",
+            "ImportError: missing",
+            Some(1),
+            false,
+            0,
+        ),
+        (
+            "apply_patch <<'P' && pytest -q\n*** Update File: a.py\nP",
+            "apply_patch: error: Failed to find context",
+            Some(1),
+            false,
+            0,
+        ),
+        (
+            "apply_patch <<'P' && pytest -q\n*** Update File: a.py\nP",
+            "ImportError: missing",
+            Some(1),
+            false,
+            1,
+        ),
+    ] {
+        let mut call = shell(command, output, code);
+        call.is_error = is_error;
+        for normalized in [false, true] {
+            let mut call = call.clone();
+            if normalized {
+                call.edits = edit().edits;
+            }
+            let mut state = SpiralState::default();
+            state.update(&call);
+            assert_eq!(state.edit_churn(), expected, "{command}: {output}");
+        }
+    }
+    let mut state = SpiralState::default();
+    for _ in 0..6 {
+        state.update(&shell(
+            "sed -i 's/a/b/' a.py && pytest -q",
+            "ImportError: missing",
+            Some(1),
+        ));
+    }
+    for _ in 0..14 {
+        state.update(&Call {
+            tool: "Read".into(),
+            ..Call::default()
+        });
+    }
+    assert_eq!(state.edit_churn(), 6);
+    assert_eq!(state.error_outputs, 6);
+    assert_eq!(state.test_runs, 6);
+    assert!(is_stuck(&state, &LoopConfig::default()));
+}
+
+#[test]
+fn verification_sees_wrapper_bodies_and_surrounding_commands() {
+    for (command, output, code, good) in [
+        (
+            "bash -lc 'true'; pytest -q",
+            "ImportError: missing",
+            Some(1),
+            false,
+        ),
+        (
+            "bash -lc 'true' && pytest -q",
+            "ImportError: missing",
+            Some(1),
+            false,
+        ),
+        (
+            "env FLAG=1 bash -lc 'true'; pytest -q",
+            "ImportError: missing",
+            Some(1),
+            false,
+        ),
+        (
+            "bash -lc 'pytest -q'; git diff",
+            "1 passed in 0.2s",
+            Some(1),
+            true,
+        ),
+        (
+            "bash -lc 'true'; pytest -q | tail -3",
+            "1 failed in 0.2s",
+            Some(0),
+            false,
+        ),
+        (
+            "bash -lc 'pytest -q' | tail -3",
+            "1 failed in 0.2s",
+            Some(0),
+            false,
+        ),
+        (
+            "pytest -q; bash -lc 'git diff'",
+            "1 passed in 0.2s",
+            Some(1),
+            true,
+        ),
+    ] {
+        let turn = Turn {
+            calls: vec![edit(), shell(command, output, code)],
+            stopped_by: StopReason::OwnStop,
+            ..Turn::default()
+        };
+        assert_eq!(is_good_turn(&turn, false), good, "{command}");
+        assert_eq!(EnvelopeTracker::default().record(&turn, false), good);
+    }
+}
+
+#[test]
+fn literal_heredoc_data_never_counts_as_a_passing_verification() {
+    for command in [
+        "cat <<'DOC'\npytest -q\nDOC",
+        "cat <<'DOC'\npytest -q\nDOC\necho printed",
+        "tee output.txt <<'DOC'\npytest -q\nDOC",
+        "python read_input.py <<'DOC'\npytest -q\nDOC",
+        "cat <<'DOC'\nimport pytest\npytest.main(['-q'])\nDOC",
+    ] {
+        let printed = shell(command, "pytest -q", Some(0));
+        let mut state = SpiralState::default();
+        state.update(&printed);
+        assert_eq!(state.test_runs, 0, "{command}");
+        let turn = Turn {
+            calls: vec![edit(), fail(), printed],
+            stopped_by: StopReason::OwnStop,
+            ..Turn::default()
+        };
+        assert!(!is_good_turn(&turn, false), "{command}");
+        assert!(!EnvelopeTracker::default().record(&turn, false));
+    }
+}
+
+#[test]
+fn interpreter_heredocs_keep_actual_checks_and_shell_edits_visible() {
+    for command in [
+        "bash <<'SH'\npytest -q\nSH",
+        "sh <<'SH'\npytest -q\nSH",
+        "python - <<'PY'\nimport pytest\nraise SystemExit(pytest.main(['-q']))\nPY",
+    ] {
+        for (output, code, good) in [
+            ("1 passed in 0.2s", 0, true),
+            ("1 failed in 0.2s", 1, false),
+        ] {
+            let turn = Turn {
+                calls: vec![edit(), fail(), shell(command, output, Some(code))],
+                stopped_by: StopReason::OwnStop,
+                ..Turn::default()
+            };
+            assert_eq!(is_good_turn(&turn, false), good, "{command}");
+        }
+    }
+    assert_eq!(
+        shell_edit_targets("bash <<'SH'\nsed -i 's/a/b/' a.py\nSH"),
+        ["a.py"]
+    );
+    let call = shell(
+        "bash <<'SH'\nsed -i 's/a/b/' a.py && pytest -q\nSH",
+        "ImportError: missing",
+        Some(1),
+    );
+    let mut state = SpiralState::default();
+    state.update(&call);
+    assert_eq!(state.edit_churn(), 1);
+    assert_eq!(state.test_runs, 1);
+}
