@@ -13,8 +13,8 @@ Refreshed 2026-10-29 against `da6a44d` on `epic/e10`, where CI is green. Counts 
 
 | Status | Rows |
 |---|---|
-| met | 502 |
-| deferred | 43 |
+| met | 503 |
+| deferred | 42 |
 | not applicable | 11 |
 
 Every `deferred` row starts its evidence with one category tag:
@@ -22,7 +22,7 @@ Every `deferred` row starts its evidence with one category tag:
 | Category | Meaning | Rows |
 |---|---|---|
 | (a) | Needs live or real-world data, or user action: real host sessions, live model spend, the replay benchmark sample run, secrets | 16 |
-| (b) | Intentionally out of scope or limited by an ADR (link in the row) | 10 |
+| (b) | Intentionally out of scope or limited by an ADR (link in the row) | 9 |
 | (c) | Not implemented: code is missing | 17 |
 
 Rows fixed since the audit was written (priced ledger and pricing refresh, skill evidence, Pi steer,
@@ -64,7 +64,7 @@ Each item gives the exact SPEC text and the files involved. Tracked in [ADR 0050
 
 - S4.2-7, S9.2-3, S9.3-1, S15-2, S17-5: superorchestrator spend ingestion, [ADR 0040](../docs/adr/0040-e9-integrations.md) item 5.
 - S5.1-2: 10 ms connect timeout, [ADR 0014](../docs/adr/0014-hook-client.md).
-- S6.4-1, S6.4-18: legacy opencode `storage/`, S14-5: awaited `tool_done`, [ADR 0025](../docs/adr/0025-shim-protocol.md).
+- S6.4-1, S6.4-18: legacy opencode `storage/`, [ADR 0025](../docs/adr/0025-shim-protocol.md).
 - S9.4-1: four otherskill host names, [ADR 0040](../docs/adr/0040-e9-integrations.md) item 7.
 
 ## Pending
@@ -888,7 +888,7 @@ Nothing pending. The E10.6 replay benchmark harness is merged; only its real-dat
 | S14-2 | daemon tool_done &lt;200 µs | met | [0046-performance-gates.md](../docs/adr/0046-performance-gates.md) |
 | S14-3 | prompt scored &lt;1,500 ms, cached &lt;5 ms | met | [0046-performance-gates.md](../docs/adr/0046-performance-gates.md) |
 | S14-4 | opencode/Pi shim overhead p50 &lt;15 ms, p99 &lt;40 ms | met | [0046-performance-gates.md](../docs/adr/0046-performance-gates.md) |
-| S14-5 | tool_done shim spawn without await when no reply pending | deferred | **(b)** [ADR 0025](../docs/adr/0025-shim-protocol.md): `tool_done` is awaited by the shim (bounded by the 5 ms daemon read); see [pi.ts](../shims/pi.ts). |
+| S14-5 | tool_done shim spawn without await when no reply pending | met | [test_shim_pending.mjs](../scripts/test_shim_pending.mjs) checks detached, pending and unknown cases; [e9_review_tests.rs](../crates/tkmd/src/e9_review_tests.rs) checks pending state. |
 | S14-6 | Session fold &lt;500 ms CPU excluding decisions | met | [0046-performance-gates.md](../docs/adr/0046-performance-gates.md) |
 | S14-7 | Idle memory &lt;30 MB, &lt;40 MB with web | met | [0046-performance-gates.md](../docs/adr/0046-performance-gates.md) |
 | S14-8 | Idle CPU ~0; event driven and 60s fallback scan | met | [0046-performance-gates.md](../docs/adr/0046-performance-gates.md) |
