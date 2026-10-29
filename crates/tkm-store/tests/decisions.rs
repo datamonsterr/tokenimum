@@ -149,3 +149,14 @@ fn delete_install_removes_row() {
         None
     );
 }
+
+#[test]
+fn unknown_decision_cost_round_trips_as_null() {
+    let store = Store::open_in_memory().unwrap();
+    let mut item = decision();
+    item.cost_usd = None;
+    let id = store.insert_decision(&item).unwrap();
+    let stored = store.get_decision(id).unwrap().unwrap();
+    assert_eq!(stored.cost_usd, None);
+    assert!(serde_json::to_value(stored).unwrap()["cost_usd"].is_null());
+}
