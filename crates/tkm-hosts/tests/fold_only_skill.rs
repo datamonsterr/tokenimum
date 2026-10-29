@@ -124,6 +124,7 @@ fn every_harness_has_a_documented_skill_path() {
         Host::Kimi,
         Host::Deepseek,
         Host::Opencode,
+        Host::Pi,
     ] {
         assert_eq!(
             skill_path(host, home, None),
