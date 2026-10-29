@@ -13,8 +13,8 @@ Refreshed 2026-10-29 against `da6a44d` on `epic/e10`, where CI is green. Counts 
 
 | Status | Rows |
 |---|---|
-| met | 498 |
-| deferred | 47 |
+| met | 499 |
+| deferred | 46 |
 | not applicable | 11 |
 
 Every `deferred` row starts its evidence with one category tag:
@@ -22,7 +22,7 @@ Every `deferred` row starts its evidence with one category tag:
 | Category | Meaning | Rows |
 |---|---|---|
 | (a) | Needs live or real-world data, or user action: real host sessions, live model spend, the replay benchmark sample run, secrets | 16 |
-| (b) | Intentionally out of scope or limited by an ADR (link in the row) | 14 |
+| (b) | Intentionally out of scope or limited by an ADR (link in the row) | 13 |
 | (c) | Not implemented: code is missing | 17 |
 
 Rows fixed since the audit was written (priced ledger and pricing refresh, skill evidence, Pi steer,
@@ -66,7 +66,7 @@ Each item gives the exact SPEC text and the files involved. Tracked in [ADR 0050
 - S5.1-2: 10 ms connect timeout, [ADR 0014](../docs/adr/0014-hook-client.md).
 - S6.4-1, S6.4-18: legacy opencode `storage/`, S14-5: awaited `tool_done`, [ADR 0025](../docs/adr/0025-shim-protocol.md).
 - S6.10-8: user-scope Kimi/Codewhale installer, [ADR 0020](../docs/adr/0020-e5b-host-adapters.md).
-- S6.12-1, S6.12-4, S12-17: hosts without verified instructions or skill paths, [ADR 0026](../docs/adr/0026-fold-only-mode.md).
+- S6.12-4, S12-17: hosts without verified skill paths, [ADR 0026](../docs/adr/0026-fold-only-mode.md).
 - S9.4-1: four otherskill host names, [ADR 0040](../docs/adr/0040-e9-integrations.md) item 7.
 
 ## Pending
@@ -449,7 +449,7 @@ Nothing pending. The E10.6 replay benchmark harness is merged; only its real-dat
 |---|---|---|---|
 | S6.12-8 | Watch logs; fold after 30 minutes idle; scan every 60 seconds if watch unavailable | met | [0018-fold-workers-and-idle-fold.md](../docs/adr/0018-fold-workers-and-idle-fold.md) |
 | S6.12-9 | Optional marked instructions block, regeneration and git exclude | met | [fold_only_instructions.rs](../crates/tkm-hosts/tests/fold_only_instructions.rs) |
-| S6.12-1 | agy instructions path | deferred | **(b)** [ADR 0026](../docs/adr/0026-fold-only-mode.md) records no verified agy instructions path; agy stays report-only. |
+| S6.12-1 | agy instructions path | met | [fold_only_instructions.rs](../crates/tkm-hosts/tests/fold_only_instructions.rs) tests the instructions path mapping and marker block; [ADR 0026](../docs/adr/0026-fold-only-mode.md) cites the host rules documentation. |
 | S6.12-4 | Generated tokenimum skill for each harness | deferred | **(b)** [ADR 0026](../docs/adr/0026-fold-only-mode.md) lists hosts without verified skill directories ([skill.rs](../crates/tkm-hosts/src/fold_only/skill.rs) covers Claude, opencode, Kimi, Pi). |
 | S6.12-5 | tkm run passes session/host env and folds at exit | met | [run_wrapper.rs](../crates/tkm-cli/tests/run_wrapper.rs) |
 | S6.12-6 | No live loop guard in fold-only | met | [fold_only_mode.rs](../crates/tkm-hosts/tests/fold_only_mode.rs) |
