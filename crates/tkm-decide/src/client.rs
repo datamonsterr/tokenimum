@@ -41,9 +41,11 @@ pub trait Transport: Send + Sync {
         body: String,
     ) -> impl Future<Output = Result<HttpReply, TransportError>> + Send;
 }
+const DEFAULT_ENDPOINT: &str = "https://openrouter.ai/api/alpha/decisions";
 /// Production `reqwest` transport to the fixed `OpenRouter` endpoint.
 pub struct HttpTransport {
     client: reqwest::Client,
+    url: String,
 }
 impl HttpTransport {
     /// Construct the reusable HTTP client without panicking on setup failures.
@@ -51,9 +53,22 @@ impl HttpTransport {
     /// # Errors
     /// Returns `TransportError::Initialization` when client setup fails.
     pub fn new() -> Result<Self, TransportError> {
+        Self::with_endpoint(DEFAULT_ENDPOINT)
+    }
+
+    /// Construct a client that posts to `endpoint` instead of the `OpenRouter` Decisions URL.
+    ///
+    /// The daemon uses this for local fake servers in tests (`TKM_DECIDE_ENDPOINT`).
+    ///
+    /// # Errors
+    /// Returns `TransportError::Initialization` when client setup fails.
+    pub fn with_endpoint(endpoint: &str) -> Result<Self, TransportError> {
         reqwest::Client::builder()
             .build()
-            .map(|client| Self { client })
+            .map(|client| Self {
+                client,
+                url: endpoint.to_owned(),
+            })
             .map_err(|_| TransportError::Initialization)
     }
 }
@@ -61,7 +76,7 @@ impl Transport for HttpTransport {
     async fn post_decision(&self, key: &ApiKey, body: String) -> Result<HttpReply, TransportError> {
         let reply = self
             .client
-            .post("https://openrouter.ai/api/alpha/decisions")
+            .post(&self.url)
             .bearer_auth(key.expose_secret())
             .header("Content-Type", "application/json")
             .body(body)
