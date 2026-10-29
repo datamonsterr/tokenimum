@@ -196,11 +196,7 @@ fn query(
 ) -> Result<Value, String> {
     let conn = tkm_store::open_read_only(db).map_err(|e| e.to_string())?;
     let mut stmt = conn.prepare(sql).map_err(|e| e.to_string())?;
-    let names: Vec<String> = stmt
-        .column_names()
-        .iter()
-        .map(ToString::to_string)
-        .collect();
+    let names: Vec<String> = stmt.column_names().map(ToString::to_string).collect();
     let rows = stmt
         .query_map(params, |row| {
             let mut obj = serde_json::Map::new();
