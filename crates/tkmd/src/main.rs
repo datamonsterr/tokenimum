@@ -113,7 +113,7 @@ async fn main() -> ExitCode {
     );
     options.settings = Arc::new(FileSettings::new(paths.clone(), config_env.clone()));
     options.env = env.clone();
-    let decide = Settings::load(&paths, None, config_env).decide;
+    let decide = Settings::load(&paths, None, config_env.clone()).decide;
     if decide.enabled {
         let own_key = default_key_file(&home);
         let key_env = var("OPENROUTER_API_KEY").or_else(|| {
@@ -168,8 +168,38 @@ async fn main() -> ExitCode {
         }
         Err(error) => daemon.log_error(&format!("monitor socket: {error}")),
     }
+    #[cfg(feature = "web")]
+    let web = {
+        let inputs = tkm_config::config::LoadInputs {
+            global_path: paths.global_config.clone(),
+            repo_root: None,
+            env: config_env,
+            flags: Vec::new(),
+        };
+        match tkm_config::config::load(&inputs) {
+            Ok(config) if config.get_bool("ui.web.enabled") == Some(true) => {
+                let bind = config.get_str("ui.web.bind").unwrap_or("127.0.0.1:7878");
+                match tkmd::web::WebServer::start(daemon.clone(), &paths, bind).await {
+                    Ok(web) => Some(web),
+                    Err(error) => {
+                        daemon.log_error(&format!("web startup: {error}"));
+                        None
+                    }
+                }
+            }
+            Ok(_) => None,
+            Err(error) => {
+                daemon.log_error(&format!("web configuration: {error}"));
+                None
+            }
+        }
+    };
     if let Err(error) = server.run(shutdown_signal()).await {
         daemon.log_error(&format!("server: {error}"));
+    }
+    #[cfg(feature = "web")]
+    if let Some(web) = web {
+        web.shutdown().await;
     }
     daemon.shutdown().await;
     ExitCode::SUCCESS

@@ -25,3 +25,7 @@ pub enum Error {
     #[error(transparent)]
     Json(#[from] serde_json::Error),
 }
+
+/// Local web dashboard.
+#[cfg(feature = "web")]
+pub mod web;

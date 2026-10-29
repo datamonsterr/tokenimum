@@ -32,7 +32,7 @@ tempfile = { workspace = true }
 criterion = { workspace = true }
 
 [features]
-web = ["dep:axum"]
+web = ["dep:axum", "tokio/net"]
 
 [[bench]]
 name = "render"

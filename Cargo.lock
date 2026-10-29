@@ -3138,6 +3138,7 @@ dependencies = [
  "tkm-proto",
  "tkm-store",
  "tokio",
+ "tower",
 ]
 
 [[package]]
