@@ -125,8 +125,8 @@ fn welch_unequal_variance_and_constant_groups() {
         .band
         .unwrap();
     // Independent Student t(0.975, 1) = 12.706_205, standard error = 2.
-    assert!((band.lower - (-19.41241)).abs() < 0.00001);
-    assert!((band.upper - 31.41241).abs() < 0.00001);
+    assert!((band.lower - (-19.412_41)).abs() < 0.000_01);
+    assert!((band.upper - 31.412_41).abs() < 0.000_01);
     let flat = [
         sample(10.0, true),
         sample(10.0, true),
