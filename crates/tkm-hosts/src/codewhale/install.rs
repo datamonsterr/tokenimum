@@ -102,9 +102,8 @@ pub(super) fn install(context: &InstallContext) -> Result<InstallReport, Adapter
 
         for (ev, kind, timeout) in HOOK_SPECS {
             let mut table = Table::new();
-            if !carry.is_empty() {
-                table.decor_mut().set_prefix(std::mem::take(&mut carry));
-            }
+            let kept = std::mem::take(&mut carry);
+            table.decor_mut().set_prefix(format!("{kept}# tokenimum\n"));
             table["event"] = toml_edit::value(ev);
             table["command"] = toml_edit::value(format!(
                 "tkm-hook --host deepseek --event {}",
