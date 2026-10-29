@@ -7,7 +7,9 @@ use std::pin::Pin;
 use std::sync::{Arc, Mutex, PoisonError};
 
 use tkm_decide::budget::{DecisionRow, InMemoryLedger, SpendLedger};
-use tkm_decide::calibrate::{CalibrationKey, CalibrationStore, Thresholds};
+use tkm_decide::calibrate::{
+    CalibrationKey, CalibrationStore, MIN_LABELS, Thresholds, precision_target,
+};
 use tkm_decide::client::{
     DecideRequest, DecisionClient, HttpTransport, NoDecisionReason, Outcome, Transport,
 };
@@ -361,7 +363,7 @@ impl StoreCalibration {
         let mut values = self.values.lock().unwrap_or_else(PoisonError::into_inner);
         values.clear();
         for record in records {
-            if record.purpose == "loop_guard" && !(0.9..=1.0).contains(&record.precision) {
+            if !calibration_qualified(record) {
                 continue;
             }
             if let Some(thresholds) = thresholds_from_json(&record.thresholds) {
@@ -382,14 +384,62 @@ impl StoreCalibration {
     }
 }
 
+/// Whether measured quality permits this exact model/purpose to leave shadow.
+#[must_use]
+pub fn calibration_qualified(record: &CalibrationRecord) -> bool {
+    precision_target(&record.purpose)
+        .is_some_and(|target| (target..=1.0).contains(&record.precision))
+        && usize::try_from(record.sample_count).is_ok_and(|n| n >= MIN_LABELS)
+        && (tkm_decide::calibrate::FitConfig::default().min_recall..=1.0).contains(&record.recall)
+}
+
+/// Initial observation window for one purpose; another purpose cannot satisfy it.
+/// Database failures retain shadow. Duplicate requests for one session/digest count once.
+#[must_use]
+pub fn purpose_shadow(
+    store: &tkm_store::Store,
+    purpose: &str,
+    now: i64,
+    days: u64,
+    turns: u64,
+) -> bool {
+    if days == 0 && turns == 0 {
+        return false;
+    }
+    let Ok(rows) = store.list_recent_decisions(-1) else {
+        return true;
+    };
+    let mut start = now;
+    let mut judged = std::collections::BTreeSet::new();
+    for row in rows.iter().filter(|row| row.purpose == purpose) {
+        if let Some(at) = row.created_at {
+            start = start.min(at.0);
+            judged.insert((row.session_id, row.digest.as_deref()));
+        }
+    }
+    now.saturating_sub(start) < i64::try_from(days.saturating_mul(86_400_000)).unwrap_or(i64::MAX)
+        || u64::try_from(judged.len()).unwrap_or(u64::MAX) < turns
+}
+
 fn thresholds_from_json(value: &serde_json::Value) -> Option<Thresholds> {
     let get = |name: &str| value.get(name).and_then(serde_json::Value::as_f64);
-    Some(Thresholds {
+    let thresholds = Thresholds {
         t_stuck: get("t_stuck")?,
         t_progress: get("t_progress")?,
         t_low: get("t_low")?,
         t_high: get("t_high")?,
-    })
+    };
+    ([
+        thresholds.t_stuck,
+        thresholds.t_progress,
+        thresholds.t_low,
+        thresholds.t_high,
+    ]
+    .iter()
+    .all(|v| (0.0..=1.0).contains(v))
+        && thresholds.t_low <= thresholds.t_high
+        && thresholds.t_stuck > 0.0)
+        .then_some(thresholds)
 }
 
 impl CalibrationStore for StoreCalibration {
@@ -418,13 +468,11 @@ impl CalibrationStore for StoreCalibration {
                 precision: 0.0,
                 recall: 0.0,
             });
-        // An unscored row cannot authorize a loop decision.
-        let mut values = self.values.lock().unwrap_or_else(PoisonError::into_inner);
-        if key.purpose == "loop_guard" {
-            values.remove(&key);
-        } else {
-            values.insert(key, t);
-        }
+        // An unscored row cannot authorize any decision purpose.
+        self.values
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .remove(&key);
     }
 }
 
@@ -487,7 +535,7 @@ mod tests {
         let store = StoreCalibration::default();
         store.refresh(&[CalibrationRecord {
             model_version: "m".into(),
-            purpose: "p".into(),
+            purpose: "relevance".into(),
             thresholds: serde_json::json!({"t_stuck":0.9,"t_progress":0.2,"t_low":0.1,"t_high":0.8}),
             sample_count: 200,
             precision: 0.95,
@@ -495,7 +543,7 @@ mod tests {
         }]);
         let found = store.get(&CalibrationKey {
             model_version: "m".into(),
-            purpose: "p".into(),
+            purpose: "relevance".into(),
         });
         assert_eq!(found.map(|t| t.t_stuck), Some(0.9));
     }

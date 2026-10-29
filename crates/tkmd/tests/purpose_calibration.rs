@@ -39,3 +39,50 @@ fn all_purposes_require_scored_precision_and_unscored_put_revokes_authorization(
         assert!(gate.get(&key).is_none());
     }
 }
+
+#[test]
+fn initial_shadow_windows_do_not_borrow_another_purposes_history() {
+    let store = tkm_store::Store::open_in_memory().unwrap();
+    for i in 0..200 {
+        let row = tkm_store::NewDecision {
+            model: "m".into(),
+            purpose: "loop_guard".into(),
+            questions: serde_json::json!({}),
+            answers: serde_json::json!({}),
+            cost_usd: Some(0.0),
+            latency_ms: 0,
+            shadow: true,
+        };
+        store
+            .insert_decision_with_context(
+                &row,
+                Some(tkm_core::model::Timestamp(i)),
+                None,
+                None,
+                Some(&i.to_string()),
+            )
+            .unwrap();
+    }
+    let now = 15 * 86_400_000;
+    assert!(tkmd::decider::purpose_shadow(
+        &store,
+        "fact_filter",
+        now,
+        14,
+        200
+    ));
+    assert!(tkmd::decider::purpose_shadow(
+        &store,
+        "relevance",
+        now,
+        14,
+        200
+    ));
+    assert!(!tkmd::decider::purpose_shadow(
+        &store,
+        "loop_guard",
+        now,
+        14,
+        200
+    ));
+}

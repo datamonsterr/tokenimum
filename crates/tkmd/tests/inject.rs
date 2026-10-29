@@ -40,6 +40,19 @@ fn relevance(scores: &[(&str, f64)]) -> Outcome {
     })
 }
 
+fn calibrated_relevance(env: &Env) -> Settings {
+    env.store().upsert_calibration(&tkm_store::CalibrationRecord {
+        model_version: MODEL.into(), purpose: "relevance".into(),
+        thresholds: serde_json::json!({"t_stuck":0.85,"t_progress":0.3,"t_low":1.0/3.0,"t_high":0.5}),
+        sample_count:200, precision:0.95, recall:0.6,
+    }).unwrap();
+    Settings {
+        shadow_days: 0,
+        shadow_turns: 0,
+        ..Settings::default()
+    }
+}
+
 #[tokio::test]
 async fn prompt_injects_the_default_block_when_no_decision_is_available() {
     let env = Env::new();
@@ -62,7 +75,7 @@ async fn relevance_scores_drop_candidates_below_the_threshold() {
     seed_fact(&env, "other.org");
     let ids_scores = relevance(&[("boundary:example.com", 2.5), ("boundary:other.org", 0.5)]);
     let decider = ScriptedDecider::new(ids_scores);
-    let daemon = daemon_with(&env, Settings::default(), decider.clone());
+    let daemon = daemon_with(&env, calibrated_relevance(&env), decider.clone());
     let reply = daemon.handle(prompt()).await;
     let text = additional_context(&reply).unwrap();
     assert!(text.contains("example.com"));
@@ -189,4 +202,39 @@ async fn cursor_repeats_session_start_context_on_next_tool_result() {
     let second: serde_json::Value = serde_json::from_str(&repeated.stdout).unwrap();
     assert_eq!(first["additional_context"], second["additional_context"]);
     assert_eq!(daemon.handle_tool_done(&tool).stdout, "{}");
+}
+
+#[tokio::test]
+async fn relevance_stays_shadowed_without_its_own_qualifying_calibration() {
+    for precision in [0.0, 0.899] {
+        let env = Env::new();
+        seed_fact(&env, "example.com");
+        seed_fact(&env, "other.org");
+        env.store().upsert_calibration(&tkm_store::CalibrationRecord {
+            model_version:MODEL.into(), purpose:"relevance".into(),
+            thresholds:serde_json::json!({"t_stuck":0.85,"t_progress":0.3,"t_low":0.3,"t_high":0.8}),
+            sample_count:200, precision, recall:0.6,
+        }).unwrap();
+        let daemon = daemon_with(
+            &env,
+            Settings {
+                shadow_days: 0,
+                shadow_turns: 0,
+                ..Settings::default()
+            },
+            ScriptedDecider::new(relevance(&[
+                ("boundary:example.com", 2.5),
+                ("boundary:other.org", 0.0),
+            ])),
+        );
+        let reply = daemon.handle(prompt()).await;
+        let text = additional_context(&reply).unwrap();
+        assert!(text.contains("other.org"), "shadow uses code-only context");
+        daemon.flush_now().await;
+        let rows = env.store().list_recent_decisions(-1).unwrap();
+        assert!(
+            rows.iter()
+                .any(|row| row.purpose == "relevance" && row.shadow)
+        );
+    }
 }

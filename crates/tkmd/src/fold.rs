@@ -371,27 +371,18 @@ fn decide_facts(
             continue;
         };
         let rows = store.list_calibration().unwrap_or_default();
-        let calibrated = rows
-            .iter()
-            .find(|row| {
-                row.model_version == decision.model_version && row.purpose == purpose.as_str()
-            })
-            .or_else(|| {
-                rows.iter().find(|row| {
-                    row.model_version == decision.model_version
-                        && row.purpose == "loop_guard"
-                        && (0.9..=1.0).contains(&row.precision)
-                })
-            });
+        let calibrated = rows.iter().find(|row| {
+            row.model_version == decision.model_version
+                && row.purpose == purpose.as_str()
+                && crate::decider::calibration_qualified(row)
+        });
         let now = i64::try_from(context.daemon.clock.now_ms()).unwrap_or(i64::MAX);
-        let shadow = store.shadow_window().ok().flatten().map_or(
-            job.settings.shadow_days > 0 || job.settings.shadow_turns > 0,
-            |(start, count)| {
-                now.saturating_sub(start)
-                    < i64::try_from(job.settings.shadow_days.saturating_mul(86_400_000))
-                        .unwrap_or(i64::MAX)
-                    || count < job.settings.shadow_turns
-            },
+        let shadow = crate::decider::purpose_shadow(
+            store,
+            purpose.as_str(),
+            now,
+            job.settings.shadow_days,
+            job.settings.shadow_turns,
         );
         let thresholds = calibrated.and_then(|row| {
             Some((
@@ -451,7 +442,7 @@ fn decide_facts(
             }
             if let Some(id) = key.strip_prefix("contradicts_") {
                 scores.entry(id.to_owned()).or_default().contradicts =
-                    Some(if *noul > high { 1.0 } else { 0.0 });
+                    Some(if *noul >= high { 1.0 } else { 0.0 });
             }
         }
     }
