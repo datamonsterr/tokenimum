@@ -36,7 +36,7 @@ pub enum ShimStatus {
 fn hex_sha256(bytes: &[u8]) -> String {
     const DIGITS: &[u8; 16] = b"0123456789abcdef";
     let mut out = String::with_capacity(64);
-    for byte in Sha256::digest(bytes).iter() {
+    for byte in &Sha256::digest(bytes) {
         out.push(char::from(DIGITS[usize::from(byte >> 4)]));
         out.push(char::from(DIGITS[usize::from(byte & 15)]));
     }
