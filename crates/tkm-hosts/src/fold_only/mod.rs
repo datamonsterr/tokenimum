@@ -1,8 +1,7 @@
-//! Fold-only integration mode: instructions injection, skill generation and run wrapper.
+//! Fold-only integration mode: instructions block, skill generation and run wrapper.
 //!
-//! Used for harnesses without native hooks (`--no-shims`) and as a fallback when
-//! `tkm doctor` finds hook events missing (SPEC 6.12). Every function is synchronous
-//! and performs no network I/O.
+//! Backs `--no-shims` and the fallback when `tkm doctor` finds hook events missing
+//! (SPEC 6.12, ADR 0026). Everything is synchronous and performs no network I/O.
 
 pub mod instructions;
 pub mod run;
