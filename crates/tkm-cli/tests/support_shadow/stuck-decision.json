@@ -1,0 +1,9 @@
+{
+  "model": "typesafe/jev-1.14-20261014",
+  "answers": {
+    "stuck": {"type": "noul", "noul": 0.95},
+    "progress": {"type": "noul", "noul": 0.1},
+    "redirect": {"type": "choice", "choice": "reread_error", "confidence": 0.9}
+  },
+  "usage": {"input_tokens": 100, "output_tokens": 5, "cost": 0.00001}
+}
