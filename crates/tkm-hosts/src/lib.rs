@@ -6,6 +6,8 @@
 //! are synchronous: the daemon runs log readers and installers on blocking
 //! workers, while payload mapping and reply rendering stay in memory.
 
+pub mod codex;
+
 use std::io;
 use std::path::PathBuf;
 
