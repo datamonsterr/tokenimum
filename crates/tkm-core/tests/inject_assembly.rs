@@ -248,13 +248,13 @@ fn scored_disabled_memory_cannot_be_selected_or_hide_facts() {
 #[test]
 fn cache_prunes_expired_entries_on_lookup_and_insert_and_bounds_capacity() {
     let mut cache = Cache::default();
-    for n in 0..65 {
+    for n in 0_u32..65 {
         cache.insert(
             inject::CacheKey {
-                prompt: n,
+                prompt: u64::from(n),
                 candidates: 0,
             },
-            Timestamp(n as i64),
+            Timestamp(i64::from(n)),
             format!("{n}"),
         );
     }

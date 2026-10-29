@@ -40,13 +40,13 @@ pub struct InjectCandidate {
 /// Selection limits.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Config {
-    /// Scored block token budget.
+    /// Maximum estimated tokens in the complete rendered block (SPEC 7.2).
     pub max_tokens: usize,
-    /// Fallback fact count budget.
+    /// Maximum fact count in either selection mode (SPEC 4.3).
     pub max_facts: usize,
-    /// Fallback fact token budget.
+    /// Maximum fact tokens in either selection mode (SPEC 4.3).
     pub max_fact_tokens: usize,
-    /// Include memory pointers in fallback.
+    /// Include memory pointers in either selection mode.
     pub memory: bool,
 }
 impl Default for Config {
@@ -110,9 +110,17 @@ pub fn dedupe(items: &[InjectCandidate]) -> Vec<InjectCandidate> {
     }
     result
 }
-/// Select after deduplication. SPEC 7.2 scores use 1.5, or 1.0 for
-/// preventing facts, and stop on the first item that exceeds the budget.
-/// Fallback observes SPEC 4.3 fact caps and optionally includes memory pointers.
+// Control characters and Unicode directional formatting must never reach a host.
+fn clean_line(text: &str) -> String {
+    text.chars().map(|c| if c.is_control() || matches!(c, '\u{061c}' | '\u{200e}' | '\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}') { ' ' } else { c }).collect::<String>().split_whitespace().collect::<Vec<_>>().join(" ")
+}
+const HEADER: &str = "# Context\n";
+/// Select after filtering disabled sources and deduplication. Facts obey SPEC 4.3
+/// caps in both modes. Scored candidates use SPEC 7.2 thresholds and order;
+/// items exceeding fact caps are skipped, and the first exceeding the overall
+/// budget ends selection. The complete rendered block, including its header and
+/// line separators, is conservatively budgeted using the greater of each supplied
+/// estimate and its rendered text estimate.
 #[must_use]
 pub fn select(
     items: &[InjectCandidate],
@@ -121,10 +129,10 @@ pub fn select(
 ) -> Vec<InjectCandidate> {
     let eligible: Vec<_> = items
         .iter()
-        .filter(|item| {
-            scores.is_some()
-                || item.source == Source::Facts
-                || (config.memory && item.source == Source::Memory)
+        .filter(|item| match item.source {
+            Source::Facts => true,
+            Source::Skills => scores.is_some(),
+            Source::Memory => config.memory,
         })
         .cloned()
         .collect();
@@ -147,61 +155,48 @@ pub fn select(
                 .total_cmp(&scores[&a.id])
                 .then_with(|| a.id.cmp(&b.id))
         });
-        let mut used = 0_usize;
-        items
-            .into_iter()
-            .take_while(|item| {
-                if item.tokens > config.max_tokens.saturating_sub(used) {
-                    false
-                } else {
-                    used += item.tokens;
-                    true
-                }
-            })
-            .collect()
-    } else {
-        let mut facts = 0_usize;
-        let mut fact_tokens = 0_usize;
-        let mut total = 0_usize;
-        let mut selected = Vec::new();
-        for item in items {
-            match item.source {
-                Source::Facts => {
-                    if facts >= config.max_facts
-                        || item.tokens > config.max_fact_tokens.saturating_sub(fact_tokens)
-                    {
-                        continue;
-                    }
-                    if item.tokens > config.max_tokens.saturating_sub(total) {
-                        break;
-                    }
-                    facts += 1;
-                    fact_tokens += item.tokens;
-                    total += item.tokens;
-                    selected.push(item);
-                }
-                Source::Memory if config.memory => {
-                    if item.tokens > config.max_tokens.saturating_sub(total) {
-                        break;
-                    }
-                    total += item.tokens;
-                    selected.push(item);
-                }
-                Source::Memory | Source::Skills => {}
-            }
-        }
-        selected
     }
+    let mut facts = 0_usize;
+    let mut fact_tokens = 0_usize;
+    let mut text_tokens = 0_usize;
+    let mut selected = Vec::new();
+    for item in items {
+        let tokens = item.tokens.max(estimate_tokens(&clean_line(&item.text)));
+        if item.source == Source::Facts
+            && (facts >= config.max_facts
+                || tokens > config.max_fact_tokens.saturating_sub(fact_tokens))
+        {
+            continue;
+        }
+        let next_text = text_tokens.saturating_add(tokens);
+        let overhead = HEADER
+            .chars()
+            .count()
+            .saturating_add(selected.len())
+            .saturating_add(1)
+            .div_ceil(4);
+        if next_text.saturating_add(overhead) > config.max_tokens {
+            break;
+        }
+        if item.source == Source::Facts {
+            facts += 1;
+            fact_tokens += tokens;
+        }
+        text_tokens = next_text;
+        selected.push(item);
+    }
+    selected
 }
-/// Render a single header followed by candidate text, or empty when none exist.
+/// Render a single header followed by sanitized candidate text, or empty when
+/// none exist. Controls and Unicode directional formatting are replaced by spaces.
 #[must_use]
 pub fn render(items: &[InjectCandidate]) -> String {
     if items.is_empty() {
         return String::new();
     }
-    let mut result = String::from("# Context\n");
+    let mut result = String::from(HEADER);
     for item in items {
-        result.push_str(&item.text.split_whitespace().collect::<Vec<_>>().join(" "));
+        result.push_str(&clean_line(&item.text));
         result.push('\n');
     }
     result
@@ -238,6 +233,7 @@ pub fn cache_key(prompt: &str, items: &[InjectCandidate]) -> CacheKey {
     }
 }
 /// Pure cache of rendered blocks. TTL is ten minutes (SPEC 7.2).
+/// At most 64 prompt entries are retained; insertion evicts the oldest timestamp.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Cache {
     entries: Vec<(CacheKey, Timestamp, String)>,
@@ -246,12 +242,30 @@ pub struct Cache {
 impl Cache {
     /// Store a block at a caller-supplied time.
     pub fn insert(&mut self, key: CacheKey, now: Timestamp, block: String) {
+        self.prune(now);
         self.entries.retain(|(stored, _, _)| *stored != key);
         self.entries.push((key, now, block));
+        self.prune(now);
     }
-    /// Return a block younger than ten minutes; time moving backward is a miss.
+    fn prune(&mut self, now: Timestamp) {
+        self.entries
+            .retain(|(_, created, _)| now.0.saturating_sub(created.0) < 600_000);
+        while self.entries.len() > 64 {
+            if let Some((index, _)) = self
+                .entries
+                .iter()
+                .enumerate()
+                .min_by_key(|(_, (_, created, _))| *created)
+            {
+                self.entries.remove(index);
+            }
+        }
+    }
+    /// Prune expired entries and return a block younger than ten minutes;
+    /// time moving backward is a miss.
     #[must_use]
-    pub fn get(&self, key: CacheKey, now: Timestamp) -> Option<&str> {
+    pub fn get(&mut self, key: CacheKey, now: Timestamp) -> Option<&str> {
+        self.prune(now);
         let (_, created, block) = self.entries.iter().find(|(stored, _, _)| *stored == key)?;
         let age = now.0.checked_sub(created.0)?;
         (0..600_000).contains(&age).then_some(block.as_str())
