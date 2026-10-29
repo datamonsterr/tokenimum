@@ -7,6 +7,7 @@ use std::collections::BTreeMap;
 
 /// Shell intent, using TE's GENERIC vocabulary.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Intent {
     /// Run tests.
     RunTests,
@@ -25,6 +26,7 @@ pub enum Intent {
 }
 /// Closed environmental error taxonomy; raw output is never a template parameter.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum ErrorClass {
     /// A dependency module is missing.
     ModuleMissing,
@@ -45,6 +47,7 @@ pub enum ErrorClass {
 }
 /// Typed result of one segment.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Outcome {
     /// Insufficient segment-level evidence.
     #[default]
@@ -60,6 +63,7 @@ pub enum Outcome {
 }
 /// Narrow git discovery kinds.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Probe {
     /// Configured remotes.
     Remote,
@@ -342,10 +346,10 @@ pub fn segments(command: &str) -> Vec<String> {
             buf.push(c);
             if c == q {
                 quote = None;
-            } else if c == '\\' {
-                if let Some(next) = chars.next() {
-                    buf.push(next);
-                }
+            } else if c == '\\'
+                && let Some(next) = chars.next()
+            {
+                buf.push(next);
             }
         } else if c == '\'' || c == '"' {
             quote = Some(c);
@@ -419,13 +423,13 @@ fn cd_target(cwd: &str, target: &str, root: Option<&str>, top: Option<&str>) -> 
             return None;
         }
     } else {
-        normalized_path(&format!("{cwd}/{target}").trim_start_matches('/'))
+        normalized_path(format!("{cwd}/{target}").trim_start_matches('/'))
     };
     if rel == ".." || rel.starts_with("../") {
-        if let (Some(root), Some(top)) = (root, top) {
-            if normalized_path(&format!("{root}/{rel}")) == normalized_path(top) {
-                return Some(String::new());
-            }
+        if let (Some(root), Some(top)) = (root, top)
+            && normalized_path(&format!("{root}/{rel}")) == normalized_path(top)
+        {
+            return Some(String::new());
         }
         return None;
     }
@@ -483,34 +487,7 @@ pub fn classify_command_at(
             .filter(|s| !s.is_empty())
             .collect::<Vec<_>>()
             .join(" ");
-        let mut body = seg.clone();
-        if let Ok(rx) = regex::Regex::new(
-            r"^(?:conda|mamba)\s+run\s+(?:--no-capture-output\s+|--live-stream\s+)*(?:-n|--name)\s+([\w.-]+)\s+",
-        ) {
-            if let Some(c) = rx.captures(&body) {
-                if let (Some(full), Some(env)) = (c.get(0), c.get(1)) {
-                    prefix = format!("{prefix} conda run -n {}", env.as_str())
-                        .trim()
-                        .to_owned();
-                    body = body[full.end()..].to_owned();
-                }
-            }
-        }
-        if let Ok(rx) = regex::Regex::new(
-            r"^(poetry|pipenv|uv|npx|bundle|yarn|pnpm)\s+(?:run|exec)\s+|^(npx)\s+(?:(?:--yes|-y|--no-install|--no)\s+)*",
-        ) {
-            if let Some(c) = rx.captures(&body) {
-                if let (Some(full), Some(tool)) = (c.get(0), c.get(1).or_else(|| c.get(2))) {
-                    let wrapper = if c.get(1).is_some() {
-                        format!("{} run", tool.as_str())
-                    } else {
-                        "npx".to_owned()
-                    };
-                    prefix = format!("{prefix} {wrapper}").trim().to_owned();
-                    body = body[full.end()..].to_owned();
-                }
-            }
-        }
+        let body = unwrap_tool(&seg, &mut prefix);
         let mut tokens: Vec<&str> = body.split_whitespace().collect();
         while let Some(first) = tokens.first().copied() {
             if matches(r"^[A-Za-z_][A-Za-z0-9_]*=", first) {
@@ -564,6 +541,33 @@ pub fn classify_command_at(
     }
     out
 }
+fn unwrap_tool(segment: &str, prefix: &mut String) -> String {
+    let mut body = segment.to_owned();
+    if let Ok(rx) = regex::Regex::new(
+        r"^(?:conda|mamba)\s+run\s+(?:--no-capture-output\s+|--live-stream\s+)*(?:-n|--name)\s+([\w.-]+)\s+",
+    ) && let Some(c) = rx.captures(&body)
+        && let (Some(full), Some(env)) = (c.get(0), c.get(1))
+    {
+        format!("{prefix} conda run -n {}", env.as_str())
+            .trim()
+            .clone_into(prefix);
+        body = body[full.end()..].to_owned();
+    }
+    if let Ok(rx) = regex::Regex::new(
+        r"^(poetry|pipenv|uv|npx|bundle|yarn|pnpm)\s+(?:run|exec)\s+|^(npx)\s+(?:(?:--yes|-y|--no-install|--no)\s+)*",
+    ) && let Some(c) = rx.captures(&body)
+        && let (Some(full), Some(tool)) = (c.get(0), c.get(1).or_else(|| c.get(2)))
+    {
+        let wrapper = if c.get(1).is_some() {
+            format!("{} run", tool.as_str())
+        } else {
+            "npx".to_owned()
+        };
+        format!("{prefix} {wrapper}").trim().clone_into(prefix);
+        body = body[full.end()..].to_owned();
+    }
+    body
+}
 fn classify(head: &str, base: &str, rest: &[&str]) -> Option<(Intent, String, Option<Probe>)> {
     let result = |intent, form: String| Some((intent, form, None));
     if GENERIC.interpreters.contains(&base) || matches(r"^(?:python|node)\d(?:\.\d+)?$", base) {
@@ -574,26 +578,24 @@ fn classify(head: &str, base: &str, rest: &[&str]) -> Option<(Intent, String, Op
         {
             return result(Intent::ProbeEnv, head.into());
         }
-        if let Some(i) = rest.iter().position(|s| *s == "-m") {
-            if let Some(module) = rest
+        if let Some(i) = rest.iter().position(|s| *s == "-m")
+            && let Some(module) = rest
                 .get(i + 1)
                 .filter(|s| GENERIC.runner_modules.contains(s))
-            {
-                return result(Intent::RunTests, format!("{head} -m {module}"));
-            }
+        {
+            return result(Intent::RunTests, format!("{head} -m {module}"));
         }
         if let Some(script) = rest.iter().find(|s| !s.starts_with('-')).filter(|s| {
             GENERIC
                 .runner_scripts
                 .iter()
                 .any(|suffix| s.ends_with(suffix))
-        }) {
-            if *script != "manage.py" || rest.contains(&"test") {
-                return result(
-                    Intent::RunTests,
-                    format!("{head} {}", script.trim_start_matches("./")),
-                );
-            }
+        }) && (*script != "manage.py" || rest.contains(&"test"))
+        {
+            return result(
+                Intent::RunTests,
+                format!("{head} {}", script.trim_start_matches("./")),
+            );
         }
         return result(Intent::RunInterpreter, head.into());
     }
@@ -618,15 +620,16 @@ fn classify(head: &str, base: &str, rest: &[&str]) -> Option<(Intent, String, Op
     if GENERIC.task_heads.contains(&base) && rest.first() == Some(&"test") {
         return result(Intent::RunTests, format!("{base} test"));
     }
-    if ["npm", "yarn", "pnpm", "bun"].contains(&base) && rest.first() == Some(&"run") {
-        if let Some(script) = rest.get(1) {
-            let kind = script.split(':').next().unwrap_or(script);
-            if kind == "test" {
-                return result(Intent::RunTests, format!("{base} run {script}"));
-            }
-            if BUILD_SUBS.contains(&kind) {
-                return result(Intent::RunBuild, format!("{base} run {script}"));
-            }
+    if ["npm", "yarn", "pnpm", "bun"].contains(&base)
+        && rest.first() == Some(&"run")
+        && let Some(script) = rest.get(1)
+    {
+        let kind = script.split(':').next().unwrap_or(script);
+        if kind == "test" {
+            return result(Intent::RunTests, format!("{base} run {script}"));
+        }
+        if BUILD_SUBS.contains(&kind) {
+            return result(Intent::RunBuild, format!("{base} run {script}"));
         }
     }
     if GENERIC.task_heads.contains(&base) && rest.first().is_some_and(|s| BUILD_SUBS.contains(s)) {
@@ -642,27 +645,7 @@ fn classify(head: &str, base: &str, rest: &[&str]) -> Option<(Intent, String, Op
         return result(Intent::FetchRemote, base.into());
     }
     if base == "git" {
-        let sub = *rest.first()?;
-        if ["fetch", "clone", "pull", "ls-remote"].contains(&sub) {
-            return result(Intent::FetchRemote, format!("git {sub}"));
-        }
-        let args = &rest[1..];
-        let probe = match sub {
-            "remote" => Some(Probe::Remote),
-            "branch"
-                if args
-                    .iter()
-                    .any(|a| ["-a", "-r", "--all", "--remotes", "-ar", "-ra"].contains(a)) =>
-            {
-                Some(Probe::Branch)
-            }
-            "tag" if args.contains(&"--contains") => Some(Probe::Tag),
-            "fsck" => Some(Probe::Fsck),
-            "stash" if args.first() == Some(&"list") => Some(Probe::Stash),
-            "show-ref" | "for-each-ref" => Some(Probe::Refs),
-            _ => None,
-        };
-        return probe.map(|p| (Intent::ProbeVcsRefs, format!("git {sub}"), Some(p)));
+        return classify_git(rest);
     }
     if GENERIC.package_tools.contains(&base) {
         if ["pip", "npm", "yarn", "pnpm"]
@@ -677,6 +660,31 @@ fn classify(head: &str, base: &str, rest: &[&str]) -> Option<(Intent, String, Op
         return result(Intent::PackageTool, base.into());
     }
     None
+}
+fn classify_git(rest: &[&str]) -> Option<(Intent, String, Option<Probe>)> {
+    let result = |intent, form: String| Some((intent, form, None));
+
+    let sub = *rest.first()?;
+    if ["fetch", "clone", "pull", "ls-remote"].contains(&sub) {
+        return result(Intent::FetchRemote, format!("git {sub}"));
+    }
+    let args = &rest[1..];
+    let probe = match sub {
+        "remote" => Some(Probe::Remote),
+        "branch"
+            if args
+                .iter()
+                .any(|a| ["-a", "-r", "--all", "--remotes", "-ar", "-ra"].contains(a)) =>
+        {
+            Some(Probe::Branch)
+        }
+        "tag" if args.contains(&"--contains") => Some(Probe::Tag),
+        "fsck" => Some(Probe::Fsck),
+        "stash" if args.first() == Some(&"list") => Some(Probe::Stash),
+        "show-ref" | "for-each-ref" => Some(Probe::Refs),
+        _ => None,
+    };
+    probe.map(|p| (Intent::ProbeVcsRefs, format!("git {sub}"), Some(p)))
 }
 fn test_labels(segment: &str, form: &str) -> Vec<String> {
     let tokens: Vec<&str> = segment.split_whitespace().collect();
@@ -802,15 +810,25 @@ fn env_call(command: &str, output: &str, ok: bool, call: usize) -> EnvCall {
         1,
     );
     let mut sets = BTreeMap::new();
-    for pattern in [
-        r#"(?:^|[\s;&(])(?:export\s+)?([A-Z_][A-Z0-9_]*)=['"]?([\w.\-/:]+)"#,
-        r#"os\.environ(?:\.setdefault\(\s*|\[\s*)['"]([A-Z_][A-Z0-9_]*)['"]\s*(?:,|\]\s*=)\s*['"]([\w.\-/:]+)['"]"#,
-    ] {
-        if let Ok(rx) = regex::Regex::new(pattern) {
-            for c in rx.captures_iter(command) {
-                if let (Some(var), Some(value)) = (c.get(1), c.get(2)) {
-                    sets.insert(var.as_str().into(), value.as_str().into());
-                }
+    // Capture the entire literal, then validate it at candidate construction.
+    // Matching only a safe prefix would teach a value the command never set.
+    if let Ok(rx) = regex::Regex::new(
+        r#"(?:^|[\s;&(])(?:export\s+)?([A-Z_][A-Z0-9_]*)=(?:"([^"]*)"|'([^']*)'|([^\s;&)]+))"#,
+    ) {
+        for c in rx.captures_iter(command) {
+            if let (Some(var), Some(value)) =
+                (c.get(1), c.get(2).or_else(|| c.get(3)).or_else(|| c.get(4)))
+            {
+                sets.insert(var.as_str().into(), value.as_str().into());
+            }
+        }
+    }
+    if let Ok(rx) = regex::Regex::new(
+        r#"os\.environ(?:\.setdefault\(\s*|\[\s*)['"]([A-Z_][A-Z0-9_]*)['"]\s*(?:,|\]\s*=)\s*['"]([^'"]*)['"]"#,
+    ) {
+        for c in rx.captures_iter(command) {
+            if let (Some(var), Some(value)) = (c.get(1), c.get(2)) {
+                sets.insert(var.as_str().into(), value.as_str().into());
             }
         }
     }

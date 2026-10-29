@@ -72,6 +72,7 @@ pub enum Scope {
 }
 /// Structural label repair, never prose supplied by a model.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum LabelRule {
     /// Replace double colons with dots.
     Separator,
@@ -189,6 +190,7 @@ pub struct FactEvent {
 }
 /// Explanation category; text belongs to E2.9.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum FactEventKind {
     /// A confirming session was recorded.
     Confirmed,
@@ -243,7 +245,8 @@ pub fn update(
         let score = input.decisions.as_ref().and_then(|d| d.scores.get(id));
         let code_only = !score.is_some_and(|s| {
             s.stable.is_some_and(f64::is_finite) && s.safe.is_some_and(f64::is_finite)
-        }) || !decision_allows(input, id);
+        }) || !decision_allows(input, id)
+            || !input.decisions.as_ref().is_some_and(valid_thresholds);
         let model_contradiction = input.decisions.as_ref().is_some_and(|d| {
             valid_thresholds(d)
                 && score

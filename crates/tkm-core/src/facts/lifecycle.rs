@@ -5,6 +5,7 @@ use super::FactsConfig;
 use serde::{Deserialize, Serialize};
 /// Persisted lifecycle state.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Status {
     /// Not yet confirmed enough times.
     #[default]

@@ -168,10 +168,10 @@ fn discover_env(input: &Observations, out: &mut Vec<Candidate>) {
                 ..Params::default()
             };
             for d in &later {
-                if !d.ok {
-                    if let Some(bad) = d.sets.get(var).filter(|bad| *bad != value) {
-                        add(&mut params.bad, bad);
-                    }
+                if !d.ok
+                    && let Some(bad) = d.sets.get(var).filter(|bad| *bad != value)
+                {
+                    add(&mut params.bad, bad);
                 }
             }
             out.push(candidate(
@@ -322,158 +322,158 @@ pub(super) struct Exercise {
 pub(super) fn exercise(fact: &mut Fact, input: &Observations, injected: bool) -> Exercise {
     let p = &mut fact.candidate.params;
     match fact.candidate.family {
-        Family::FormRepair => {
-            let seq: Vec<_> = input
-                .observations
-                .iter()
-                .filter(|o| Some(o.intent) == p.intent)
-                .collect();
-            let ok: BTreeSet<_> = seq
-                .iter()
-                .filter(|o| typed_ok(o))
-                .map(|o| o.form.as_str())
-                .collect();
-            let failed: BTreeSet<_> = seq
-                .iter()
-                .filter(|o| observe::form_failed(o) && !o.assigned && !ok.contains(o.form.as_str()))
-                .map(|o| o.form.as_str())
-                .collect();
-            if let Some(intent) = p.intent {
-                for form in ok {
-                    if repairs(form, &p.bad_form, intent) {
-                        add(&mut p.forms, form);
-                    }
-                }
-            }
-            for form in failed {
-                if p.forms.contains_key(form) {
-                    add(&mut p.form_failures, form);
-                }
-            }
-            let a_failed = seq
-                .iter()
-                .any(|o| o.form == p.bad_form && observe::form_failed(o));
-            let b_ran = seq.iter().any(|o| {
-                (p.forms.contains_key(&o.form) || !observe::is_bare(&o.form))
-                    && observe::form_worked(o)
-            });
-            let a_runner_ok = input.observations.iter().any(|o| {
-                o.intent == Intent::RunTests && o.form == p.bad_form && observe::form_worked(o)
-            });
-            Exercise {
-                exercised: !seq.is_empty(),
-                fired: a_failed || (injected && b_ran),
-                verdict: if a_failed || (b_ran && !a_runner_ok) {
-                    Some(Verdict::Confirm)
-                } else if a_runner_ok {
-                    Some(Verdict::Contradict)
-                } else {
-                    None
-                },
+        Family::FormRepair => exercise_form(p, input, injected),
+        Family::ArgumentRepair => exercise_argument(p, input, injected),
+        Family::EnvValue => exercise_env(p, input, injected),
+        Family::Boundary => exercise_boundary(p, input),
+        Family::EmptyProbe => exercise_probe(p, input),
+    }
+}
+fn exercise_form(p: &mut Params, input: &Observations, injected: bool) -> Exercise {
+    let seq: Vec<_> = input
+        .observations
+        .iter()
+        .filter(|o| Some(o.intent) == p.intent)
+        .collect();
+    let ok: BTreeSet<_> = seq
+        .iter()
+        .filter(|o| typed_ok(o))
+        .map(|o| o.form.as_str())
+        .collect();
+    let failed: BTreeSet<_> = seq
+        .iter()
+        .filter(|o| observe::form_failed(o) && !o.assigned && !ok.contains(o.form.as_str()))
+        .map(|o| o.form.as_str())
+        .collect();
+    if let Some(intent) = p.intent {
+        for form in ok {
+            if repairs(form, &p.bad_form, intent) {
+                add(&mut p.forms, form);
             }
         }
-        Family::ArgumentRepair => {
-            let runs: Vec<_> = input
-                .observations
-                .iter()
-                .filter(|o| {
-                    o.intent == Intent::RunTests && o.form == p.form && !o.labels.is_empty()
-                })
-                .collect();
-            let bad = |lab: &str| match &p.rule {
-                Some(LabelRule::Separator) => lab.contains("::"),
-                Some(LabelRule::Strip(pre)) => lab.starts_with(pre),
-                None => false,
-            };
-            let bad_failed = runs
-                .iter()
-                .any(|o| o.label_error && o.labels.iter().any(|s| bad(s)));
-            let bad_loaded = runs
-                .iter()
-                .any(|o| o.loaded && o.labels.iter().any(|s| bad(s)));
-            let good_loaded = runs
-                .iter()
-                .any(|o| o.loaded && o.labels.iter().any(|s| !bad(s)));
-            Exercise {
-                exercised: !runs.is_empty(),
-                fired: bad_failed || (injected && good_loaded),
-                verdict: if bad_loaded {
-                    Some(Verdict::Contradict)
-                } else if bad_failed || good_loaded {
-                    Some(Verdict::Confirm)
-                } else {
-                    None
-                },
-            }
+    }
+    for form in failed {
+        if p.forms.contains_key(form) {
+            add(&mut p.form_failures, form);
         }
-        Family::EnvValue => {
-            let good = best(&p.good);
-            let asked = input.env.iter().any(|c| c.needed.contains(&p.variable));
-            let good_ok = input
-                .env
-                .iter()
-                .any(|c| c.sets.get(&p.variable).map(String::as_str) == good && c.ok);
-            let good_failed = input.env.iter().any(|c| {
-                c.sets.get(&p.variable).map(String::as_str) == good
-                    && c.needed.contains(&p.variable)
-            });
-            Exercise {
-                exercised: asked || input.env.iter().any(|c| c.sets.contains_key(&p.variable)),
-                fired: asked || (injected && good_ok),
-                verdict: if good_failed {
-                    Some(Verdict::Contradict)
-                } else if good_ok {
-                    Some(Verdict::Confirm)
-                } else {
-                    None
-                },
-            }
-        }
-        Family::Boundary => {
-            let fetches: Vec<_> = input
-                .observations
-                .iter()
-                .filter(|o| {
-                    o.intent == Intent::FetchRemote
-                        && o.hosts.iter().any(|h| p.hosts.contains_key(h))
-                })
-                .collect();
-            let success = fetches.iter().any(|o| o.outcome == Outcome::Ran);
-            let failure = fetches
-                .iter()
-                .any(|o| matches!(o.outcome,Outcome::Error(e) if observe::network(e)));
-            Exercise {
-                exercised: !fetches.is_empty(),
-                fired: failure,
-                verdict: if success {
-                    Some(Verdict::Contradict)
-                } else if failure {
-                    Some(Verdict::Confirm)
-                } else {
-                    None
-                },
-            }
-        }
-        Family::EmptyProbe => {
-            let probes: Vec<_> = input
-                .observations
-                .iter()
-                .filter(|o| {
-                    o.intent == Intent::ProbeVcsRefs
-                        && matches!(o.outcome, Outcome::Hit | Outcome::Empty)
-                })
-                .collect();
-            Exercise {
-                exercised: !probes.is_empty(),
-                fired: !probes.is_empty(),
-                verdict: if probes.iter().any(|o| o.outcome == Outcome::Hit) {
-                    Some(Verdict::Contradict)
-                } else if probes.is_empty() {
-                    None
-                } else {
-                    Some(Verdict::Confirm)
-                },
-            }
-        }
+    }
+    let a_failed = seq
+        .iter()
+        .any(|o| o.form == p.bad_form && observe::form_failed(o));
+    let b_ran = seq.iter().any(|o| {
+        (p.forms.contains_key(&o.form) || !observe::is_bare(&o.form)) && observe::form_worked(o)
+    });
+    let a_runner_ok = input
+        .observations
+        .iter()
+        .any(|o| o.intent == Intent::RunTests && o.form == p.bad_form && observe::form_worked(o));
+    Exercise {
+        exercised: !seq.is_empty(),
+        fired: a_failed || (injected && b_ran),
+        verdict: if a_failed || (b_ran && !a_runner_ok) {
+            Some(Verdict::Confirm)
+        } else if a_runner_ok {
+            Some(Verdict::Contradict)
+        } else {
+            None
+        },
+    }
+}
+fn exercise_argument(p: &mut Params, input: &Observations, injected: bool) -> Exercise {
+    let runs: Vec<_> = input
+        .observations
+        .iter()
+        .filter(|o| o.intent == Intent::RunTests && o.form == p.form && !o.labels.is_empty())
+        .collect();
+    let bad = |lab: &str| match &p.rule {
+        Some(LabelRule::Separator) => lab.contains("::"),
+        Some(LabelRule::Strip(pre)) => lab.starts_with(pre),
+        None => false,
+    };
+    let bad_failed = runs
+        .iter()
+        .any(|o| o.label_error && o.labels.iter().any(|s| bad(s)));
+    let bad_loaded = runs
+        .iter()
+        .any(|o| o.loaded && o.labels.iter().any(|s| bad(s)));
+    let good_loaded = runs
+        .iter()
+        .any(|o| o.loaded && o.labels.iter().any(|s| !bad(s)));
+    Exercise {
+        exercised: !runs.is_empty(),
+        fired: bad_failed || (injected && good_loaded),
+        verdict: if bad_loaded {
+            Some(Verdict::Contradict)
+        } else if bad_failed || good_loaded {
+            Some(Verdict::Confirm)
+        } else {
+            None
+        },
+    }
+}
+fn exercise_env(p: &mut Params, input: &Observations, injected: bool) -> Exercise {
+    let good = best(&p.good);
+    let asked = input.env.iter().any(|c| c.needed.contains(&p.variable));
+    let good_ok = input
+        .env
+        .iter()
+        .any(|c| c.sets.get(&p.variable).map(String::as_str) == good && c.ok);
+    let good_failed = input.env.iter().any(|c| {
+        c.sets.get(&p.variable).map(String::as_str) == good && c.needed.contains(&p.variable)
+    });
+    Exercise {
+        exercised: asked || input.env.iter().any(|c| c.sets.contains_key(&p.variable)),
+        fired: asked || (injected && good_ok),
+        verdict: if good_failed {
+            Some(Verdict::Contradict)
+        } else if good_ok {
+            Some(Verdict::Confirm)
+        } else {
+            None
+        },
+    }
+}
+fn exercise_boundary(p: &mut Params, input: &Observations) -> Exercise {
+    let fetches: Vec<_> = input
+        .observations
+        .iter()
+        .filter(|o| {
+            o.intent == Intent::FetchRemote && o.hosts.iter().any(|h| p.hosts.contains_key(h))
+        })
+        .collect();
+    let success = fetches.iter().any(|o| o.outcome == Outcome::Ran);
+    let failure = fetches
+        .iter()
+        .any(|o| matches!(o.outcome,Outcome::Error(e) if observe::network(e)));
+    Exercise {
+        exercised: !fetches.is_empty(),
+        fired: failure,
+        verdict: if success {
+            Some(Verdict::Contradict)
+        } else if failure {
+            Some(Verdict::Confirm)
+        } else {
+            None
+        },
+    }
+}
+fn exercise_probe(_p: &mut Params, input: &Observations) -> Exercise {
+    let probes: Vec<_> = input
+        .observations
+        .iter()
+        .filter(|o| {
+            o.intent == Intent::ProbeVcsRefs && matches!(o.outcome, Outcome::Hit | Outcome::Empty)
+        })
+        .collect();
+    Exercise {
+        exercised: !probes.is_empty(),
+        fired: !probes.is_empty(),
+        verdict: if probes.iter().any(|o| o.outcome == Outcome::Hit) {
+            Some(Verdict::Contradict)
+        } else if probes.is_empty() {
+            None
+        } else {
+            Some(Verdict::Confirm)
+        },
     }
 }
