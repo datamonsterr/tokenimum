@@ -699,3 +699,131 @@ fn verification_paths_hidden_status_and_runner_summaries_match_te() {
         assert_eq!(is_good_turn(&turn, false), good, "{command}");
     }
 }
+
+#[test]
+fn comments_do_not_invent_shell_edits_and_known_paths_replace_placeholders() {
+    for command in [
+        "# echo changed > src/a.rs",
+        "echo ok # sed -i 's/x/y/' a.py > src/a.rs",
+        "echo ok # | tee src/a.rs",
+    ] {
+        assert_eq!(
+            shell_edit_targets(command),
+            Vec::<String>::new(),
+            "{command}"
+        );
+    }
+    assert_eq!(
+        shell_edit_targets("# comment\nsed -i 's/x/y/' a.py"),
+        ["a.py"]
+    );
+    for command in [
+        "git apply fix.diff",
+        "python -c \"open(target, 'w').write('x')\"",
+    ] {
+        let mut call = shell(command, "", Some(0));
+        call.edits = edit().edits;
+        let mut state = SpiralState::default();
+        state.update(&call);
+        assert_eq!(state.edit_order, ["a.py"], "{command}");
+        assert_eq!(state.distinct_edit_files(), 1);
+    }
+}
+
+#[test]
+fn te_runner_summary_cases_and_traceback_repetition_are_preserved() {
+    for (output, failed) in [
+        ("1 failed, 4 passed, 2 warnings in 1.23s", true),
+        ("== 1 error in 0.12s ==", true),
+        ("2 passed, 1 warning in 0.30s", false),
+        ("Ran 3 tests in 0.1s\n\nFAILED (failures=1)", true),
+        ("Ran 3 tests in 0.1s\n\nOK", false),
+        ("tests finished: 10 passed, 1 failed, in 3.20 seconds", true),
+        ("# tests 9\n# pass 8\n# fail 1", true),
+        ("# pass 9\n# fail 0", false),
+        ("Tests:       1 failed, 3 passed, 4 total", true),
+        ("  3 passing (20ms)\n  1 failing", true),
+        ("--- FAIL: TestAdd (0.00s)", true),
+        ("ok  \tacme/x\t0.012s", false),
+        ("test result: FAILED. 1 passed; 1 failed", true),
+        ("test result: ok. 3 passed; 0 failed", false),
+        ("5 examples, 1 failure", true),
+        ("5 examples, 0 failures", false),
+        ("Tests run: 4, Failures: 0, Errors: 1", true),
+        ("[INFO] BUILD SUCCESS", false),
+    ] {
+        // The final command intentionally supplies the opposite exit status:
+        // the test runner's own summary must decide whether this turn ended well.
+        let turn = Turn {
+            calls: vec![
+                edit(),
+                shell("pytest; git diff", output, Some(i32::from(!failed))),
+            ],
+            stopped_by: StopReason::OwnStop,
+            ..Turn::default()
+        };
+        assert_eq!(is_good_turn(&turn, false), !failed, "{output}");
+    }
+    let mut state = SpiralState::default();
+    state.update(&shell(
+        "python -m unittest",
+        "FAIL: test_x (validators.tests.T)\nTraceback (most recent call last):\n  ...",
+        None,
+    ));
+    state.update(&shell(
+        "python -m unittest",
+        "Traceback (most recent call last):",
+        None,
+    ));
+    assert_eq!(state.repeated_fail_sigs, 1);
+}
+
+#[test]
+fn judge_ladder_respects_budget_and_fresh_segments_without_backstop() {
+    let cfg = LoopConfig {
+        gate_min_turns: 2,
+        redirects_per_turn: 2,
+        ..LoopConfig::default()
+    };
+    let mut guard = TurnGuard::new(EscalationMode::DelegatedWithAdapter);
+    let mut deliveries = Vec::new();
+    for index in 1..=30 {
+        let actions = guard.on_tool_done(&fail(), &cfg, Some(1000.0));
+        for action in actions {
+            match action {
+                LoopAction::RequestJudge { request } => {
+                    assert_eq!(
+                        guard.on_judge_verdict(
+                            request,
+                            JudgeScores {
+                                stuck: 1.0,
+                                progress: 0.0
+                            },
+                            thresholds(),
+                            RedirectKind::CheckEnv
+                        ),
+                        JudgeVerdict::Stuck
+                    );
+                }
+                LoopAction::Redirect { .. } | LoopAction::Escalate { .. } => {
+                    deliveries.push((index, action))
+                }
+            }
+        }
+    }
+    assert!(matches!(
+        &deliveries[..],
+        [
+            (3, LoopAction::Redirect { .. }),
+            (8, LoopAction::Redirect { .. }),
+            (
+                13,
+                LoopAction::Escalate {
+                    mode: EscalationMode::DelegatedWithAdapter
+                }
+            )
+        ]
+    ));
+    assert_eq!(guard.redirects_done, 2);
+    assert_eq!(guard.whole.turns, 30);
+}
