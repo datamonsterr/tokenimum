@@ -13,6 +13,18 @@ use tkmd::monitor::Monitor;
 use tkmd::server::{Bind, Server};
 use tkmd::settings::{FileSettings, Settings};
 
+fn key_file(home: &std::path::Path, configured: Option<&str>) -> std::path::PathBuf {
+    configured.filter(|path| !path.is_empty()).map_or_else(
+        || default_key_file(home),
+        |path| {
+            path.strip_prefix("~/").map_or_else(
+                || std::path::PathBuf::from(path),
+                |relative| home.join(relative),
+            )
+        },
+    )
+}
+
 async fn shutdown_signal() {
     use tokio::signal::unix::{SignalKind, signal};
     let (Ok(mut term), Ok(mut int)) = (
@@ -55,12 +67,25 @@ async fn main() -> ExitCode {
     let mut options = DaemonOptions::new(paths.clone());
     options.settings = Arc::new(FileSettings::new(paths.clone(), config_env.clone()));
     options.env = env.clone();
+    let key_inputs = tkm_config::config::LoadInputs {
+        global_path: paths.global_config.clone(),
+        repo_root: None,
+        env: config_env.clone(),
+        flags: Vec::new(),
+    };
+    let effective = tkm_config::config::load(&key_inputs).ok();
     let decide = Settings::load(&paths, None, config_env).decide;
     if decide.enabled {
         let home = var("HOME")
             .map(std::path::PathBuf::from)
             .unwrap_or_default();
-        let key = load_key(var("OPENROUTER_API_KEY"), &default_key_file(&home), None).ok();
+        let path = key_file(
+            &home,
+            effective
+                .as_ref()
+                .and_then(|config| config.get_str("decide.api_key_path")),
+        );
+        let key = load_key(var("OPENROUTER_API_KEY"), &path, None).ok();
         let endpoint = var("TKM_DECIDE_ENDPOINT");
         options.decider = build_decider(decide, key, endpoint.as_deref(), options.ledger.clone());
     }
@@ -86,4 +111,23 @@ async fn main() -> ExitCode {
     }
     daemon.shutdown().await;
     ExitCode::SUCCESS
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn configured_key_path_reuses_absolute_and_home_relative_paths() {
+        let home = std::path::Path::new("/fixture/home");
+        assert_eq!(
+            key_file(home, Some("/fixture/account/key.env")),
+            std::path::PathBuf::from("/fixture/account/key.env")
+        );
+        assert_eq!(
+            key_file(home, Some("~/keys/openrouter.env")),
+            home.join("keys/openrouter.env")
+        );
+        assert_eq!(key_file(home, None), default_key_file(home));
+    }
 }
