@@ -1,0 +1,17 @@
+[
+  "fakeawssecret0123456789",
+  "fakemoonshotabcdef",
+  "fakedeepseekabcdef",
+  "fakecursorabcdef",
+  "FAKEPRIVATEKEYDATA",
+  "/home/test/private",
+  "FAKEPGPKEYDATA",
+  "UNTERMINATEDKEYDATA",
+  "opaque_bearer_fixture_12345",
+  "opaque_custom_auth_fixture",
+  "fixture-user",
+  "fixture-password",
+  "fixture multi word phrase",
+  "/mnt/secret/a",
+  "/srv/priv/b"
+]

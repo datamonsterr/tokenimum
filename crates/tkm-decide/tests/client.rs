@@ -131,7 +131,7 @@ fn request(purpose: Purpose) -> DecideRequest {
 }
 fn key() -> ApiKey {
     load_key(
-        Some("fake-test-key".into()),
+        Some(include_str!("fixtures/key-test.txt").into()),
         std::path::Path::new("unused"),
         None,
     )
@@ -296,7 +296,7 @@ async fn disabled_no_key_and_oversized_state_make_zero_transport_calls() {
         Outcome::CodeOnly(CodeOnlyReason::NoKey)
     );
     let mut req = request(Purpose::LoopGuard);
-    req.state = "界".repeat(6000);
+    req.state = "界".repeat(6_000);
     assert_eq!(
         client(fake.clone()).decide(req).await,
         Outcome::NoDecision(NoDecisionReason::StateTooLarge)
@@ -368,7 +368,11 @@ async fn request_batches_all_questions_with_privacy_preferences_and_ledger_prove
         serde_json::to_value(&req.questions).unwrap()
     );
     assert_eq!(bodies[0]["state"], req.state);
-    assert!(!bodies[0].to_string().contains("fake-test-key"));
+    assert!(
+        !bodies[0]
+            .to_string()
+            .contains(include_str!("fixtures/key-test.txt"))
+    );
     let rows = ledger.rows();
     assert_eq!(rows[0].question_names, ["is_bug", "team", "urgency"]);
     assert_eq!(
@@ -513,4 +517,122 @@ async fn agreement_and_free_probes_obey_no_key_gate() {
         [expected]
     );
     assert_eq!(fake.calls(), 0);
+}
+
+fn probe_config() -> DecideConfig {
+    let mut cfg = config();
+    for slug in ["probe-one:free", "probe-two:free"] {
+        cfg.chain.push(ChainModel {
+            slug: slug.into(),
+            free_probe: true,
+        });
+    }
+    cfg
+}
+
+#[tokio::test(start_paused = true)]
+async fn rejected_free_probe_preserves_active_slots_and_stops_probing() {
+    for status in [400, 401, 402, 403, 413] {
+        let fake = Arc::new(Fake::default());
+        let client = DecisionClient::new(
+            probe_config(),
+            Some(key()),
+            FakeTransport(fake.clone()),
+            ManualClock::default(),
+            InMemoryLedger::default(),
+        );
+        let initial = client.reprobe_free(request(Purpose::LoopGuard)).await;
+        assert!(
+            initial
+                .iter()
+                .all(|outcome| matches!(outcome, Outcome::Decision(_)))
+        );
+        fake.scripts.lock().unwrap().insert(
+            "probe-one:free".into(),
+            VecDeque::from([Script::Reply(status, "{}")]),
+        );
+        assert_eq!(
+            client.reprobe_free(request(Purpose::LoopGuard)).await,
+            [Outcome::NoDecision(NoDecisionReason::RequestRejected)]
+        );
+        assert_eq!(fake.calls(), 3);
+        let (first, second) = client.decide_agreement(request(Purpose::LoopGuard)).await;
+        assert!(matches!(first, Outcome::Decision(ref d) if d.requested_model == "probe-one:free"));
+        assert!(
+            matches!(second, Outcome::Decision(ref d) if d.requested_model == "probe-two:free")
+        );
+    }
+}
+
+#[derive(Default)]
+struct ProbeBudgetLedger(AtomicUsize);
+impl SpendLedger for ProbeBudgetLedger {
+    fn spent_today_usd(&self, _now_ms: u64) -> f64 {
+        0.0
+    }
+    fn spent_session_usd(&self, _session_id: &str) -> f64 {
+        // Two probes use three checks (gate + attempts). Block only the second
+        // attempt of the next probe run, then allow requests again.
+        if self.0.fetch_add(1, Ordering::Relaxed) == 5 {
+            1.0
+        } else {
+            0.0
+        }
+    }
+    fn record(&self, _row: DecisionRow) {}
+}
+
+#[tokio::test(start_paused = true)]
+async fn budget_stop_during_free_probes_preserves_the_unattempted_active_slot() {
+    let fake = Arc::new(Fake::default());
+    let client = DecisionClient::new(
+        probe_config(),
+        Some(key()),
+        FakeTransport(fake.clone()),
+        ManualClock::default(),
+        ProbeBudgetLedger::default(),
+    );
+    assert_eq!(
+        client.reprobe_free(request(Purpose::LoopGuard)).await.len(),
+        2
+    );
+    let outcomes = client.reprobe_free(request(Purpose::LoopGuard)).await;
+    assert!(matches!(
+        outcomes.as_slice(),
+        [
+            Outcome::Decision(_),
+            Outcome::CodeOnly(CodeOnlyReason::OverSession)
+        ]
+    ));
+    assert_eq!(fake.calls(), 3);
+    let (first, second) = client.decide_agreement(request(Purpose::LoopGuard)).await;
+    assert!(matches!(first, Outcome::Decision(ref d) if d.requested_model == "probe-one:free"));
+    assert!(matches!(second, Outcome::Decision(ref d) if d.requested_model == "probe-two:free"));
+}
+
+#[tokio::test(start_paused = true)]
+async fn failed_free_probe_deactivates_the_slot() {
+    let fake = Arc::new(Fake::default());
+    let client = DecisionClient::new(
+        probe_config(),
+        Some(key()),
+        FakeTransport(fake.clone()),
+        ManualClock::default(),
+        InMemoryLedger::default(),
+    );
+    client.reprobe_free(request(Purpose::LoopGuard)).await;
+    fake.scripts.lock().unwrap().insert(
+        "probe-one:free".into(),
+        VecDeque::from([Script::Reply(404, "{}")]),
+    );
+    let outcomes = client.reprobe_free(request(Purpose::LoopGuard)).await;
+    assert!(matches!(
+        outcomes.as_slice(),
+        [
+            Outcome::NoDecision(NoDecisionReason::AllFailed),
+            Outcome::Decision(_)
+        ]
+    ));
+    assert!(matches!(client.decide(request(Purpose::LoopGuard)).await,
+        Outcome::Decision(ref d) if d.requested_model == "probe-two:free"));
 }

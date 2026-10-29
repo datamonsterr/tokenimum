@@ -102,3 +102,26 @@ fn session_id_truncation_preserves_unicode_boundaries() {
     let value = serde_json::to_value(request).unwrap();
     assert_eq!(value["session_id"].as_str().unwrap().chars().count(), 256);
 }
+
+#[test]
+fn extra_unasked_answers_are_ignored_even_when_unknown_or_invalid() {
+    for extra in [
+        Answer::Unknown,
+        Answer::Noul { noul: f64::NAN },
+        Answer::Choice {
+            choice: "unasked".into(),
+            confidence: Some(2.0),
+            probabilities: None,
+        },
+        Answer::Score {
+            score: -1.0,
+            confidence: Some(f64::INFINITY),
+            legend: None,
+            probabilities: None,
+        },
+    ] {
+        let mut response = response();
+        response.answers.insert("extra".into(), extra);
+        assert!(api::validate(&request().questions, &response).is_ok());
+    }
+}

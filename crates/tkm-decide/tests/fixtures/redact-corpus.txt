@@ -15,3 +15,14 @@ FAKEPRIVATEKEYDATA
 fakeenvvalue123
 /outside/private
 /home/test/private
+-----BEGIN PGP PRIVATE KEY BLOCK-----
+FAKEPGPKEYDATA
+-----END PGP PRIVATE KEY BLOCK-----
+Bearer opaque_bearer_fixture_12345
+Authorization: Custom opaque_custom_auth_fixture
+https://fixture-user:fixture-password@example.test/resource
+password = fixture multi word phrase
+cat x>/mnt/secret/a
+a,/srv/priv/b
+-----BEGIN EC PRIVATE KEY-----
+UNTERMINATEDKEYDATA

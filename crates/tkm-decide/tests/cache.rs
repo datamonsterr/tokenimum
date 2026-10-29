@@ -94,3 +94,47 @@ fn shorter_purpose_cannot_inherit_fact_filter_lifetime() {
             .is_some()
     );
 }
+
+#[test]
+fn distinct_states_keep_independent_responses_and_equal_inputs_hit() {
+    let req: DecisionsRequest =
+        serde_json::from_str(include_str!("fixtures/api-request-doc.json")).unwrap();
+    let first: DecisionsResponse =
+        serde_json::from_str(include_str!("fixtures/api-response-doc.json")).unwrap();
+    let mut second = first.clone();
+    second.id = Some("second-state-response".into());
+    let cache = DecisionCache::new(ManualClock::default());
+    cache.insert(
+        "model",
+        "first state",
+        &req.questions,
+        Purpose::Relevance,
+        first.clone(),
+    );
+    assert!(
+        cache
+            .get("model", "second state", &req.questions, Purpose::Relevance)
+            .is_none()
+    );
+    cache.insert(
+        "model",
+        "second state",
+        &req.questions,
+        Purpose::Relevance,
+        second.clone(),
+    );
+    let equal_questions = req.questions.clone();
+    assert_eq!(
+        cache.get("model", "first state", &equal_questions, Purpose::Relevance),
+        Some(first)
+    );
+    assert_eq!(
+        cache.get(
+            "model",
+            "second state",
+            &equal_questions,
+            Purpose::Relevance
+        ),
+        Some(second)
+    );
+}

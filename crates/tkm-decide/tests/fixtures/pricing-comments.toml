@@ -1,0 +1,7 @@
+# preserved document comment
+[openrouter."valid-model"]
+prompt_per_token = 99.0 # prompt comment
+completion_per_token = 99.0 # completion comment
+canonical = "old-model" # canonical comment
+context = 1 # context comment
+fetched = "old-date" # fetched comment
