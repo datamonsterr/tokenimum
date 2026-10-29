@@ -67,5 +67,5 @@ fn models_probe_uses_local_server() {
     );
     assert!(server.join().unwrap());
     assert!(out.status.success(), "{out:?}");
-    assert!(String::from_utf8_lossy(&out.stdout).contains("available"));
+    assert!(String::from_utf8_lossy(&out.stdout).contains("test/model-20261029: available\n"));
 }
