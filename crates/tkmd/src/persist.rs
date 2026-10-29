@@ -637,3 +637,51 @@ mod tests {
         assert_eq!(calls, vec![1, 2]);
     }
 }
+
+#[cfg(test)]
+mod delegated_prune_tests {
+    use super::*;
+
+    #[test]
+    fn delegated_outbox_retries_without_double_counting() {
+        let store = Store::open_in_memory().unwrap();
+        let repo = RepoKey("delegation".into());
+        let key = SessionKey {
+            host: Host::Claude,
+            agent_home: "test".into(),
+            session_id: "run".into(),
+        };
+        let mut batch = FlushBatch::default();
+        batch.push_delegated(DelegatedRun {
+            repo: repo.clone(),
+            key: key.clone(),
+            at: Timestamp(500),
+        });
+        assert!(apply(&store, &mut batch).is_err());
+        assert!(!batch.is_empty());
+        let mut queued = FlushBatch::default();
+        queued.requeue(batch);
+        queued.push_repo(Repo {
+            repo_key: repo.clone(),
+            display_name: "test".into(),
+            first_seen: Timestamp(0),
+            last_seen: Timestamp(0),
+            delegated_runs: 0,
+        });
+        apply(&store, &mut queued).unwrap();
+        assert!(queued.is_empty());
+        queued.push_delegated(DelegatedRun {
+            repo: repo.clone(),
+            key,
+            at: Timestamp(600),
+        });
+        apply(&store, &mut queued).unwrap();
+        assert_eq!(store.get_repo(&repo).unwrap().unwrap().delegated_runs, 1);
+        assert_eq!(
+            store
+                .last_delegated_run_within(&repo, Timestamp(700))
+                .unwrap(),
+            Some(Timestamp(500))
+        );
+    }
+}
