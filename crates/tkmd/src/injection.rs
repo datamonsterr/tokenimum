@@ -2,6 +2,7 @@
 //! cached default block used when scoring is late or unavailable.
 
 use std::collections::BTreeMap;
+use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
@@ -228,7 +229,7 @@ impl Daemon {
         );
         let mut questions = BTreeMap::new();
         for item in items {
-            state.push_str(&format!("{}: {}\n", item.id, redactor.redact(&item.text)));
+            let _ = writeln!(state, "{}: {}", item.id, redactor.redact(&item.text));
             questions.insert(
                 format!("rel_{}", item.id),
                 Question::Score {
@@ -370,7 +371,7 @@ mod tests {
             memory_lines(&file),
             vec!["[A](a.md) — first", "[B](b.md) — second"]
         );
-        assert!(memory_lines(&dir.join("missing.md")).is_empty());
+        assert_eq!(memory_lines(&dir.join("missing.md")).len(), 0);
     }
 
     #[test]

@@ -1,6 +1,6 @@
 //! E4.3 live layer: judge jobs, verdict delivery and escalation (SPEC 7.4).
 //!
-//! The hot path only enqueues a [`JudgeJob`]. This module runs it off the request path, stores
+//! The hot path only enqueues a judge job. This module runs it off the request path, stores
 //! the verdict inside the turn's [`tkm_core::loopguard::TurnGuard`], and the guard hands it back
 //! as a redirect on a later `tool_done`. A verdict for a turn that already ended is dropped.
 

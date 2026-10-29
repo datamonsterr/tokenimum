@@ -1,4 +1,5 @@
 //! E4.3 hot-path rule (SPEC 6.2, 14): `tool_done` does no network call and no disk access.
+#![forbid(unsafe_code)]
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::pedantic)]
 
 mod common;

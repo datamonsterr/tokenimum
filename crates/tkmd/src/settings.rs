@@ -89,8 +89,10 @@ fn unsigned<T: TryFrom<i64>>(config: &EffectiveConfig, key: &str) -> Option<T> {
 impl Settings {
     /// Maps an effective configuration onto daemon settings.
     pub fn from_config(config: &EffectiveConfig) -> Self {
-        let mut out = Self::default();
-        out.config_errors = config.errors.iter().map(ToString::to_string).collect();
+        let mut out = Self {
+            config_errors: config.errors.iter().map(ToString::to_string).collect(),
+            ..Self::default()
+        };
 
         out.loop_mode = match config.get_str("loop.mode") {
             Some("off") => LoopMode::Off,

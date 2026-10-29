@@ -1,4 +1,5 @@
 //! E4.2: socket server, framing, version and host handling.
+#![forbid(unsafe_code)]
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::pedantic)]
 
 mod common;

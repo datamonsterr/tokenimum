@@ -213,7 +213,7 @@ mod tests {
         assert_eq!(store.get(&key), Some(Thresholds::default()));
         let pending = store.take_pending();
         assert_eq!(pending.len(), 1);
-        assert!(store.take_pending().is_empty());
+        assert_eq!(store.take_pending().len(), 0);
     }
 
     #[test]

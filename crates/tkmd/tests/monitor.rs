@@ -1,4 +1,5 @@
 //! E4.6 monitor API.
+#![forbid(unsafe_code)]
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::pedantic)]
 
 mod common;

@@ -1,6 +1,7 @@
 //! End-to-end: the real `tkmd` binary driven by the real `tkm-hook` binary with Claude Code
 //! fixture payloads (EPICS E4 DoD). Needs `tkm-hook` built next to `tkmd`
 //! (`cargo nextest run --workspace` builds every binary).
+#![forbid(unsafe_code)]
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::pedantic)]
 
 mod common;
