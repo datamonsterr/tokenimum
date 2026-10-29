@@ -6,6 +6,7 @@
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::mpsc as std_mpsc;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
@@ -128,7 +129,8 @@ impl DaemonOptions {
 /// The daemon.
 pub struct Daemon {
     pub(crate) paths: Paths,
-    pub(crate) errors: ErrorLog,
+    errors_tx: std_mpsc::SyncSender<ErrorMessage>,
+    dropped_errors: AtomicUsize,
     pub(crate) adapters: AdapterRegistry,
     pub(crate) backing: Arc<dyn Backing>,
     pub(crate) decider: Arc<dyn Decider>,
@@ -158,6 +160,11 @@ pub struct Daemon {
     pub(crate) stale_after: Duration,
     pub(crate) env: Vec<(String, String)>,
     tasks: Mutex<Vec<JoinHandle<()>>>,
+}
+
+enum ErrorMessage {
+    Line(String),
+    Flush(std_mpsc::SyncSender<()>),
 }
 
 pub(crate) fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -206,9 +213,26 @@ impl Daemon {
     pub fn new(options: DaemonOptions) -> Arc<Self> {
         let (monitor_tx, _) = broadcast::channel(options.monitor_capacity.max(1));
         let (effects_tx, effects_rx) = mpsc::channel(1_024);
+        let (errors_tx, errors_rx) = std_mpsc::sync_channel(1_024);
+        let errors = ErrorLog::for_paths(&options.paths);
+        std::thread::spawn(move || {
+            while let Ok(message) = errors_rx.recv() {
+                match message {
+                    ErrorMessage::Line(line) => {
+                        if let Err(error) = errors.append(&line) {
+                            tracing::warn!("cannot write errors.log: {error}");
+                        }
+                    }
+                    ErrorMessage::Flush(done) => {
+                        let _ = done.send(());
+                    }
+                }
+            }
+        });
         let default_settings = options.settings.settings_for(None);
         Arc::new(Self {
-            errors: ErrorLog::for_paths(&options.paths),
+            errors_tx,
+            dropped_errors: AtomicUsize::new(0),
             paths: options.paths,
             adapters: options.adapters,
             backing: options.backing,
@@ -278,15 +302,32 @@ impl Daemon {
         }
     }
 
-    /// Appends one line to `errors.log`. Used only on failure paths.
+    /// Queues one line for the error-log writer without waiting for disk I/O.
     pub fn log_error(&self, line: &str) {
         let flat: String = line
             .chars()
             .map(|c| if c == '\n' { ' ' } else { c })
             .collect();
-        if let Err(error) = self.errors.append(&flat) {
-            tracing::warn!("cannot write errors.log: {error}");
+        if self.errors_tx.try_send(ErrorMessage::Line(flat)).is_err() {
+            self.dropped_errors.fetch_add(1, Ordering::Relaxed);
         }
+    }
+
+    /// Number of error lines dropped because the writer was full or unavailable.
+    pub fn dropped_error_lines(&self) -> usize {
+        self.dropped_errors.load(Ordering::Relaxed)
+    }
+
+    /// Waits for the writer to process all previously queued error lines.
+    pub async fn flush_error_log(&self) {
+        let tx = self.errors_tx.clone();
+        let _ = tokio::task::spawn_blocking(move || {
+            let (done, received) = std_mpsc::sync_channel(0);
+            if tx.send(ErrorMessage::Flush(done)).is_ok() {
+                let _ = received.recv();
+            }
+        })
+        .await;
     }
 
     /// Spawns the flusher, the effect worker and the idle watcher on the current runtime.
@@ -308,6 +349,7 @@ impl Daemon {
         for task in lock(&self.tasks).drain(..) {
             task.abort();
         }
+        self.flush_error_log().await;
     }
 
     /// Waits until no decision job or fold is running (bounded at 10 s). For tests and shutdown.

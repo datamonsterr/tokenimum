@@ -48,6 +48,8 @@ Date: 2026-10-29. Status: accepted (epic E4.2).
 11. **Request ordering.** First frames register in accept order, then requests for each
     `(host, session_id)` execute in that order independently of other sessions and client
     disconnects. The server caps accepted connections at 1,024; excess clients fail open.
+12. **Error logging.** Handler failures enqueue flattened lines with a nonblocking send to a
+    bounded writer thread. A counter records dropped lines; shutdown waits for queued lines.
 
 ## Sources checked 2026-10-29
 

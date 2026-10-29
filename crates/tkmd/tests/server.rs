@@ -155,7 +155,7 @@ async fn unknown_host_adapter_gets_the_hosts_noop_reply() {
 #[tokio::test]
 async fn oversize_request_header_closes_the_connection_without_reading_a_body() {
     let env = Env::new();
-    let (_daemon, _server) = serve(&env).await;
+    let (daemon, _server) = serve(&env).await;
     let mut stream = UnixStream::connect(&env.paths.socket).await.unwrap();
     let too_big = u32::try_from(MAX_REQUEST_FRAME + 1).unwrap();
     stream.write_all(&too_big.to_be_bytes()).await.unwrap();
@@ -170,6 +170,7 @@ async fn oversize_request_header_closes_the_connection_without_reading_a_body() 
     assert!(rest.is_empty(), "no reply for an oversize header");
     // The daemon keeps serving afterwards.
     assert_eq!(roundtrip(&env, &session_start()).await.stdout, "");
+    daemon.flush_error_log().await;
     assert_eq!(
         env.error_lines().len(),
         1,
@@ -180,7 +181,7 @@ async fn oversize_request_header_closes_the_connection_without_reading_a_body() 
 #[tokio::test]
 async fn malformed_json_body_closes_the_connection_and_logs_one_line() {
     let env = Env::new();
-    let (_daemon, _server) = serve(&env).await;
+    let (daemon, _server) = serve(&env).await;
     let mut stream = UnixStream::connect(&env.paths.socket).await.unwrap();
     let body = b"{not json";
     stream
@@ -192,6 +193,7 @@ async fn malformed_json_body_closes_the_connection_and_logs_one_line() {
     stream.read_to_end(&mut rest).await.unwrap();
     assert!(rest.is_empty());
     assert_eq!(roundtrip(&env, &session_start()).await.stdout, "");
+    daemon.flush_error_log().await;
     assert_eq!(env.error_lines().len(), 1);
 }
 

@@ -116,6 +116,7 @@ async fn missing_log_file_is_one_errors_log_line_and_status_error() {
         .handle(end_request("/definitely/not/here.jsonl"))
         .await;
     daemon.settle().await;
+    daemon.flush_error_log().await;
     assert_eq!(env.error_lines().len(), 1);
     let store = tkm_store::open_read_only(&env.paths.db).unwrap();
     let status: String = store

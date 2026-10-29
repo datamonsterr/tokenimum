@@ -55,6 +55,7 @@ async fn database_locked_keeps_replying_and_logs_one_line_then_recovers() {
     assert_eq!(daemon.handle(prompt()).await.stdout, "");
     assert_eq!(daemon.handle_tool_done(&tool_done()).stdout, "");
     daemon.flush_now().await;
+    daemon.flush_error_log().await;
     assert_eq!(env.error_lines().len(), 1, "{:?}", env.error_lines());
 
     // Daemon still serves while the lock is held.
@@ -83,6 +84,7 @@ async fn unreadable_database_is_a_noop_reply_with_a_logged_line() {
     let daemon = daemon_with(&env, Settings::default(), Arc::new(NullDecider));
     assert_eq!(daemon.handle(session_start()).await.stdout, "");
     assert_eq!(daemon.handle(prompt()).await.stdout, "");
+    daemon.flush_error_log().await;
     assert!(!env.error_lines().is_empty());
     assert_eq!(
         daemon.handle(session_start()).await.action,
@@ -134,6 +136,7 @@ async fn judge_against(
             .all(|r| r.stdout.is_empty() && r.action == ReplyAction::Nothing)
     );
     assert_eq!(daemon.handle(stop()).await.stdout, "");
+    daemon.flush_error_log().await;
     hits.load(std::sync::atomic::Ordering::SeqCst)
 }
 
@@ -285,6 +288,7 @@ async fn foreign_sqlite_locked_during_fold_logs_one_line_and_the_daemon_survives
     assert_eq!(daemon.handle(start).await.stdout, "{}");
     assert_eq!(daemon.handle(end).await.stdout, "{}");
     daemon.settle().await;
+    daemon.flush_error_log().await;
     assert_eq!(env.error_lines().len(), 1, "{:?}", env.error_lines());
     // Still serving other hosts.
     assert_eq!(daemon.handle(session_start()).await.stdout, "");
@@ -303,5 +307,6 @@ async fn malformed_host_payload_is_a_noop_with_one_line() {
         .await;
     assert_eq!(reply.stdout, "");
     assert_eq!(reply.action, ReplyAction::Nothing);
+    daemon.flush_error_log().await;
     assert_eq!(env.error_lines().len(), 1);
 }
