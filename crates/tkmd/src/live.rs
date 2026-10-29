@@ -190,6 +190,8 @@ impl Daemon {
         };
         let outcome = self.decider.decide(request).await;
         let shadow = if matches!(outcome, Outcome::Decision(_)) {
+            // Persist earlier decisions before deriving the first decision time.
+            self.flush_now().await;
             let backing = self.backing.clone();
             let key = job.key.clone();
             let turn_idx = job.turn_idx;
@@ -633,9 +635,27 @@ mod shadow_tests {
     #[test]
     fn clock_and_turn_count_both_gate_shadow_exit() {
         let clock = ManualClock::new(1_000);
-        assert!(shadow_active(1_000, 200, clock.now_ms() as i64, 14, 200));
+        assert!(shadow_active(
+            1_000,
+            200,
+            i64::try_from(clock.now_ms()).unwrap_or(i64::MAX),
+            14,
+            200
+        ));
         clock.advance(Duration::from_secs(14 * 86_400));
-        assert!(shadow_active(1_000, 199, clock.now_ms() as i64, 14, 200));
-        assert!(!shadow_active(1_000, 200, clock.now_ms() as i64, 14, 200));
+        assert!(shadow_active(
+            1_000,
+            199,
+            i64::try_from(clock.now_ms()).unwrap_or(i64::MAX),
+            14,
+            200
+        ));
+        assert!(!shadow_active(
+            1_000,
+            200,
+            i64::try_from(clock.now_ms()).unwrap_or(i64::MAX),
+            14,
+            200
+        ));
     }
 }

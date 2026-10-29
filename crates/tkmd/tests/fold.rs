@@ -180,6 +180,73 @@ async fn fold_sends_one_candidate_batch_and_fails_open_on_decision_failure() {
 }
 
 #[tokio::test]
+async fn fold_applies_mocked_filter_verdicts_after_calibration() {
+    use tkm_decide::api::Answer;
+    use tkm_decide::client::Outcome;
+    use tkm_hosts::{HostAdapter, SessionSource};
+    let env = Env::new();
+    let path =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/replay-form-repair.jsonl");
+    let session = tkm_hosts::claude::ClaudeAdapter::new()
+        .read_session(&SessionSource {
+            agent_home: "/fake/agent".into(),
+            path: path.clone(),
+            session_id: "test".into(),
+            repo_key: tkm_core::model::RepoKey(FIXTURE_REPO.into()),
+            cwd: "/fake/repo".into(),
+        })
+        .unwrap();
+    let candidates =
+        tkm_core::facts::extract::extract(&tkm_core::facts::observe::observe(&session));
+    assert!(!candidates.is_empty());
+    let mut decision = match stuck_decision() {
+        Outcome::Decision(decision) => decision,
+        _ => unreachable!(),
+    };
+    decision.answers.clear();
+    for candidate in candidates {
+        decision.answers.insert(
+            format!("stable_{}", candidate.id),
+            Answer::Noul { noul: 0.0 },
+        );
+        decision
+            .answers
+            .insert(format!("safe_{}", candidate.id), Answer::Noul { noul: 1.0 });
+    }
+    env.store().upsert_calibration(&tkm_store::CalibrationRecord {
+        model_version: MODEL.into(), purpose: "fact_filter".into(),
+        thresholds: serde_json::json!({"t_stuck":0.85,"t_progress":0.3,"t_low":0.3,"t_high":0.8}),
+        sample_count: 200, precision: 0.95, recall: 0.6,
+    }).unwrap();
+    let settings = Settings {
+        shadow_days: 0,
+        shadow_turns: 0,
+        ..Settings::default()
+    };
+    let daemon = daemon_with(
+        &env,
+        settings,
+        ScriptedDecider::new(Outcome::Decision(decision)),
+    );
+    daemon.handle(start_request(path.to_str().unwrap())).await;
+    daemon.handle(end_request(path.to_str().unwrap())).await;
+    daemon.settle().await;
+    let store = tkm_store::open_read_only(&env.paths.db).unwrap();
+    let facts: i64 = store
+        .query_row("SELECT COUNT(*) FROM facts", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(facts, 0, "unstable candidate must be rejected");
+    let decisions: i64 = store
+        .query_row(
+            "SELECT COUNT(*) FROM decisions WHERE purpose='fact_filter' AND shadow=0",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(decisions, 1);
+}
+
+#[tokio::test]
 async fn partial_session_contributes_to_the_ledger_only() {
     let env = Env::new();
     // 3 of 10 records are unreadable: more than 20% skipped.

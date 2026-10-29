@@ -24,13 +24,9 @@ in [ADR 0050](../docs/adr/0050-conformance-gaps.md); that record does not close 
 - SPEC 6.10: “Events used: `session_start`, `message_submit`, `tool_call_before`, `tool_call_after`, `turn_end`, `session_end`, `session_idle`.” [Codewhale installer](../crates/tkm-hosts/src/codewhale/install.rs) does not register `session_idle`.
 - SPEC 6.8: “`tkm doctor` runs a probe session and records which events arrived; missing events switch that event to idle-fold.” [doctor.rs](../crates/tkm-cli/src/cmd/doctor.rs) reads recorded events but does not run a host session or switch mode.
 
-- SPEC 7.1: “Filter (decision, batched: all candidates of the session in one request).” [fold.rs](../crates/tkmd/src/fold.rs) passes no decision evidence to fact updates.
-- SPEC 7.1: “Contradiction check (decision, batched): for each active fact the session exercised, noul `contradicts_<id>` against the session digest.” The same fold path supplies no model verdicts.
-- SPEC 8.5: “Shadow mode (default for the first 14 days or 200 judged turns): decisions are made and stored, no action is taken; TE's rule verdicts run beside them.” [live.rs](../crates/tkmd/src/live.rs) gates on calibration, not independently on the stated duration/count.
 
 - SPEC 8.2: “`tkm doctor` re-probes `:free` slugs daily and moves a free model to the front when it answers.” [doctor models](../crates/tkm-cli/src/cmd/doctor/models.rs) performs an explicit probe, with no daily scheduler established.
 
-- SPEC 10.4: `[hosts.claude]   enabled = true  # one table per harness; level = "auto" | "hooks" | "shim" | "fold-only"`: [settings.rs](../crates/tkmd/src/settings.rs) does not apply these registered host keys.
 
 - SPEC 16: “Golden: replay fixtures per harness (all eight); expected actions committed as JSON.” A single loop golden exists, but no all-host expected-action JSON suite was identified.
 - SPEC 16: “Parity: for Claude Code and Codex fixtures, tokenimum's fact formation and loop gate agree with TE run over the same logs (TE is the oracle in M2; differences documented).” Ported tests exist, but no same-log TE oracle comparison was identified.
@@ -470,8 +466,8 @@ will replace the placeholder row after that work lands.
 | S7.1-4 | Extract empty probe candidate family | met | [facts_te.rs](../crates/tkm-core/tests/facts_te.rs) |
 | S7.1-5 | Extract argument repair candidate family | met | [facts_te.rs](../crates/tkm-core/tests/facts_te.rs) |
 | S7.1-6 | Extract env value candidate family | met | [facts_te.rs](../crates/tkm-core/tests/facts_te.rs) |
-| S7.1-7 | Batch stable_&lt;id&gt; and safe_&lt;id&gt; noul filters on session candidates | deferred | [0050-conformance-gaps.md](../docs/adr/0050-conformance-gaps.md) |
-| S7.1-8 | Batch contradicts_&lt;id&gt; for exercised facts; retain code contradictions | deferred | [0050-conformance-gaps.md](../docs/adr/0050-conformance-gaps.md) |
+| S7.1-7 | Batch stable_&lt;id&gt; and safe_&lt;id&gt; noul filters on session candidates | met | [fold.rs](../crates/tkmd/src/fold.rs), [fold tests](../crates/tkmd/tests/fold.rs) |
+| S7.1-8 | Batch contradicts_&lt;id&gt; for exercised facts; retain code contradictions | met | [fold.rs](../crates/tkmd/src/fold.rs), [facts_te.rs](../crates/tkm-core/tests/facts_te.rs) |
 | S7.1-9 | Promote at 3, decay 0.8, contradiction weight 5, high-stakes kill, fire gate 40% of 4 | met | [facts_te.rs](../crates/tkm-core/tests/facts_te.rs) |
 | S7.1-10 | Neutral scope shared; host scope limited to harness | met | [facts_review.rs](../crates/tkm-core/tests/facts_review.rs) |
 | S7.1-11 | Render templates without model-generated text | met | [facts_safety.rs](../crates/tkm-core/tests/facts_safety.rs) |
@@ -581,7 +577,7 @@ will replace the placeholder row after that work lands.
 
 | ID | Requirement | Status | Evidence |
 |---|---|---|---|
-| S8.5-7 | 14-day or 200-turn initial shadow period | deferred | [0050-conformance-gaps.md](../docs/adr/0050-conformance-gaps.md) |
+| S8.5-7 | 14-day or 200-turn initial shadow period | met | [live.rs](../crates/tkmd/src/live.rs), [decisions.rs](../crates/tkm-store/tests/decisions.rs) |
 | S8.5-2 | Label loop outcomes and fact confirmation/contradiction | deferred | [0045-offline-decision-bench.md](../docs/adr/0045-offline-decision-bench.md) notes fact/relevance label contracts are missing. |
 | S8.5-3 | Fit per-model threshold with ≥0.9 stuck precision and minimum recall | met | [calibrate_ops.rs](../crates/tkm-cli/tests/calibrate_ops.rs) |
 | S8.5-1 | Agreement: two models in parallel, act only on consensus | deferred | [0016-live-layer-and-decision-queue.md](../docs/adr/0016-live-layer-and-decision-queue.md) |
@@ -703,7 +699,7 @@ will replace the placeholder row after that work lands.
 | S10.4-8 | ledger.enabled | met | [settings.rs](../crates/tkmd/src/settings.rs), [fold.rs](../crates/tkmd/tests/fold.rs) |
 | S10.4-9 | decide.enabled | met | [config.rs](../crates/tkm-config/src/config.rs) |
 | S10.4-10 | decide.chain and budget settings | met | [config.rs](../crates/tkm-config/src/config.rs) |
-| S10.4-11 | hosts.claude.enabled and per-host level auto/hooks/shim/fold-only | deferred | [ADR 0050](../docs/adr/0050-conformance-gaps.md) |
+| S10.4-11 | hosts.claude.enabled and per-host level auto/hooks/shim/fold-only | met | [settings.rs](../crates/tkmd/src/settings.rs), [init_lifecycle.rs](../crates/tkm-cli/tests/init_lifecycle.rs) |
 | S10.4-12 | integrations.superorchestrator and integrations.otherskill | met | [config.rs](../crates/tkm-config/src/config.rs) |
 | S10.4-13 | ui.web.enabled and ui.web.bind | met | [config.rs](../crates/tkm-config/src/config.rs) |
 | S10.4-14 | decide.agreement | deferred | [0016-live-layer-and-decision-queue.md](../docs/adr/0016-live-layer-and-decision-queue.md) |
@@ -713,14 +709,14 @@ will replace the placeholder row after that work lands.
 | S10.4-18 | tkm config explain &lt;key&gt; | met | [config_ops.rs](../crates/tkm-cli/tests/config_ops.rs) |
 | S10.4-19 | tkm config edit [--global/--repo] | met | [config_ops.rs](../crates/tkm-cli/tests/config_ops.rs) |
 | S10.4-20 | tkm config diff | met | [config_ops.rs](../crates/tkm-cli/tests/config_ops.rs) |
-| S10.4-21 | hosts.claude.enabled and hosts.claude.level | deferred | [0050-conformance-gaps.md](../docs/adr/0050-conformance-gaps.md) |
-| S10.4-22 | hosts.codex.enabled and hosts.codex.level | deferred | [0050-conformance-gaps.md](../docs/adr/0050-conformance-gaps.md) |
-| S10.4-23 | hosts.agy.enabled and hosts.agy.level | deferred | [0050-conformance-gaps.md](../docs/adr/0050-conformance-gaps.md) |
-| S10.4-24 | hosts.cursor.enabled and hosts.cursor.level | deferred | [0050-conformance-gaps.md](../docs/adr/0050-conformance-gaps.md) |
-| S10.4-25 | hosts.kimi.enabled and hosts.kimi.level | deferred | [0050-conformance-gaps.md](../docs/adr/0050-conformance-gaps.md) |
-| S10.4-26 | hosts.deepseek.enabled and hosts.deepseek.level | deferred | [0050-conformance-gaps.md](../docs/adr/0050-conformance-gaps.md) |
-| S10.4-27 | hosts.opencode.enabled and hosts.opencode.level | deferred | [0050-conformance-gaps.md](../docs/adr/0050-conformance-gaps.md) |
-| S10.4-28 | hosts.pi.enabled and hosts.pi.level | deferred | [0050-conformance-gaps.md](../docs/adr/0050-conformance-gaps.md) |
+| S10.4-21 | hosts.claude.enabled and hosts.claude.level | met | [settings.rs](../crates/tkmd/src/settings.rs), [init.rs](../crates/tkm-cli/src/cmd/init.rs) |
+| S10.4-22 | hosts.codex.enabled and hosts.codex.level | met | [settings.rs](../crates/tkmd/src/settings.rs), [init.rs](../crates/tkm-cli/src/cmd/init.rs) |
+| S10.4-23 | hosts.agy.enabled and hosts.agy.level | met | [settings.rs](../crates/tkmd/src/settings.rs), [init.rs](../crates/tkm-cli/src/cmd/init.rs) |
+| S10.4-24 | hosts.cursor.enabled and hosts.cursor.level | met | [settings.rs](../crates/tkmd/src/settings.rs), [init.rs](../crates/tkm-cli/src/cmd/init.rs) |
+| S10.4-25 | hosts.kimi.enabled and hosts.kimi.level | met | [settings.rs](../crates/tkmd/src/settings.rs), [init.rs](../crates/tkm-cli/src/cmd/init.rs) |
+| S10.4-26 | hosts.deepseek.enabled and hosts.deepseek.level | met | [settings.rs](../crates/tkmd/src/settings.rs), [init.rs](../crates/tkm-cli/src/cmd/init.rs) |
+| S10.4-27 | hosts.opencode.enabled and hosts.opencode.level | met | [settings.rs](../crates/tkmd/src/settings.rs), [init.rs](../crates/tkm-cli/src/cmd/init.rs) |
+| S10.4-28 | hosts.pi.enabled and hosts.pi.level | met | [settings.rs](../crates/tkmd/src/settings.rs), [init.rs](../crates/tkm-cli/src/cmd/init.rs) |
 | S10.4-29 | decide.budget_daily_usd = 0.50 | met | [config.rs](../crates/tkm-config/src/config.rs) |
 | S10.4-30 | decide.budget_session_usd = 0.02 | met | [config.rs](../crates/tkm-config/src/config.rs) |
 
