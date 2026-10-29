@@ -3,7 +3,7 @@
 
 use std::collections::BTreeMap;
 use tkm_core::inject::{self, Cache, Config, InjectCandidate, Source};
-use tkm_core::model::Timestamp;
+use tkm_core::model::{RepoKey, Timestamp};
 
 fn item(id: &str, text: &str, source: Source, tokens: usize, gate: bool) -> InjectCandidate {
     InjectCandidate {
@@ -89,8 +89,11 @@ fn te_injection_fallback_caps_and_memory() {
 #[test]
 fn cache_ttl_and_candidate_change() {
     let items = vec![item("a", "alpha", Source::Facts, 1, false)];
-    let key = inject::cache_key("prompt", &items, Config::default());
-    assert_ne!(key, inject::cache_key("other", &items, Config::default()));
+    let key = inject::cache_key(&RepoKey::default(), "prompt", &items, Config::default());
+    assert_ne!(
+        key,
+        inject::cache_key(&RepoKey::default(), "other", &items, Config::default())
+    );
     let mut cache = Cache::default();
     cache.insert(key, Timestamp(100), "block".into());
     assert_eq!(cache.get(key, Timestamp(600_099)), Some("block"));
@@ -139,7 +142,7 @@ fn fallback_memory_and_fact_limits() {
 fn cache_roundtrip_and_default_invalidation() {
     let mut cache = Cache::default();
     let mut items = vec![item("a", "alpha", Source::Facts, 1, false)];
-    let key = inject::cache_key("prompt", &items, Config::default());
+    let key = inject::cache_key(&RepoKey::default(), "prompt", &items, Config::default());
     cache.insert(key, Timestamp(10), "stored".into());
     assert!(
         cache
@@ -150,7 +153,10 @@ fn cache_roundtrip_and_default_invalidation() {
     let mut cache: Cache = serde_json::from_str(&json).unwrap();
     assert_eq!(cache.get(key, Timestamp(11)), Some("stored"));
     items[0].text = "beta".into();
-    assert_ne!(key, inject::cache_key("prompt", &items, Config::default()));
+    assert_ne!(
+        key,
+        inject::cache_key(&RepoKey::default(), "prompt", &items, Config::default())
+    );
     assert!(
         cache
             .default_block(&items, Config::default())
@@ -411,7 +417,7 @@ fn cache_keys_isolate_memory_and_each_selection_limit() {
             ..enabled
         },
     ];
-    let key = inject::cache_key("prompt", &items, enabled);
+    let key = inject::cache_key(&RepoKey::default(), "prompt", &items, enabled);
     let mut cache = Cache::default();
     cache.insert(
         key,
@@ -419,7 +425,7 @@ fn cache_keys_isolate_memory_and_each_selection_limit() {
         inject::render(&inject::select(&items, None, enabled)),
     );
     for config in variants {
-        let other = inject::cache_key("prompt", &items, config);
+        let other = inject::cache_key(&RepoKey::default(), "prompt", &items, config);
         assert_ne!(other, key);
         assert_eq!(cache.get(other, Timestamp(1)), None);
     }
@@ -432,4 +438,21 @@ fn render_strips_unicode_format_characters() {
         assert!(!result.contains(c), "format character {c:?}");
     }
     assert!(result.contains('X') && result.contains('L'));
+}
+
+#[test]
+fn cache_keys_isolate_repository_identity_and_prompt_boundaries() {
+    let items = vec![item("f", "synthetic fact", Source::Facts, 3, false)];
+    let repo_a = RepoKey("example/repo-a".into());
+    let repo_b = RepoKey("example/repo-b".into());
+    let key_a = inject::cache_key(&repo_a, "same prompt", &items, Config::default());
+    let key_b = inject::cache_key(&repo_b, "same prompt", &items, Config::default());
+    assert_ne!(key_a, key_b);
+    let mut cache = Cache::default();
+    cache.insert(key_a, Timestamp(1), "repo-a block".into());
+    assert_eq!(cache.get(key_b, Timestamp(2)), None);
+    assert_eq!(cache.get(key_a, Timestamp(2)), Some("repo-a block"));
+    let ambiguous_a = inject::cache_key(&RepoKey("a".into()), "bc", &items, Config::default());
+    let ambiguous_b = inject::cache_key(&RepoKey("ab".into()), "c", &items, Config::default());
+    assert_ne!(ambiguous_a, ambiguous_b);
 }

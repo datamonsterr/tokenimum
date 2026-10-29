@@ -6,7 +6,7 @@
 // Copyright (c) Microsoft Corporation, licensed under the Apache License, Version 2.0.
 //! Context injection assembly.
 
-use crate::model::Timestamp;
+use crate::model::{RepoKey, Timestamp};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -226,7 +226,12 @@ pub struct CacheKey {
 /// All selection-relevant fields, limits, flags and fixed thresholds participate
 /// in the candidate/configuration hash.
 #[must_use]
-pub fn cache_key(prompt: &str, items: &[InjectCandidate], config: Config) -> CacheKey {
+pub fn cache_key(
+    _repo: &RepoKey,
+    prompt: &str,
+    items: &[InjectCandidate],
+    config: Config,
+) -> CacheKey {
     let mut bytes = Vec::new();
     for limit in [config.max_tokens, config.max_facts, config.max_fact_tokens] {
         bytes.extend_from_slice(&(limit as u64).to_le_bytes());
@@ -294,7 +299,7 @@ impl Cache {
     }
     /// Reuse the no-prompt fallback block while candidates and limits are unchanged.
     pub fn default_block(&mut self, items: &[InjectCandidate], config: Config) -> String {
-        let key = cache_key("", items, config).candidates;
+        let key = cache_key(&RepoKey::default(), "", items, config).candidates;
         if let Some((stored_key, stored_config, block)) = &self.default
             && *stored_key == key
             && *stored_config == config
