@@ -370,12 +370,18 @@ fn decide_facts(
         else {
             continue;
         };
-        let calibrated = store
-            .list_calibration()
-            .unwrap_or_default()
-            .into_iter()
+        let rows = store.list_calibration().unwrap_or_default();
+        let calibrated = rows
+            .iter()
             .find(|row| {
                 row.model_version == decision.model_version && row.purpose == purpose.as_str()
+            })
+            .or_else(|| {
+                rows.iter().find(|row| {
+                    row.model_version == decision.model_version
+                        && row.purpose == "loop_guard"
+                        && (0.9..=1.0).contains(&row.precision)
+                })
             });
         let now = i64::try_from(context.daemon.clock.now_ms()).unwrap_or(i64::MAX);
         let shadow = store.shadow_window().ok().flatten().map_or(
