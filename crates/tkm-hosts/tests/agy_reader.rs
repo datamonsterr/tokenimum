@@ -3,7 +3,7 @@
 
 use std::{
     fs,
-    path::{Path, PathBuf},
+    path::PathBuf,
     sync::atomic::{AtomicU64, Ordering},
 };
 use tkm_core::model::{EditKind, EditVia, FileEdit, RepoKey, StopReason, Timestamp, Usage};

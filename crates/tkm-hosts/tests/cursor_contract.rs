@@ -6,7 +6,7 @@ use std::fs;
 use std::path::PathBuf;
 
 use serde_json::{Value, json};
-use tkm_core::model::{Call, HookEvent, StopReason};
+use tkm_core::model::StopReason;
 use tkm_hosts::cursor::{CursorAdapter, is_cursor_payload};
 use tkm_hosts::{AdapterError, HostAdapter, PruneTarget};
 use tkm_proto::{EventKind, Host, PROTOCOL_VERSION, ReplyAction, Request};
