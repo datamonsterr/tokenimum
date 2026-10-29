@@ -50,8 +50,8 @@ fn every_claude_hook_fixture_maps_to_expected_event() {
             let tool = p["tool_name"].as_str().unwrap();
             let output = match tool {
                 "Bash" if native == "PostToolUseFailure" => "Exit code 1".into(),
-                "Bash" => "hello".into(),
-                "Read" => "hello".into(),
+                "Bash" | "Read" => "hello".into(),
+                "Write" => "x".into(),
                 _ => serde_json::to_string(&p["tool_response"]).unwrap(),
             };
             let mut call = Call {
@@ -102,6 +102,10 @@ fn every_claude_hook_fixture_maps_to_expected_event() {
 }
 
 #[test]
+#[expect(
+    clippy::default_constructed_unit_structs,
+    reason = "Exercise the required Default implementation."
+)]
 fn every_event_action_pair_has_exact_advisory_reply_bytes() {
     let adapter = ClaudeAdapter::default();
     for event in [
@@ -114,7 +118,7 @@ fn every_event_action_pair_has_exact_advisory_reply_bytes() {
         "FutureEvent",
     ] {
         let req = request(
-            json!({"session_id":"s", "hook_event_name":event,"prompt":"p","tool_name":"Bash","tool_input":{}}),
+            json!({"session_id":"s", "hook_event_name":event,"prompt":"p","tool_name":"Bash","tool_input":{},"error":"Exit code 1"}),
         );
         let injection = format!(
             "{{\"hookSpecificOutput\":{{\"hookEventName\":\"{event}\",\"additionalContext\":\"context\"}}}}"
@@ -213,15 +217,18 @@ fn malformed_payloads_fail_without_secret_values_and_render_empty() {
             ""
         );
     }
-    for mut req in [
-        request(json!({"session_id":"s","hook_event_name":"Stop"})),
-        request(json!({"session_id":"s","hook_event_name":"Stop"})),
-    ] {
-        if req.version == PROTOCOL_VERSION {
-            req.version = 0;
-        }
-        assert!(adapter.map_event(&req).is_err());
-    }
+    let mut wrong_version = request(json!({"session_id":"s","hook_event_name":"Stop"}));
+    wrong_version.version = 0;
+    assert!(adapter.map_event(&wrong_version).is_err());
+    assert_eq!(
+        adapter.render_reply(
+            &wrong_version,
+            &ReplyAction::Notice {
+                text: "notice".into()
+            }
+        ),
+        ""
+    );
     let mut req = request(json!({"session_id":"s"}));
     req.host = Host::Codex;
     assert!(adapter.map_event(&req).is_err());
@@ -252,5 +259,22 @@ fn fallback_event_and_edit_containment_are_pure() {
                 .edits
                 .is_empty()
         );
+    }
+}
+
+#[test]
+fn timestamps_validate_calendar_offsets_and_pre_epoch_fractional_seconds() {
+    for (text, expected) in [
+        ("1970-01-01T00:00:00Z", Some(0)),
+        ("1969-12-31T23:59:59.999Z", Some(-1)),
+        ("1970-01-01T01:30:00.123456+01:30", Some(123)),
+        ("2026-02-29T00:00:00Z", None),
+        ("1970-01-01T00:00:00+99:00", None),
+        ("private", None),
+    ] {
+        let req =
+            request(json!({"session_id":"s","hook_event_name":"SessionStart","timestamp":text}));
+        let event = ClaudeAdapter::new().map_event(&req).unwrap().unwrap();
+        assert_eq!(event.timestamp.map(|value| value.0), expected, "{text}");
     }
 }

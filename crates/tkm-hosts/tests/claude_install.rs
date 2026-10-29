@@ -3,7 +3,7 @@
 use serde_json::Value;
 use std::{
     fs,
-    path::{Path, PathBuf},
+    path::PathBuf,
     sync::atomic::{AtomicU64, Ordering},
 };
 use tkm_hosts::{AdapterError, HostAdapter, InstallContext, claude::ClaudeAdapter};
@@ -178,6 +178,61 @@ fn repo_scope_uses_local_settings() {
     let mut context = temp.context();
     context.repo_root = Some(temp.0.clone());
     ClaudeAdapter::new().install(&context).unwrap();
-    assert!(Path::new(&temp.0.join(".claude/settings.local.json")).exists());
+    assert!(temp.0.join(".claude/settings.local.json").exists());
     assert!(!temp.0.join("settings.json").exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn escaping_backup_symlinks_are_refused_and_in_root_settings_links_survive() {
+    use std::os::unix::fs::symlink;
+    let temp = Scratch::new();
+    let outside = Scratch::new();
+    let path = temp.0.join("settings.json");
+    let backup = temp.0.join("settings.json.tkm-bak");
+    fs::write(&path, b"{}").unwrap();
+    fs::write(outside.0.join("secret"), b"private").unwrap();
+    symlink(outside.0.join("secret"), &backup).unwrap();
+    assert!(matches!(
+        ClaudeAdapter::new().install(&temp.context()),
+        Err(AdapterError::UnsafeTarget { .. })
+    ));
+    assert_eq!(fs::read(&path).unwrap(), b"{}");
+    assert_eq!(fs::read(outside.0.join("secret")).unwrap(), b"private");
+    fs::remove_file(&backup).unwrap();
+    fs::rename(&path, temp.0.join("inner.json")).unwrap();
+    symlink(temp.0.join("inner.json"), &path).unwrap();
+    ClaudeAdapter::new().install(&temp.context()).unwrap();
+    assert!(
+        fs::symlink_metadata(&path)
+            .unwrap()
+            .file_type()
+            .is_symlink()
+    );
+    ClaudeAdapter::new().uninstall(&temp.context()).unwrap();
+    assert_eq!(fs::read(&path).unwrap(), b"{}");
+    assert!(fs::symlink_metadata(path).unwrap().file_type().is_symlink());
+}
+
+#[cfg(unix)]
+#[test]
+fn dangling_escaping_settings_and_aliasing_backups_are_refused() {
+    use std::os::unix::fs::symlink;
+    let temp = Scratch::new();
+    let outside = Scratch::new();
+    let path = temp.0.join("settings.json");
+    symlink(outside.0.join("missing.json"), &path).unwrap();
+    assert!(matches!(
+        ClaudeAdapter::new().install(&temp.context()),
+        Err(AdapterError::UnsafeTarget { .. })
+    ));
+    assert!(!outside.0.join("missing.json").exists());
+    fs::remove_file(&path).unwrap();
+    fs::write(&path, b"{}").unwrap();
+    symlink(&path, temp.0.join("settings.json.tkm-bak")).unwrap();
+    assert!(matches!(
+        ClaudeAdapter::new().uninstall(&temp.context()),
+        Err(AdapterError::UnsafeTarget { .. })
+    ));
+    assert_eq!(fs::read(path).unwrap(), b"{}");
 }

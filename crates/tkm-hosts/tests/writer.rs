@@ -171,3 +171,92 @@ fn prune_refuses_escaping_symlinks() {
     ));
     assert_eq!(fs::read(outside.0.join("settings.json")).unwrap(), b"{}");
 }
+
+#[test]
+fn foreign_empty_hooks_and_invalid_documents_are_never_rewritten() {
+    let temp = Scratch::new();
+    let path = temp.0.join("settings.json");
+    fs::write(&path, "{ \"hooks\" : {} }\r\n").unwrap();
+    assert!(
+        writer::uninstall_hooks(&temp.0, &path, "claude", false)
+            .unwrap()
+            .changed_files
+            .is_empty()
+    );
+    assert_eq!(fs::read_to_string(&path).unwrap(), "{ \"hooks\" : {} }\r\n");
+    for text in ["{", "[]", "{\"hooks\":false}"] {
+        fs::write(&path, text).unwrap();
+        assert!(writer::install_hooks(&temp.0, &path, "claude", &[HookSpec { native_event:"Stop".into(), kind:EventKind::TurnEnd, matcher:None,
+            handler:json!({"command":"tkm-hook","args":["--host","claude","--event","turn_end"]}) }], false).is_err());
+        assert_eq!(fs::read_to_string(&path).unwrap(), text);
+        assert!(!temp.0.join("settings.json.tkm-bak").exists());
+    }
+}
+
+#[test]
+fn ownership_requires_exact_program_and_adjacent_host_arguments() {
+    for handler in [
+        json!({"command":"/opt/bin/tkm-hook","args":["--host","claude"]}),
+        json!({"command":"'/opt/token tools/tkm-hook' --host 'claude' --event prompt"}),
+    ] {
+        assert!(writer::owns_handler(&handler, "claude"));
+        assert!(!writer::owns_handler(&handler, "codex"));
+    }
+    for handler in [
+        json!({"command":"echo tkm-hook --host claude"}),
+        json!({"command":"tkm-hook-malicious --host claude"}),
+        json!({"command":"tkm-hook --host claude-extra"}),
+        json!({"command":"tkm-hook --host codex; echo --host claude"}),
+        json!({"command":"tkm-hook","args":["--host",7]}),
+        json!({"command":"tkm-hook","args":["--host","other","claude"]}),
+    ] {
+        assert!(!writer::owns_handler(&handler, "claude"));
+    }
+}
+
+#[test]
+fn prune_exclude_path_supports_linked_git_worktrees() {
+    let main = Scratch::new();
+    if !init_git(&main) {
+        return;
+    }
+    assert!(
+        Command::new("git")
+            .current_dir(&main.0)
+            .args([
+                "-c",
+                "user.name=Test",
+                "-c",
+                "user.email=test@example.invalid",
+                "commit",
+                "--allow-empty",
+                "--quiet",
+                "-m",
+                "fixture"
+            ])
+            .status()
+            .unwrap()
+            .success()
+    );
+    let linked = main.0.join("linked");
+    assert!(
+        Command::new("git")
+            .current_dir(&main.0)
+            .arg("worktree")
+            .arg("add")
+            .arg("--quiet")
+            .arg("--detach")
+            .arg(&linked)
+            .status()
+            .unwrap()
+            .success()
+    );
+    update_deny(&linked, &BTreeSet::new(), &set(&["UnusedTool"]), false).unwrap();
+    let contents = fs::read_to_string(main.0.join(".git/info/exclude")).unwrap();
+    assert!(
+        contents
+            .lines()
+            .any(|line| line == "/.claude/settings.local.json")
+    );
+    assert!(linked.join(".claude/settings.local.json").exists());
+}
