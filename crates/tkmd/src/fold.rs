@@ -1281,6 +1281,77 @@ mod replay_tests {
     use super::*;
     use tkm_hosts::claude::ClaudeAdapter;
     #[test]
+    fn fold_discovers_kimi_fixture_without_hook_path() {
+        let scratch = tempfile::tempdir().unwrap();
+        let home = scratch.path().join(".kimi");
+        let cwd = PathBuf::from("/home/user/project");
+        let session_id = "9a1b2c3d-4e5f-6a7b-8c9d-0e1f2a3b4c5d";
+        let destination = tkm_hosts::kimi::session_dir(&home, cwd.to_str().unwrap(), session_id);
+        std::fs::create_dir_all(&destination).unwrap();
+        let fixture = Path::new(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../fixtures/kimi/sessions/90722f2638004be06d790eaac9ac1f8a/9a1b2c3d-4e5f-6a7b-8c9d-0e1f2a3b4c5d"
+        ));
+        for name in ["context.jsonl", "wire.jsonl"] {
+            std::fs::copy(fixture.join(name), destination.join(name)).unwrap();
+        }
+        let store = Store::open_in_memory().unwrap();
+        let repo = RepoKey("fixture".into());
+        store
+            .upsert_repo(&tkm_store::Repo {
+                repo_key: repo.clone(),
+                display_name: "fixture".into(),
+                first_seen: Timestamp(0),
+                last_seen: Timestamp(0),
+                delegated_runs: 0,
+            })
+            .unwrap();
+        let key = SessionKey {
+            host: Host::Kimi,
+            agent_home: home.to_string_lossy().into_owned(),
+            session_id: session_id.into(),
+        };
+        let id = store
+            .upsert_session(&tkm_store::NewSession {
+                key: key.clone(),
+                repo_key: repo.clone(),
+                cwd: cwd.clone(),
+                started: Timestamp(0),
+                ended: Some(Timestamp(1)),
+                fold_status: "pending".into(),
+                shadow: false,
+                integration_level: "hooks".into(),
+            })
+            .unwrap();
+        let job = FoldJob {
+            key,
+            host: Host::Kimi,
+            repo,
+            cwd,
+            agent_home: home,
+            log_path: None,
+            settings: Arc::new(Settings::default()),
+            injected: BTreeSet::new(),
+            overhead: (0, Some(0.0)),
+            ended_ms: 1,
+        };
+        let record = store.get_session(id).unwrap().unwrap();
+        let report = fold_inner(
+            &store,
+            &record,
+            &tkm_hosts::kimi::KimiAdapter::new(),
+            &job,
+            None,
+        )
+        .unwrap();
+        assert_eq!(report.status, "folded");
+        assert_eq!(
+            store.get_session(id).unwrap().unwrap().fold_status,
+            "folded"
+        );
+    }
+
+    #[test]
     fn fold_batches_candidate_and_exercised_fact_questions() {
         let source = SessionSource {
             agent_home: "/fake/agent".into(),
