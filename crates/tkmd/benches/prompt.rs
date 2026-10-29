@@ -86,8 +86,26 @@ fn prompt(c: &mut Criterion) {
     );
     let decider = Arc::new(ScoreDecider(AtomicUsize::new(0)));
     let mut options = DaemonOptions::new(paths);
-    options.settings = Arc::new(FixedSettings::new(Settings::default()));
+    // Relevance scores act only for a calibrated model that has left its shadow window.
+    options.settings = Arc::new(FixedSettings::new(Settings {
+        shadow_days: 0,
+        shadow_turns: 0,
+        ..Settings::default()
+    }));
     options.decider = decider.clone();
+    options
+        .backing
+        .open()
+        .unwrap()
+        .upsert_calibration(&tkm_store::CalibrationRecord {
+            model_version: "benchmark/model-20260101".into(),
+            purpose: "relevance".into(),
+            thresholds: serde_json::json!({"t_stuck":0.9,"t_progress":0.2,"t_low":0.1,"t_high":0.8}),
+            sample_count: 200,
+            precision: 0.95,
+            recall: 0.9,
+        })
+        .unwrap();
     let daemon = Daemon::new(options);
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()

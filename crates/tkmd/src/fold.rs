@@ -1351,12 +1351,12 @@ mod tests {
             (
                 Host::Claude,
                 root.join(".claude"),
-                claude,
-                fixtures
-                    .join("claude/sessions")
-                    .join(format!("{claude}.jsonl")),
-                root.join(".claude/projects/-home-user-project")
-                    .join(format!("{claude}.jsonl")),
+                root.join(".claude/projects")
+                    .join(
+                        cwd.to_string_lossy()
+                            .replace(|c: char| !c.is_ascii_alphanumeric(), "-"),
+                    )
+                    .join("s.jsonl"),
             ),
             (
                 Host::Codex,
