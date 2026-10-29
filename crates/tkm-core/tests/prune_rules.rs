@@ -170,3 +170,47 @@ fn partial_sessions_and_skill_report() {
     assert_eq!(report.skills["test-skill"].invocations, 1);
     assert!(serde_json::to_string(&report).is_ok());
 }
+
+#[test]
+fn evidence_isolated_by_repository_and_host() {
+    use tkm_core::model::RepoKey;
+    let mut state = PruneEvidence::default();
+    let first = session("mcp__unused", 5, false);
+    fold(&mut state, &first);
+    let mut other = first.clone();
+    other.repo_key = RepoKey("other".into());
+    fold(&mut state, &other);
+    other.repo_key = first.repo_key.clone();
+    other.host = Host::Pi;
+    fold(&mut state, &other);
+    assert_eq!(state.tools["mcp__unused"].sessions, 1);
+    assert_eq!(state.tools["mcp__unused"].prompts, 5);
+}
+
+#[test]
+fn protected_sets_cover_reference_and_host_equivalents() {
+    let cfg = PruneConfig {
+        protect: vec!["private__*".into()],
+        superorchestrator_adapter_enabled: true,
+        ..PruneConfig::default()
+    };
+    for name in [
+        "Bash",
+        "Agent",
+        "Skill",
+        "ToolSearch",
+        "WebFetch",
+        "WebSearch",
+        "mcp__headroom__x",
+        "mcp__superorchestrator__y",
+        "private__anything",
+    ] {
+        assert!(is_protected(name, Host::Claude, &cfg), "{name}");
+    }
+    for name in ["skill", "task"] {
+        assert!(is_protected(name, Host::Opencode, &cfg));
+    }
+    for name in ["read", "bash", "edit", "write"] {
+        assert!(is_protected(name, Host::Pi, &cfg));
+    }
+}

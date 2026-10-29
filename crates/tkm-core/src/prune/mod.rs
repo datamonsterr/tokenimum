@@ -3,7 +3,7 @@
 //! Pure tool pruning and skill usage evidence.
 pub mod skills;
 
-use crate::model::{Host, Session, Timestamp, ToolKind};
+use crate::model::{Host, RepoKey, Session, Timestamp, ToolKind};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 /// Pruning mode.
@@ -70,15 +70,29 @@ pub struct ToolEvidence {
 /// Evidence for a single repository and host.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PruneEvidence {
+    /// Repository identity fixed by the first complete session.
+    pub repo_key: Option<RepoKey>,
+    /// Host identity fixed by the first complete session.
+    pub host: Option<Host>,
     /// Tools and their unused streaks.
     pub tools: BTreeMap<String, ToolEvidence>,
 }
-/// Fold a completed session in chronological order. Callers keep separate state per
-/// repository and host and must fold each session once. Partial sessions are ignored.
+/// Fold a completed session in chronological order. State binds to the first complete session’s repository and host; mismatched
+/// and partial sessions are ignored. Callers fold each session once in chronological order.
 pub fn fold(state: &mut PruneEvidence, session: &Session) {
     if session.partial {
         return;
     }
+    if state
+        .repo_key
+        .as_ref()
+        .is_some_and(|key| key != &session.repo_key)
+        || state.host.is_some_and(|host| host != session.host)
+    {
+        return;
+    }
+    state.repo_key = Some(session.repo_key.clone());
+    state.host = Some(session.host);
     let loaded: std::collections::BTreeSet<_> = session
         .tool_catalog
         .iter()
@@ -115,7 +129,12 @@ pub fn fold(state: &mut PruneEvidence, session: &Session) {
         }
         if loaded.contains(name.as_str()) {
             e.loaded_sessions = e.loaded_sessions.saturating_add(1);
-            if !used {
+            if !used
+                || session
+                    .turns
+                    .last()
+                    .is_some_and(|turn| !turn.calls.iter().any(|call| call.tool == *name))
+            {
                 e.sessions = e.sessions.saturating_add(1);
             }
         }
