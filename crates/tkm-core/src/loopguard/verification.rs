@@ -1,7 +1,9 @@
 // Portions ported from microsoft/TokenEconomizer (tokeneconomizer/loopguard/turn.py, state.py, commit d0675a3),
 // Copyright (c) Microsoft Corporation, licensed under the Apache License, Version 2.0.
 //! Verification status across shell pipelines and test runner summaries.
-use super::shell_edits::{basename, shell_script, tokens};
+use super::shell_edits::{
+    ShellSegment, basename, executable_words, python_script, segment_edit_targets, shell_segments,
+};
 use crate::model::Call;
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -18,10 +20,85 @@ pub(super) fn is_shell(call: &Call) -> bool {
     )
 }
 
-// A failed write attempt is not evidence that a file changed. Unknown status
-// retains TE's heuristic, while either explicit failure signal rules it out.
-pub(super) fn writes_allowed(call: &Call) -> bool {
-    !call.is_error && call.exit_code.is_none_or(|code| code == 0)
+// A later check in an && chain can fail only after earlier writes succeeded.
+// Keep those edits, while excluding final writes and explicitly named write errors.
+pub(super) fn edit_targets(call: &Call) -> Vec<String> {
+    let failed = call.is_error || call.exit_code.is_some_and(|code| code != 0);
+    let mut inferred = Vec::new();
+    if is_shell(call) {
+        let segments = shell_segments(&call.args_digest);
+        for (index, segment) in segments.iter().enumerate() {
+            let targets = segment_edit_targets(segment);
+            if failed
+                && (named_write_failure(segment, &call.output_digest)
+                    || !check_after_write(&segments, index))
+            {
+                continue;
+            }
+            for target in targets {
+                if !inferred.contains(&target) {
+                    inferred.push(target);
+                }
+            }
+        }
+    }
+    let generic = inferred
+        .iter()
+        .any(|s| matches!(s.as_str(), "(patch)" | "(script)"));
+    let mut names: Vec<String> = call
+        .edits
+        .iter()
+        .filter_map(|edit| edit.path.to_str())
+        .map(basename)
+        .filter(|s| !s.is_empty())
+        .filter(|s| !failed || generic || inferred.iter().any(|p| p == s))
+        .map(str::to_owned)
+        .collect();
+    let known = !names.is_empty();
+    for target in inferred {
+        if known && matches!(target.as_str(), "(patch)" | "(script)") {
+            continue;
+        }
+        if !names.contains(&target) {
+            names.push(target);
+        }
+    }
+    names
+}
+
+fn check_after_write(segments: &[ShellSegment], index: usize) -> bool {
+    for next in index + 1..segments.len() {
+        if segments[next - 1].next != "&&" {
+            break;
+        }
+        if verifies(&segments[next]) {
+            return true;
+        }
+    }
+    false
+}
+
+fn named_write_failure(segment: &ShellSegment, output: &str) -> bool {
+    let words = executable_words(&segment.words);
+    let head = words.first().map(|s| basename(s)).unwrap_or_default();
+    let output = output.to_ascii_lowercase();
+    let prefix = format!("{head}:");
+    let named = !head.is_empty()
+        && output
+            .lines()
+            .any(|line| line.trim_start().starts_with(&prefix));
+    let patch = matches!(head, "patch" | "apply_patch")
+        || (head == "git" && words.get(1).is_some_and(|s| s == "apply"));
+    named
+        || (patch
+            && [
+                "patch failed",
+                "patch does not apply",
+                "failed to find context",
+                "apply_patch: error",
+            ]
+            .iter()
+            .any(|s| output.contains(s)))
 }
 
 pub(super) fn has_error(text: &str) -> bool {
@@ -41,8 +118,17 @@ fn error_pattern() -> Option<&'static regex::Regex> {
 // Keep the Python-only signal vocabulary used to calibrate SpiralState, while
 // ended-green classification below recognizes project checks across ecosystems.
 pub(super) fn counts_test_run(command: &str) -> bool {
-    pattern!(r"(?i)(runtests(\.py)?|\bpytest\b|py\.test|manage\.py\s+test|python\s+-m\s+unittest|\btox\b|\bnox\b|\btrial\b|python\d?\s+-c\b)")
-        .is_some_and(|re| re.is_match(command))
+    let pattern = pattern!(
+        r"(?i)(runtests(\.py)?|\bpytest\b|py\.test|manage\.py\s+test|python\s+-m\s+unittest|\btox\b|\bnox\b|\btrial\b|python\d?\s+-c\b)"
+    );
+    shell_segments(command).iter().any(|segment| {
+        let text = format!(
+            "{} {}",
+            segment.words.join(" "),
+            python_script(segment).unwrap_or_default()
+        );
+        pattern.is_some_and(|re| re.is_match(&text))
+    })
 }
 
 pub(super) fn is_verification(command: &str) -> bool {
@@ -65,29 +151,16 @@ pub(super) fn reported_failure(call: &Call) -> Option<bool> {
 }
 
 fn status_of_tests(command: &str) -> Option<TestStatus> {
-    let script = shell_script(command);
-    let parts = tokens(&script)?;
-    let mut stages: Vec<(Vec<String>, String)> = Vec::new();
-    let mut words = Vec::new();
-    for part in parts {
-        if part.operator && matches!(part.text.as_str(), "&&" | "||" | "|" | "|&" | ";" | "\n") {
-            stages.push((std::mem::take(&mut words), part.text));
-        } else if !part.operator {
-            words.push(part.text);
-        }
-    }
-    if !words.is_empty() {
-        stages.push((words, String::new()));
-    }
-    let pipefail = script.contains("pipefail");
+    let stages = shell_segments(command);
+    let pipefail = command.contains("pipefail");
     let mut found = None;
-    for (index, (words, _)) in stages.iter().enumerate() {
-        if !runner(words) {
+    for (index, segment) in stages.iter().enumerate() {
+        if !verifies(segment) {
             continue;
         }
         let mut status = TestStatus::Own;
         for pos in index..stages.len().saturating_sub(1) {
-            let sep = stages[pos].1.as_str();
+            let sep = stages[pos].next.as_str();
             if sep == "&&" || (pipefail && matches!(sep, "|" | "|&")) {
                 continue;
             }
@@ -96,7 +169,7 @@ fn status_of_tests(command: &str) -> Option<TestStatus> {
                 break;
             }
             if !stages[pos + 1]
-                .0
+                .words
                 .first()
                 .is_some_and(|s| matches!(s.as_str(), "echo" | "printf" | "true" | ":" | "exit"))
             {
@@ -110,6 +183,13 @@ fn status_of_tests(command: &str) -> Option<TestStatus> {
     found
 }
 
+fn verifies(segment: &ShellSegment) -> bool {
+    runner(&segment.words)
+        || python_script(segment).is_some_and(|script| {
+            pattern!(r"\b(?:pytest|unittest)\.main\s*\(").is_some_and(|re| re.is_match(&script))
+        })
+}
+
 fn runner(words: &[String]) -> bool {
     if words.iter().any(|s| {
         matches!(
@@ -119,35 +199,16 @@ fn runner(words: &[String]) -> bool {
     }) {
         return false;
     }
-    let mut start = 0;
-    while let Some(word) = words.get(start) {
-        if word.contains('=')
-            || matches!(
-                word.as_str(),
-                "time" | "nice" | "nohup" | "command" | "env" | "rtk" | "proxy"
-            )
-        {
-            start += 1;
-        } else if word == "timeout" {
-            start += 1;
-            while words.get(start).is_some_and(|s| {
-                s.starts_with('-') || s.chars().next().is_some_and(|c| c.is_ascii_digit())
-            }) {
-                start += 1;
-            }
-        } else {
-            break;
-        }
-    }
-    let Some(head) = words.get(start).map(|s| basename(s)) else {
+    let words = executable_words(words);
+    let Some(head) = words.first().map(|s| basename(s)) else {
         return false;
     };
-    let rest = &words[start + 1..];
+    let rest = &words[1..];
     let first = rest.first().map(String::as_str).unwrap_or_default();
     match head {
         "pytest" | "py.test" | "tox" | "nox" | "runtests" | "runtests.py" | "jest" | "vitest"
         | "mocha" | "ava" | "ctest" | "rspec" | "phpunit" => true,
-        "test" => words[start].ends_with("bin/test"),
+        "test" => words[0].ends_with("bin/test"),
         "npm" | "pnpm" | "yarn" | "bun" => {
             first == "test" || (first == "run" && rest.get(1).is_some_and(|s| s == "test"))
         }

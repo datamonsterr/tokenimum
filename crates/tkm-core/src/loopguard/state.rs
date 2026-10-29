@@ -1,10 +1,7 @@
 // Portions ported from microsoft/TokenEconomizer (tokeneconomizer/loopguard/state.py, commit d0675a3),
 // Copyright (c) Microsoft Corporation, licensed under the Apache License, Version 2.0.
 //! Compact per-call spiral signals.
-use super::{
-    shell_edits::{basename, shell_edit_targets},
-    verification,
-};
+use super::verification;
 use crate::model::Call;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -31,28 +28,9 @@ impl SpiralState {
     /// Fold a normalized call once; shell edits and normalized edits are deduplicated.
     pub fn update(&mut self, call: &Call) {
         self.turns = self.turns.saturating_add(1);
-        let mut names: Vec<String> = call
-            .edits
-            .iter()
-            .filter(|_| verification::writes_allowed(call))
-            .filter_map(|edit| edit.path.to_str())
-            .map(basename)
-            .filter(|s| !s.is_empty())
-            .map(str::to_owned)
-            .collect();
-        if verification::is_shell(call) {
-            let known_paths = !names.is_empty();
-            names.extend(
-                shell_edit_targets(&call.args_digest)
-                    .into_iter()
-                    .filter(|name| {
-                        verification::writes_allowed(call)
-                            && (!known_paths || !matches!(name.as_str(), "(patch)" | "(script)"))
-                    }),
-            );
-            if verification::counts_test_run(&call.args_digest) {
-                self.test_runs = self.test_runs.saturating_add(1);
-            }
+        let names = verification::edit_targets(call);
+        if verification::is_shell(call) && verification::counts_test_run(&call.args_digest) {
+            self.test_runs = self.test_runs.saturating_add(1);
         }
         let mut seen = Vec::new();
         for name in names {

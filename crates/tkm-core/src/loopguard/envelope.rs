@@ -2,7 +2,7 @@
 // Copyright (c) Microsoft Corporation, licensed under the Apache License, Version 2.0.
 //! Good-turn classification and the bounded repository baseline (SPEC 7.4).
 use super::LoopConfig;
-use super::{shell_edits::shell_edit_targets, verification};
+use super::verification;
 use crate::model::{StopReason, Turn};
 use serde::{Deserialize, Serialize};
 /// The most recent 500 good-turn lengths, in tool calls (SPEC 7.4 step 7).
@@ -61,10 +61,7 @@ pub fn is_good_turn(turn: &Turn, escalated: bool) -> bool {
     let mut failed_after_edit = false;
     for call in &turn.calls {
         let shell = verification::is_shell(call);
-        if verification::writes_allowed(call)
-            && (!call.edits.is_empty()
-                || (shell && !shell_edit_targets(&call.args_digest).is_empty()))
-        {
+        if !verification::edit_targets(call).is_empty() {
             failed_after_edit = false;
         }
         // A compound edit-and-test counts as verifying that edit, as in TE.

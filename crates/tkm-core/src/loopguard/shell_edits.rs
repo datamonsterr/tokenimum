@@ -5,22 +5,19 @@
 /// Unresolved script and patch targets use `(script)` and `(patch)`.
 #[must_use]
 pub fn shell_edit_targets(command: &str) -> Vec<String> {
-    detect(command, 0)
+    let segments = shell_segments(command);
+    let writes = segments
+        .iter()
+        .flat_map(|segment| segment.writes.iter())
+        .filter(|path| source_file(path))
+        .cloned();
+    let edits = segments.iter().flat_map(command_targets);
+    normalize_targets(writes.chain(edits))
 }
 
-fn detect(command: &str, depth: u8) -> Vec<String> {
-    // Bound interpretation of recursively nested shell wrappers.
-    if depth >= 16 {
-        return Vec::new();
-    }
-    let (shell, bodies) = split_heredocs(command);
-    let (commands, writes) = commands(&shell, &bodies);
-    let mut found: Vec<String> = writes.into_iter().filter(|s| source_file(s)).collect();
-    for command in commands {
-        found.extend(command_targets(command, depth));
-    }
+fn normalize_targets(paths: impl IntoIterator<Item = String>) -> Vec<String> {
     let mut names = Vec::new();
-    for path in found {
+    for path in paths {
         if path.is_empty()
             || ["/tmp/", "/dev/", "/proc/"]
                 .iter()
@@ -40,17 +37,105 @@ fn detect(command: &str, depth: u8) -> Vec<String> {
     names
 }
 
+/// One executable shell stage, with only its own stdin bodies and redirects.
 #[derive(Default)]
-struct SimpleCommand {
-    words: Vec<String>,
-    bodies: Vec<String>,
+pub(super) struct ShellSegment {
+    pub(super) words: Vec<String>,
+    pub(super) bodies: Vec<String>,
+    pub(super) writes: Vec<String>,
+    pub(super) next: String,
 }
 
-fn command_targets(mut command: SimpleCommand, depth: u8) -> Vec<String> {
-    let words = &mut command.words;
-    while words.first().is_some_and(|s| prefix(s)) {
-        words.remove(0);
+pub(super) fn shell_segments(command: &str) -> Vec<ShellSegment> {
+    walk(command, 0)
+}
+
+fn walk(command: &str, depth: u8) -> Vec<ShellSegment> {
+    if depth >= 16 {
+        return Vec::new();
     }
+    let (shell, bodies) = split_heredocs(command);
+    let mut out = Vec::new();
+    for mut segment in commands(&shell, &bodies) {
+        let words = executable_words(&segment.words);
+        let head = words.first().map(|s| basename(s)).unwrap_or_default();
+        let source = if matches!(head, "sh" | "bash" | "zsh" | "dash" | "ksh") {
+            if words.len() >= 3 && words[1].starts_with('-') && words[1].contains('c') {
+                Some(words[2].clone())
+            } else if !words.iter().skip(1).any(|s| !s.starts_with('-'))
+                && !segment.bodies.is_empty()
+            {
+                Some(segment.bodies.join("\n"))
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+        if let Some(source) = source {
+            let mut inner = walk(&source, depth + 1);
+            if let Some(last) = inner.last_mut() {
+                last.next.clone_from(&segment.next);
+            }
+            if let Some(first) = inner.first_mut() {
+                segment.writes.append(&mut first.writes);
+                first.writes = segment.writes;
+                out.extend(inner);
+                continue;
+            }
+        }
+        out.push(segment);
+    }
+    out
+}
+
+pub(super) fn executable_words(words: &[String]) -> &[String] {
+    let mut start = 0;
+    while let Some(word) = words.get(start) {
+        if prefix(word) || matches!(word.as_str(), "nice" | "rtk" | "proxy") {
+            start += 1;
+        } else if word == "timeout" {
+            start += 1;
+            while words.get(start).is_some_and(|s| {
+                s.starts_with('-') || s.chars().next().is_some_and(|c| c.is_ascii_digit())
+            }) {
+                start += 1;
+            }
+        } else {
+            break;
+        }
+    }
+    &words[start..]
+}
+
+pub(super) fn python_script(segment: &ShellSegment) -> Option<String> {
+    let words = executable_words(&segment.words);
+    let head = words.first().map(|s| basename(s))?;
+    if !pattern!(r"\Apython\d?(?:\.\d+)?\z").is_some_and(|re| re.is_match(head)) {
+        return None;
+    }
+    if let Some(index) = words.iter().position(|s| s == "-c") {
+        words.get(index + 1).cloned()
+    } else if !words.iter().skip(1).any(|s| !s.starts_with('-')) && !segment.bodies.is_empty() {
+        Some(segment.bodies.join("\n"))
+    } else {
+        None
+    }
+}
+
+pub(super) fn segment_edit_targets(segment: &ShellSegment) -> Vec<String> {
+    normalize_targets(
+        segment
+            .writes
+            .iter()
+            .filter(|p| source_file(p))
+            .cloned()
+            .chain(command_targets(segment)),
+    )
+}
+
+fn command_targets(command: &ShellSegment) -> Vec<String> {
+    let words = executable_words(&command.words);
     let Some(head) = words.first().map(|s| basename(s)) else {
         return Vec::new();
     };
@@ -95,25 +180,7 @@ fn command_targets(mut command: SimpleCommand, depth: u8) -> Vec<String> {
             }
             _ => Vec::new(),
         },
-        "sh" | "bash" | "zsh" | "dash" | "ksh" => {
-            if words.len() >= 3 && words[1].starts_with('-') && words[1].contains('c') {
-                detect(&words[2], depth + 1)
-            } else {
-                Vec::new()
-            }
-        }
-        _ if pattern!(r"\Apython\d?(?:\.\d+)?\z").is_some_and(|re| re.is_match(head)) => {
-            if let Some(index) = words.iter().position(|s| s == "-c") {
-                words
-                    .get(index + 1)
-                    .map_or_else(Vec::new, |script| py_writes(script))
-            } else if !words.iter().skip(1).any(|s| !s.starts_with('-')) {
-                py_writes(&command.bodies.join("\n"))
-            } else {
-                Vec::new()
-            }
-        }
-        _ => Vec::new(),
+        _ => python_script(command).map_or_else(Vec::new, |script| py_writes(&script)),
     }
 }
 
@@ -301,28 +368,13 @@ pub(super) fn tokens(text: &str) -> Option<Vec<Token>> {
     Some(out)
 }
 
-pub(super) fn shell_script(command: &str) -> String {
-    if let Some(parts) = tokens(command)
-        && parts.len() >= 3
-        && matches!(
-            basename(&parts[0].text),
-            "sh" | "bash" | "zsh" | "dash" | "ksh"
-        )
-        && parts[1].text.starts_with('-')
-        && parts[1].text.contains('c')
-    {
-        return parts[2].text.clone();
-    }
-    command.to_owned()
-}
-
-fn commands(shell: &str, bodies: &[String]) -> (Vec<SimpleCommand>, Vec<String>) {
+fn commands(shell: &str, bodies: &[String]) -> Vec<ShellSegment> {
     let streams =
         tokens(shell).map_or_else(|| shell.lines().filter_map(tokens).collect(), |t| vec![t]);
-    let (mut cmds, mut writes) = (Vec::new(), Vec::new());
+    let mut cmds = Vec::new();
     let mut bodies = bodies.iter();
     for stream in streams {
-        let mut current = SimpleCommand::default();
+        let mut current = ShellSegment::default();
         let mut items = stream.into_iter();
         while let Some(t) = items.next() {
             if !t.operator {
@@ -344,22 +396,23 @@ fn commands(shell: &str, bodies: &[String]) -> (Vec<SimpleCommand>, Vec<String>)
                     && !operand.operator
                 {
                     if matches!(t.text.as_str(), ">" | ">>" | ">|" | "&>" | "&>>") {
-                        writes.push(operand.text);
+                        current.writes.push(operand.text);
                     } else if t.text == "<<"
                         && let Some(body) = bodies.next()
                     {
                         current.bodies.push(body.clone());
                     }
                 }
-            } else if !current.words.is_empty() {
+            } else if !current.words.is_empty() || !current.writes.is_empty() {
+                current.next = t.text;
                 cmds.push(std::mem::take(&mut current));
             }
         }
-        if !current.words.is_empty() {
+        if !current.words.is_empty() || !current.writes.is_empty() {
             cmds.push(current);
         }
     }
-    (cmds, writes)
+    cmds
 }
 
 fn py_writes(text: &str) -> Vec<String> {
