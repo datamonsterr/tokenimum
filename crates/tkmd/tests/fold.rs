@@ -395,7 +395,7 @@ fn fold_status(env: &Env) -> Option<String> {
 #[tokio::test]
 async fn fold_prices_session_with_configured_model_rates() {
     let env = Env::new();
-    let mut settings = Settings {
+    let settings = Settings {
         pricing: tkm_core::ledger::PriceTable::parse(include_str!(
             "../../../fixtures/pricing/pricing.toml"
         ))
