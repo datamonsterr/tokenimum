@@ -12,6 +12,10 @@
 //! # }
 //! ```
 
+mod queries;
+
+pub use queries::Repo;
+
 use std::path::Path;
 use std::time::Duration;
 

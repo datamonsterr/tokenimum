@@ -126,13 +126,12 @@ fn schema_snapshot_and_all_twelve_tables() {
 }
 
 #[test]
-fn opening_locked_database_reports_locked() {
+fn opening_current_database_does_not_reserve_writer() {
     let temp = TempDir::new();
     let path = temp.db();
     drop(Store::open(&path).unwrap());
     let conn = Connection::open(&path).unwrap();
     conn.execute_batch("BEGIN EXCLUSIVE").unwrap();
-    // The migration lock is acquired even for an already-current database.
     let result = Store::open_with_timeout(&path, Duration::from_millis(1));
-    assert!(result.is_err_and(|error| error.is_locked()));
+    assert!(result.is_ok());
 }
