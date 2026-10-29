@@ -20,6 +20,10 @@ const READ_LIMIT: Duration = Duration::from_secs(5);
 /// How long a probe waits for a live daemon to accept.
 const PROBE_LIMIT: Duration = Duration::from_millis(500);
 
+fn probe_is_refused(probe: &Result<io::Result<UnixStream>, tokio::time::error::Elapsed>) -> bool {
+    matches!(probe, Ok(Err(error)) if error.kind() == io::ErrorKind::ConnectionRefused)
+}
+
 /// A bound listener.
 pub struct Server {
     listener: UnixListener,
@@ -41,7 +45,7 @@ impl Server {
     ///
     /// Takes an exclusive advisory lock next to the socket first, so two daemons cannot race to
     /// replace each other's socket. A socket file is removed only after the lock is held and a
-    /// connect probe fails: a live daemon's socket is never taken over.
+    /// connect probe is refused: a live daemon's socket is never taken over.
     pub async fn bind(daemon: Arc<Daemon>) -> io::Result<Bind> {
         let paths = daemon.paths();
         paths.ensure_runtime_dir()?;
@@ -54,10 +58,17 @@ impl Server {
         }
         if paths.socket.exists() {
             let probe = tokio::time::timeout(PROBE_LIMIT, UnixStream::connect(&paths.socket)).await;
-            if matches!(probe, Ok(Ok(_))) {
-                return Ok(Bind::AlreadyRunning);
+            if probe_is_refused(&probe) {
+                std::fs::remove_file(&paths.socket)?;
+            } else {
+                match probe {
+                    Err(_) | Ok(Ok(_)) => return Ok(Bind::AlreadyRunning),
+                    Ok(Err(error)) if error.kind() == io::ErrorKind::WouldBlock => {
+                        return Ok(Bind::AlreadyRunning);
+                    }
+                    Ok(Err(error)) => return Err(error),
+                }
             }
-            std::fs::remove_file(&paths.socket)?;
         }
         let listener = UnixListener::bind(&paths.socket)?;
         secure_socket(&paths.socket)?;

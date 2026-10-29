@@ -14,7 +14,9 @@ Date: 2026-10-29. Status: accepted (epic E4.2).
    length is validated with `decode_len` before the body is allocated.
 3. **Socket ownership.** The daemon takes an advisory lock (`File::try_lock`, stable since Rust 1.89)
    on `tkmd.lock` beside the socket before touching the socket. A second daemon gets `WouldBlock`,
-   exits 0. A leftover socket file is removed only after the lock is held and a connect probe fails.
+   exits 0. A leftover socket file is removed only after the lock is held and a connect probe
+   reports connection refused. A timeout or would-block probe is treated as a live daemon; other
+   probe errors are returned without unlinking the socket.
    The runtime directory is mode 700 and the socket mode 600 (`Paths::ensure_runtime_dir`,
    `secure_socket`).
 4. **State in memory.** Sessions and turns live in one `StateMap` keyed by `(host, session_id)`.
