@@ -86,10 +86,27 @@ type SpendTarget = (Arc<dyn SpendSink>, Arc<dyn Escalator>);
 /// Spend ledger for the decision client. Rows live in memory (cap checks must not touch disk);
 /// each decision is also written to the `decisions` table by the daemon through the outbox,
 /// where it carries the answers and the shadow flag the client row lacks.
-#[derive(Default)]
 pub struct StoreLedger {
     inner: InMemoryLedger,
     sink: Mutex<Option<SpendTarget>>,
+    spend_tx: std::sync::mpsc::Sender<(Arc<dyn SpendSink>, String, String, f64, Option<String>)>,
+}
+
+impl Default for StoreLedger {
+    fn default() -> Self {
+        let (spend_tx, rx) =
+            std::sync::mpsc::channel::<(Arc<dyn SpendSink>, String, String, f64, Option<String>)>();
+        std::thread::spawn(move || {
+            while let Ok((sink, purpose, model, cost, run_id)) = rx.recv() {
+                sink.record(&purpose, &model, cost, run_id.as_deref());
+            }
+        });
+        Self {
+            inner: InMemoryLedger::default(),
+            sink: Mutex::new(None),
+            spend_tx,
+        }
+    }
 }
 
 impl StoreLedger {
@@ -133,7 +150,7 @@ impl SpendLedger for StoreLedger {
                 .sink
                 .lock()
                 .unwrap_or_else(PoisonError::into_inner)
-                .as_ref()
+                .clone()
             && escalator.superorchestrator_enabled()
         {
             let run_id = row.session_id.split_once(':').and_then(|(host, session)| {
@@ -141,12 +158,16 @@ impl SpendLedger for StoreLedger {
                     .ok()
                     .and_then(|h| escalator.run_id(h, session))
             });
-            sink.record(
-                row.purpose.as_str(),
-                row.model_version.as_deref().unwrap_or(&row.requested_model),
+            let _ = self.spend_tx.send((
+                sink,
+                row.purpose.as_str().to_owned(),
+                row.model_version
+                    .as_deref()
+                    .unwrap_or(&row.requested_model)
+                    .to_owned(),
                 cost,
-                run_id.as_deref(),
-            );
+                run_id,
+            ));
         }
         self.inner.record(row);
     }
