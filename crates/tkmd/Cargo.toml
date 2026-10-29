@@ -39,3 +39,11 @@ criterion = { workspace = true }
 [[bench]]
 name = "tool_done"
 harness = false
+
+[[bench]]
+name = "prompt"
+harness = false
+
+[[bench]]
+name = "fold_session"
+harness = false

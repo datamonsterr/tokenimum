@@ -24,26 +24,43 @@ jobs:
       - uses: taiki-e/install-action@v2
         with:
           tool: hyperfine@2.0.0
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.0
       # rust-cache can restore a partial target/criterion from main; Criterion then fails on a
       # missing base/sample.json. Baselines live in benchmark-data, so start Criterion clean.
       - name: Clear restored Criterion state
         run: rm -rf target/criterion
-      - name: Run Criterion placeholder
-        run: cargo bench --locked -p tkm-core --bench placeholder -- --output-format bencher | tee criterion.txt
       - name: Test bench scripts
         run: |
           python3 scripts/tests/test_check_bench_budget.py
           python3 scripts/tests/test_check_hook_latency.py
+          python3 scripts/tests/test_roundtrip_benchmark.py
+          python3 scripts/tests/test_perf_budget_table.py
+          python3 scripts/tests/test_perf_gates_complete.py
+          python3 scripts/tests/test_shim_benchmark.py
       - name: Run tkmd tool_done benchmark (budget 200 us)
         run: |
+          set -o pipefail
           cargo bench --locked -p tkmd --bench tool_done -- --output-format bencher | tee tkmd-criterion.txt
           python3 scripts/check_bench_budget.py tkmd-criterion.txt tool_done_ 200000
-          cat tkmd-criterion.txt >> criterion.txt
+          cp tkmd-criterion.txt criterion.txt
       - name: Run UI render benchmark (budget 50 ms)
         run: |
+          set -o pipefail
           cargo bench --locked -p tkm-ui --bench render -- --output-format bencher | tee ui-criterion.txt
           python3 scripts/check_bench_budget.py ui-criterion.txt render_ 50000000
           cat ui-criterion.txt >> criterion.txt
+      - name: Run prompt scoring and session folding benchmarks
+        run: |
+          set -o pipefail
+          cargo bench --locked -p tkmd --bench prompt -- --output-format bencher | tee prompt-criterion.txt
+          python3 scripts/check_bench_budget.py prompt-criterion.txt prompt/scored 1500000000
+          python3 scripts/check_bench_budget.py prompt-criterion.txt prompt/cached 5000000
+          cat prompt-criterion.txt >> criterion.txt
+          cargo bench --locked -p tkmd --bench fold_session -- --output-format bencher | tee fold-criterion.txt
+          python3 scripts/check_bench_budget.py fold-criterion.txt fold_session_ 500000000
+          cat fold-criterion.txt >> criterion.txt
       - name: Run hook benchmark
         run: |
           cargo build --release --locked -p tkm-hook
@@ -69,6 +86,33 @@ jobs:
             'target/release/tkm-hook --host claude --event tool_done'
           kill "$daemon"
           python3 scripts/check_hook_latency.py roundtrip.json --p50-ms 3 --p99-ms 10 --summary "$GITHUB_STEP_SUMMARY"
+          python3 scripts/roundtrip_to_benchmark.py roundtrip.json roundtrip-benchmark.json
+      - name: Benchmark opencode and Pi shims against tkmd
+        run: |
+          set -eu
+          scratch="$(mktemp -d)"
+          daemon=""
+          cleanup() {
+            if [ -n "$daemon" ]; then kill "$daemon" 2>/dev/null || true; wait "$daemon" 2>/dev/null || true; fi
+            rm -rf "$scratch"
+          }
+          trap cleanup EXIT
+          export HOME="$scratch/home" XDG_DATA_HOME="$scratch/data" XDG_CONFIG_HOME="$scratch/config" XDG_RUNTIME_DIR="$scratch/run"
+          export PATH="$GITHUB_WORKSPACE/target/release:$PATH"
+          mkdir -p "$HOME" "$XDG_DATA_HOME" "$XDG_CONFIG_HOME" "$XDG_RUNTIME_DIR"
+          chmod 700 "$XDG_RUNTIME_DIR"
+          TKM_DECIDE_ENABLED=false target/release/tkmd &
+          daemon=$!
+          for _ in $(seq 1 100); do
+            [ -S "$XDG_RUNTIME_DIR/tokenimum/tkmd.sock" ] && break
+            sleep 0.1
+          done
+          test -S "$XDG_RUNTIME_DIR/tokenimum/tkmd.sock"
+          for host in opencode pi; do
+            hyperfine --warmup 20 --runs 200 --shell=none --export-json "shim-$host.json" "bun scripts/bench_shim.ts $host"
+            python3 scripts/shim_benchmark.py "$host" "shim-$host.json" "shim-$host-metrics.json"
+          done
+          python3 -c 'import json; print(json.dumps(json.load(open("shim-opencode-metrics.json")) + json.load(open("shim-pi-metrics.json"))))' > shim-benchmark.json
       - uses: actions/cache/restore@v6
         with:
           path: benchmark-data
@@ -96,6 +140,26 @@ jobs:
           external-data-json-path: benchmark-data/hook.json
           alert-threshold: '120%'
           fail-on-alert: ${{ github.event_name == 'pull_request' }}
+      - name: Compare hook round trip percentiles
+        uses: benchmark-action/github-action-benchmark@v1.22.2
+        with:
+          name: Hook round trip
+          tool: customSmallerIsBetter
+          github-token: ${{ github.token }}
+          output-file-path: roundtrip-benchmark.json
+          external-data-json-path: benchmark-data/roundtrip.json
+          alert-threshold: '120%'
+          fail-on-alert: ${{ github.event_name == 'pull_request' }}
+      - name: Compare shim percentiles
+        uses: benchmark-action/github-action-benchmark@v1.22.2
+        with:
+          name: Shim
+          tool: customSmallerIsBetter
+          github-token: ${{ github.token }}
+          output-file-path: shim-benchmark.json
+          external-data-json-path: benchmark-data/shim.json
+          alert-threshold: '120%'
+          fail-on-alert: ${{ github.event_name == 'pull_request' }}
       - name: Save main baseline
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: actions/cache/save@v6
@@ -112,7 +176,9 @@ jobs:
           shared-key: workspace-idle-memory
           save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
       - name: Test memory budget checker
-        run: python3 scripts/tests/test_check_idle_memory.py
+        run: |
+          python3 scripts/tests/test_check_idle_memory.py
+          python3 scripts/tests/test_idle_metrics.py
       - name: Measure daemon idle memory
         run: |
           set -eu
@@ -158,7 +224,40 @@ jobs:
               sleep 1
             done
             python3 scripts/check_idle_memory.py "$samples" "$limit" "$variant"
+            python3 scripts/idle_metrics.py "$daemon" "$variant" "$samples" "idle-$variant.json"
             kill "$daemon"
             wait "$daemon" || true
             daemon=""
           done
+      - uses: actions/cache/restore@v6
+        with:
+          path: idle-benchmark-data
+          key: idle-benchmark-v2-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: idle-benchmark-v2-
+      - run: mkdir -p idle-benchmark-data
+      - name: Compare default idle CPU and memory
+        uses: benchmark-action/github-action-benchmark@v1.22.2
+        with:
+          name: Default idle
+          tool: customSmallerIsBetter
+          github-token: ${{ github.token }}
+          output-file-path: idle-default.json
+          external-data-json-path: idle-benchmark-data/default.json
+          alert-threshold: '120%'
+          fail-on-alert: ${{ github.event_name == 'pull_request' }}
+      - name: Compare web idle CPU and memory
+        uses: benchmark-action/github-action-benchmark@v1.22.2
+        with:
+          name: Web idle
+          tool: customSmallerIsBetter
+          github-token: ${{ github.token }}
+          output-file-path: idle-web.json
+          external-data-json-path: idle-benchmark-data/web.json
+          alert-threshold: '120%'
+          fail-on-alert: ${{ github.event_name == 'pull_request' }}
+      - name: Save main idle baseline
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/cache/save@v6
+        with:
+          path: idle-benchmark-data
+          key: idle-benchmark-v2-${{ github.run_id }}-${{ github.run_attempt }}
