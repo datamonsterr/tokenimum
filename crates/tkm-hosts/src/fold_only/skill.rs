@@ -33,19 +33,14 @@ pub fn render(host: Host) -> String {
          \n\
          # tokenimum\n\
          \n\
-         Both commands only read; they change nothing.\n\
+         These commands only read; they change nothing. Run them in a shell.\n\
          \n\
-         List the active facts for this repository:\n\
-         \n\
-         ```\n\
-         tkm facts --brief\n\
-         ```\n\
-         \n\
-         Show the evidence behind one fact:\n\
-         \n\
-         ```\n\
-         tkm why <event>\n\
-         ```\n",
+         - `tkm status`: print the current repository status.\n\
+         - `tkm status --json`: print the status as JSON.\n\
+         - `tkm why <event|last>`: print an explanation of an action.\n\
+         - `tkm facts --brief`: print active repository facts.\n\
+         - `tkm skills --json`: print skill usage evidence as JSON.\n\
+         - `tkm doctor`: print diagnostic information.\n",
         version = env!("CARGO_PKG_VERSION"),
         host = host.as_str(),
     )

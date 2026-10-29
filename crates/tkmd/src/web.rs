@@ -379,6 +379,7 @@ mod tests {
             contradictions: 0,
             fire_count: 0,
             fire_sessions: 0,
+            state_changed_at: None,
         })?;
         let daemon = Daemon::new(crate::daemon::DaemonOptions::new(paths.clone()));
         let mut receiver = daemon.subscribe();
@@ -404,8 +405,16 @@ mod tests {
     async fn lag_marks_degraded_until_fake_snapshot_replaces_state()
     -> Result<(), Box<dyn std::error::Error>> {
         let (sender, mut receiver) = tokio::sync::broadcast::channel(1);
-        sender.send(tkm_proto::monitor::MonitorMessage::Hello { version: 1 })?;
-        sender.send(tkm_proto::monitor::MonitorMessage::Hello { version: 1 })?;
+        sender.send(tkm_proto::monitor::MonitorMessage::Hello {
+            version: 1,
+            daemon_version: None,
+            started_at_ms: None,
+        })?;
+        sender.send(tkm_proto::monitor::MonitorMessage::Hello {
+            version: 1,
+            daemon_version: None,
+            started_at_ms: None,
+        })?;
         assert!(matches!(
             receiver.recv().await,
             Err(tokio::sync::broadcast::error::RecvError::Lagged(_))

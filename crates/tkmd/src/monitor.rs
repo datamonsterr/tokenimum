@@ -64,7 +64,7 @@ impl Monitor {
                     // Subscribe before the task starts so no message between accept and the
                     // first recv is lost.
                     let receiver = daemon.subscribe();
-                    tokio::spawn(serve_subscriber(stream, receiver));
+                    tokio::spawn(serve_subscriber(stream, receiver, daemon.started_at_ms));
                 }
                 Err(error) => {
                     daemon.log_error(&format!("monitor accept: {error}"));
@@ -88,12 +88,15 @@ async fn send(stream: &mut tokio::net::unix::OwnedWriteHalf, message: &MonitorMe
 async fn serve_subscriber(
     stream: UnixStream,
     mut receiver: tokio::sync::broadcast::Receiver<MonitorMessage>,
+    started_at_ms: i64,
 ) {
     let (mut reader, mut writer) = stream.into_split();
     if !send(
         &mut writer,
         &MonitorMessage::Hello {
             version: PROTOCOL_VERSION,
+            daemon_version: Some(env!("CARGO_PKG_VERSION").into()),
+            started_at_ms: Some(started_at_ms),
         },
     )
     .await

@@ -43,6 +43,14 @@ struct PromptContext {
     prompt: String,
     settings: Arc<Settings>,
     injected: std::collections::BTreeSet<String>,
+    evidence: Arc<std::sync::atomic::AtomicI64>,
+}
+
+#[derive(Default)]
+struct BuiltBlock {
+    text: String,
+    ids: Vec<String>,
+    fact_ids: Vec<String>,
 }
 
 fn remaining(budget: Duration, elapsed: Duration) -> Duration {
@@ -122,6 +130,7 @@ impl Daemon {
                 prompt,
                 settings: session.settings.clone(),
                 injected: session.injected.clone(),
+                evidence: Arc::new(std::sync::atomic::AtomicI64::new(0)),
             }
         };
 
@@ -130,13 +139,17 @@ impl Daemon {
         } else {
             None
         };
-        let (block, ids) = built.unwrap_or_default();
+        let BuiltBlock {
+            text: block,
+            ids,
+            fact_ids,
+        } = built.unwrap_or_default();
         let text = {
             let mut guard = lock(&self.state);
             let Some(session) = guard.sessions.get_mut(&tag) else {
                 return Ok(crate::daemon::noop_reply(request.host));
             };
-            session.injected.extend(ids);
+            session.injected.extend(ids.clone());
             let pending = session.pending_inject.take();
             let block = (!block.is_empty()).then_some(block);
             match (pending, block) {
@@ -149,6 +162,14 @@ impl Daemon {
         };
         let (reply, delivered) =
             Self::render(request, adapter, ReplyAction::Inject { text: text.clone() });
+        if delivered && !fact_ids.is_empty() {
+            lock(&self.outbox).events.push_back(crate::persist::EventInsert {
+                key: tkm_store::SessionKey {host:context.host,agent_home:context.agent_home.to_string_lossy().into_owned(),session_id:context.session_id.clone()},
+                kind: "fact.injected".into(), inputs: serde_json::json!({"fact_ids":fact_ids}), template: "fact_injected".into(),
+                params: serde_json::json!({"detail":text,"why":"selected repository facts passed lifecycle and relevance checks"}),
+                created_at: Timestamp(i64::try_from(self.clock.now_ms()).unwrap_or(i64::MAX)), evidence_ids:Vec::new(), decision_id:Some(context.evidence.clone()),
+            });
+        }
         if !delivered && let Some(session) = lock(&self.state).sessions.get_mut(&tag) {
             // This event cannot inject (for example Cursor's beforeSubmitPrompt): keep the block
             // for the next event that can.
@@ -158,10 +179,7 @@ impl Daemon {
     }
 
     /// Builds the block for a prompt; `None` when there are no new candidates.
-    async fn build_block(
-        self: &Arc<Self>,
-        context: &PromptContext,
-    ) -> HResult<Option<(String, Vec<String>)>> {
+    async fn build_block(self: &Arc<Self>, context: &PromptContext) -> HResult<Option<BuiltBlock>> {
         let started = Instant::now();
         let me = self.clone();
         let loading = context.clone();
@@ -181,7 +199,16 @@ impl Daemon {
         let cached = lock(&self.inject_cache).get(key, now).map(str::to_owned);
         if let Some(block) = cached {
             let ids = Self::ids_in_block(&items, &block);
-            return Ok(Some((block, ids)));
+            let fact_ids = items
+                .iter()
+                .filter(|item| item.source == Source::Facts && ids.contains(&item.id))
+                .map(|item| item.id.clone())
+                .collect();
+            return Ok(Some(BuiltBlock {
+                text: block,
+                ids,
+                fact_ids,
+            }));
         }
         let wait = remaining(
             Duration::from_millis(context.settings.relevance_timeout_ms),
@@ -197,10 +224,16 @@ impl Daemon {
             let block = lock(&self.inject_cache).default_block(&items, config);
             (inject::select(&items, None, config), block)
         };
-        Ok(Some((
-            block,
-            selected.into_iter().map(|item| item.id).collect(),
-        )))
+        let fact_ids = selected
+            .iter()
+            .filter(|item| item.source == Source::Facts)
+            .map(|item| item.id.clone())
+            .collect();
+        Ok(Some(BuiltBlock {
+            text: block,
+            ids: selected.into_iter().map(|item| item.id).collect(),
+            fact_ids,
+        }))
     }
 
     fn ids_in_block(items: &[InjectCandidate], block: &str) -> Vec<String> {
@@ -252,8 +285,8 @@ impl Daemon {
         let request = DecideRequest {
             purpose: Purpose::Relevance,
             session_id: format!("{}:{}", context.host.as_str(), context.session_id),
-            state,
-            questions,
+            state: state.clone(),
+            questions: questions.clone(),
         };
         match tokio::time::timeout(wait, self.decider.decide(request)).await {
             Ok(Outcome::Decision(decision)) => {
@@ -267,14 +300,31 @@ impl Daemon {
                 }
                 lock(&self.outbox)
                     .decisions
-                    .push_back(tkm_store::NewDecision {
-                        model: decision.model_version.clone(),
-                        purpose: Purpose::Relevance.as_str().to_owned(),
-                        questions: serde_json::Value::Null,
-                        answers: serde_json::to_value(&decision.answers).unwrap_or_default(),
-                        cost_usd: decision.usage.cost.unwrap_or(0.0),
-                        latency_ms: u32::try_from(decision.latency_ms).unwrap_or(u32::MAX),
-                        shadow: false,
+                    .push_back(crate::persist::DecisionInsert {
+                        evidence_id: context.evidence.clone(),
+                        created_at: Timestamp(
+                            i64::try_from(self.clock.now_ms()).unwrap_or(i64::MAX),
+                        ),
+                        repo: Some(context.repo.clone()),
+                        key: Some(tkm_store::SessionKey {
+                            host: context.host,
+                            agent_home: context.agent_home.to_string_lossy().into_owned(),
+                            session_id: context.session_id.clone(),
+                        }),
+                        digest: Some(state),
+                        decision: tkm_store::NewDecision {
+                            model: decision.model_version.clone(),
+                            purpose: Purpose::Relevance.as_str().to_owned(),
+                            questions: serde_json::to_value(&questions).unwrap_or_default(),
+                            answers: serde_json::to_value(&decision.answers).unwrap_or_default(),
+                            cost_usd: if decision.cached {
+                                0.0
+                            } else {
+                                decision.usage.cost.unwrap_or(0.0)
+                            },
+                            latency_ms: u32::try_from(decision.latency_ms).unwrap_or(u32::MAX),
+                            shadow: false,
+                        },
                     });
                 Some(scores)
             }

@@ -3009,14 +3009,23 @@ name = "tkm-cli"
 version = "0.0.0"
 dependencies = [
  "clap",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.21",
  "tkm-config",
  "tkm-core",
  "tkm-decide",
+ "tkm-hook",
  "tkm-hosts",
  "tkm-integrations",
  "tkm-proto",
  "tkm-store",
  "tkm-ui",
+ "tkmd",
+ "tokio",
+ "toml_edit",
 ]
 
 [[package]]

@@ -20,7 +20,7 @@ CREATE TABLE decisions (
     latency_ms INTEGER NOT NULL, -- decision latency in milliseconds
     shadow INTEGER NOT NULL, -- whether the decision was shadowed
     outcome_label TEXT -- optional observed outcome
-);
+, created_at INTEGER, repo_key TEXT, session_id INTEGER, digest TEXT);
 
 -- table denylist_applied
 CREATE TABLE denylist_applied (
@@ -49,7 +49,7 @@ CREATE TABLE events (
     evidence_ids TEXT NOT NULL, -- evidence identifiers as JSON
     explanation_template_id TEXT NOT NULL, -- explanation template identifier
     params TEXT NOT NULL -- explanation parameters as JSON
-);
+, created_at INTEGER);
 
 -- table facts
 CREATE TABLE facts (
@@ -63,7 +63,7 @@ CREATE TABLE facts (
     confirmations INTEGER NOT NULL, -- confirming session count
     contradictions INTEGER NOT NULL, -- contradicting session count
     fire_count INTEGER NOT NULL, -- sessions where the fact fired
-    fire_sessions INTEGER NOT NULL, -- sessions observed for fire rate
+    fire_sessions INTEGER NOT NULL, state_changed_at INTEGER, -- sessions observed for fire rate
     PRIMARY KEY(repo_key, fact_id)
 );
 

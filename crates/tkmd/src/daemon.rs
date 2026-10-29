@@ -1,8 +1,8 @@
 //! The daemon core: router, hot path, session lifecycle, flusher and worker orchestration.
 //!
 //! Locks: `state` is taken before `outbox`; neither is held across an `.await` or any I/O.
-//! `state` is only held for in-memory work of a few microseconds (the flusher never touches it:
-//! it drains `outbox`), so a handler never waits behind disk or network.
+//! `state` is only held for in-memory work, including the flusher's activity snapshot;
+//! a handler never waits behind disk or network. See ADR 0034.
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -28,7 +28,7 @@ use crate::backing::{Backing, SqliteBacking};
 use crate::clock::{Clock, SystemClock};
 use crate::decider::{Decider, NullDecider, StoreCalibration, StoreLedger};
 use crate::live::{EscalationJob, JudgeJob};
-use crate::persist::{EventInsert, FlushBatch, SessionUpsert, TurnUpsert};
+use crate::persist::{EventInsert, FlushBatch, HOOK_ACTIVITY, SessionUpsert, TurnUpsert};
 use crate::registry::AdapterRegistry;
 use crate::settings::{FileSettings, LoopMode, Settings, SettingsSource};
 use crate::state::{MAX_TURN_CALLS, SessionState, StateMap, Tag, TurnState};
@@ -136,6 +136,7 @@ pub struct Daemon {
     pub(crate) backing: Arc<dyn Backing>,
     pub(crate) decider: Arc<dyn Decider>,
     pub(crate) clock: Arc<dyn Clock>,
+    pub(crate) started_at_ms: i64,
     pub(crate) settings_source: Arc<dyn SettingsSource>,
     pub(crate) default_settings: Arc<Settings>,
     pub(crate) skills: Arc<dyn SkillSource>,
@@ -238,6 +239,7 @@ impl Daemon {
             adapters: options.adapters,
             backing: options.backing,
             decider: options.decider,
+            started_at_ms: i64::try_from(options.clock.now_ms()).unwrap_or(i64::MAX),
             clock: options.clock,
             settings_source: options.settings,
             default_settings,
@@ -414,15 +416,24 @@ impl Daemon {
         let Some(event) = adapter.map_event(request)? else {
             return Ok(noop_reply(request.host));
         };
-        match event.kind {
-            EventKind::ToolDone => self.tool_done(request, adapter.as_ref(), event),
+        if event.kind == EventKind::ToolDone {
+            return self.tool_done(request, adapter.as_ref(), event);
+        }
+        let tag = (event.host, event.session_id.clone());
+        let kind = event.kind;
+        let recorded = self.observe_hook(&tag, kind, request.host_event.as_deref());
+        let result = match event.kind {
             EventKind::ToolBefore => Ok(self.deliver_pending(request, adapter.as_ref(), &event)),
             EventKind::SessionStart => self.session_start(request, adapter.as_ref(), event).await,
             EventKind::Prompt => self.prompt(request, adapter.as_ref(), event).await,
             EventKind::TurnEnd => Ok(self.turn_end(request, &event)),
             EventKind::SessionEnd => self.session_end(request, event).await,
             _ => Ok(noop_reply(request.host)),
+        };
+        if !recorded {
+            self.observe_hook(&tag, kind, request.host_event.as_deref());
         }
+        result
     }
 
     /// Synchronous `tool_done` entry point: the hot path. Mutates memory and pushes to queues
@@ -571,6 +582,8 @@ impl Daemon {
             shadow: false,
             envelope: None,
             loop_state: "watching",
+            loop_evidence: None,
+            observed_hooks: std::collections::BTreeSet::new(),
         }
     }
 
@@ -589,6 +602,7 @@ impl Daemon {
     }
 
     pub(crate) fn begin_turn(&self, session: &mut SessionState, seq: u64, prompt: String) {
+        session.loop_evidence = None;
         let guard = (session.settings.loop_mode != LoopMode::Off)
             .then(|| TurnGuard::new(self.escalation_mode(session)));
         session.turn = Some(TurnState {
@@ -681,6 +695,11 @@ impl Daemon {
     ) -> HResult<Reply> {
         let host = request.host;
         let Some(call) = event.call.take() else {
+            self.observe_hook(
+                &(event.host, event.session_id),
+                event.kind,
+                request.host_event.as_deref(),
+            );
             return Ok(noop_reply(host));
         };
         let now = self.clock.now_ms();
@@ -708,6 +727,12 @@ impl Daemon {
                 return Ok(noop_reply(host));
             };
             session.last_activity_ms = now;
+            self.record_hook_seen(
+                session,
+                event.kind,
+                request.host_event.as_deref(),
+                Some(now),
+            );
             if session.turn.is_none() {
                 *turn_seq += 1;
                 self.begin_turn(session, *turn_seq, String::new());
@@ -734,6 +759,8 @@ impl Daemon {
                         let queued = if settings.decide.enabled {
                             let job = JudgeJob {
                                 tag: tag.clone(),
+                                repo: session.repo.clone(),
+                                key: session.key.clone(),
                                 seq: turn_seq_now,
                                 request: judge,
                                 prompt: turn.prompt.clone(),
@@ -926,6 +953,40 @@ impl Daemon {
         }
     }
 
+    fn observe_hook(&self, tag: &Tag, kind: EventKind, native: Option<&str>) -> bool {
+        let mut state = lock(&self.state);
+        let Some(session) = state.sessions.get_mut(tag) else {
+            return false;
+        };
+        self.record_hook_seen(session, kind, native, None);
+        true
+    }
+
+    fn record_hook_seen(
+        &self,
+        session: &mut SessionState,
+        kind: EventKind,
+        native: Option<&str>,
+        now: Option<u64>,
+    ) {
+        let name = native.unwrap_or(kind.as_str());
+        // Repeated hooks borrow the name: no allocation, timestamp or outbox lock.
+        if session.observed_hooks.contains(name) {
+            return;
+        }
+        session.observed_hooks.insert(name.to_owned());
+        lock(&self.outbox).events.push_back(EventInsert {
+            key: session.key.clone(),
+            kind: "hook.seen".into(),
+            inputs: serde_json::json!({"event":kind.as_str(),"native":native}),
+            template: "observation".into(),
+            params: serde_json::json!({}),
+            created_at: timestamp(now.unwrap_or_else(|| self.clock.now_ms())),
+            evidence_ids: Vec::new(),
+            decision_id: None,
+        });
+    }
+
     /// Queues a `loop.*` event row and publishes the redirect notice.
     pub(crate) fn record_loop_event(
         &self,
@@ -945,6 +1006,9 @@ impl Daemon {
             kind: kind.to_owned(),
             inputs: serde_json::json!({"redirect": detail, "shadow": shadow}),
             template: template.to_owned(),
+            created_at: timestamp(self.clock.now_ms()),
+            evidence_ids: Vec::new(),
+            decision_id: session.loop_evidence.clone(),
             params: serde_json::json!({
                 "event": kind,
                 "detail": text,
@@ -1190,6 +1254,27 @@ impl Daemon {
     pub async fn flush_now(self: &Arc<Self>) {
         let _serial = self.flush_lock.lock().await;
         let mut batch = std::mem::take(&mut *lock(&self.outbox));
+        {
+            // Reuse the timestamp already advanced by tool_done. Snapshot and allocation
+            // belong to this periodic flush, leaving the repeated-hook path unchanged.
+            let state = lock(&self.state);
+            for session in state
+                .sessions
+                .values()
+                .filter(|s| !s.observed_hooks.is_empty())
+            {
+                batch.events.push_back(EventInsert {
+                    key: session.key.clone(),
+                    kind: HOOK_ACTIVITY.into(),
+                    inputs: serde_json::Value::Null,
+                    template: String::new(),
+                    params: serde_json::Value::Null,
+                    created_at: timestamp(session.last_activity_ms),
+                    evidence_ids: Vec::new(),
+                    decision_id: None,
+                });
+            }
+        }
         for record in self.calibration.take_pending() {
             batch.calibration.push_back(record);
         }

@@ -42,7 +42,7 @@ pub fn connect(paths: &Paths) -> Feed {
             UnixStream::connect(paths.socket.with_file_name(MONITOR_SOCKET_NAME))
         {
             let _ = stream.set_read_timeout(Some(Duration::from_secs(1)));
-            if matches!(tkm_proto::read_frame::<_, MonitorMessage>(&mut stream, MONITOR_MAX_FRAME), Ok(MonitorMessage::Hello { version }) if version == PROTOCOL_VERSION)
+            if matches!(tkm_proto::read_frame::<_, MonitorMessage>(&mut stream, MONITOR_MAX_FRAME), Ok(MonitorMessage::Hello { version, .. }) if version == PROTOCOL_VERSION)
             {
                 let _ = stream.set_read_timeout(None);
                 let overflow = Arc::clone(&resync);

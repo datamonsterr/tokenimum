@@ -119,4 +119,114 @@ CREATE TABLE installs (
 ";
 
 /// Migrations in schema version order.
-pub(crate) const MIGRATIONS: &[&str] = &[V001];
+pub(crate) const MIGRATIONS: &[&str] = &[V001, V002];
+
+/// Nullable reporting context; historical rows deliberately retain unknown times.
+pub(crate) const V002: &str = r"
+ALTER TABLE events ADD COLUMN created_at INTEGER;
+ALTER TABLE decisions ADD COLUMN created_at INTEGER;
+ALTER TABLE decisions ADD COLUMN repo_key TEXT;
+ALTER TABLE decisions ADD COLUMN session_id INTEGER;
+ALTER TABLE decisions ADD COLUMN digest TEXT;
+ALTER TABLE facts ADD COLUMN state_changed_at INTEGER;
+";
+
+#[cfg(test)]
+mod report_schema_tests {
+    use super::V001;
+    use crate::Store;
+    use rusqlite::Connection;
+
+    #[test]
+    fn read_only_v001_reports_unknown_context_without_migration() {
+        let path = std::env::temp_dir().join(format!(
+            "tkm-read-only-v001-{}-{}.sqlite",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(V001).unwrap();
+        conn.pragma_update(None, "user_version", 1).unwrap();
+        conn.execute_batch("INSERT INTO repos VALUES ('r','repo',1,1,0); INSERT INTO facts VALUES ('r','f','empty_probe','neutral','{}','retired',0,0,0,0,0);").unwrap();
+        assert!(Store::from_read_only_connection(conn).is_err());
+        let conn = crate::open_read_only(&path).unwrap();
+        let store = Store::from_read_only_connection(conn).unwrap();
+        let repo = tkm_core::model::RepoKey("r".into());
+        assert_eq!(
+            store
+                .get_fact(&repo, "f")
+                .unwrap()
+                .unwrap()
+                .state_changed_at,
+            None
+        );
+        assert_eq!(store.list_facts(&repo, None).unwrap().len(), 1);
+        assert_eq!(store.list_recent_events(-1).unwrap().len(), 0);
+        assert_eq!(store.list_events_by_session(1).unwrap().len(), 0);
+        assert!(store.get_event(1).unwrap().is_none());
+        assert_eq!(store.list_recent_decisions(-1).unwrap().len(), 0);
+        assert!(store.get_decision(1).unwrap().is_none());
+        assert_eq!(
+            store
+                .list_decisions_by_model_purpose("m", "p", -1)
+                .unwrap()
+                .len(),
+            0
+        );
+        let version: i64 = store
+            .conn
+            .pragma_query_value(None, "user_version", |r| r.get(0))
+            .unwrap();
+        assert_eq!(version, 1);
+        drop(store);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn v001_database_upgrades_with_nullable_report_columns() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(V001).unwrap();
+        conn.pragma_update(None, "user_version", 1).unwrap();
+        conn.execute_batch("INSERT INTO repos VALUES ('legacy','legacy',1,1,0); INSERT INTO facts VALUES ('legacy','f','empty_probe','neutral','{}','retired',0,0,0,0,0);").unwrap();
+        let store = Store::initialize(conn, std::time::Duration::from_millis(100)).unwrap();
+        let conn = &store.conn;
+        let version: i64 = conn
+            .pragma_query_value(None, "user_version", |row| row.get(0))
+            .unwrap();
+        assert_eq!(version, 2);
+        let legacy = store
+            .get_fact(&tkm_core::model::RepoKey("legacy".into()), "f")
+            .unwrap()
+            .unwrap();
+        assert_eq!(legacy.state, crate::FactState::Retired);
+        assert_eq!(legacy.state_changed_at, None);
+        for (table, column) in [
+            ("events", "created_at"),
+            ("decisions", "created_at"),
+            ("decisions", "repo_key"),
+            ("decisions", "session_id"),
+            ("decisions", "digest"),
+            ("facts", "state_changed_at"),
+        ] {
+            let mut stmt = conn
+                .prepare(&format!("PRAGMA table_info({table})"))
+                .unwrap();
+            let columns = stmt
+                .query_map([], |row| {
+                    Ok((row.get::<_, String>(1)?, row.get::<_, bool>(3)?))
+                })
+                .unwrap()
+                .collect::<rusqlite::Result<Vec<_>>>()
+                .unwrap();
+            assert!(
+                columns
+                    .iter()
+                    .any(|(name, not_null)| name == column && !not_null),
+                "{table}.{column}"
+            );
+        }
+    }
+}

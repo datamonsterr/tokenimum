@@ -42,7 +42,11 @@ fn decision(n: usize) -> MonitorMessage {
 #[test]
 fn apply_updates_each_kind_and_bounds_history() {
     let mut state = MonitorState::default();
-    state.apply(MonitorMessage::Hello { version: 1 });
+    state.apply(MonitorMessage::Hello {
+        version: 1,
+        daemon_version: None,
+        started_at_ms: None,
+    });
     state.apply(MonitorMessage::Session(SessionUpdate {
         host: Host::Claude,
         session_id: "s".into(),
@@ -278,6 +282,8 @@ fn feed_receives_frames_then_disconnects() {
         for msg in [
             MonitorMessage::Hello {
                 version: tkm_proto::PROTOCOL_VERSION,
+                daemon_version: None,
+                started_at_ms: None,
             },
             decision(3),
         ] {
@@ -313,9 +319,15 @@ fn bad_hello_is_read_only() {
     let server = std::thread::spawn(move || {
         use std::io::Write;
         let (mut stream, _) = listener.accept().unwrap();
-        let frame =
-            tkm_proto::encode_frame(&MonitorMessage::Hello { version: 0 }, MONITOR_MAX_FRAME)
-                .unwrap();
+        let frame = tkm_proto::encode_frame(
+            &MonitorMessage::Hello {
+                version: 0,
+                daemon_version: None,
+                started_at_ms: None,
+            },
+            MONITOR_MAX_FRAME,
+        )
+        .unwrap();
         stream.write_all(&frame).unwrap();
     });
     assert_eq!(feed::connect(&paths).mode, Mode::ReadOnly);
@@ -392,6 +404,7 @@ fn snapshot_reads_persisted_decision() {
             contradictions: 0,
             fire_count: 0,
             fire_sessions: 0,
+            state_changed_at: None,
         })
         .unwrap();
     let event_id = store.insert_event(&NewEvent { kind: "loop.redirect".into(), session_id: session, inputs: serde_json::json!({"shadow": false}), evidence_ids: vec![], explanation_template_id: "redirect".into(), params: serde_json::json!({"event":"event", "detail":"try again", "why":"reason", "model_checks":"none", "cost":"0", "undo":"none"}) }).unwrap();
@@ -444,6 +457,8 @@ fn feed_overflow_requests_resynchronization() {
         let hello = tkm_proto::encode_frame(
             &MonitorMessage::Hello {
                 version: tkm_proto::PROTOCOL_VERSION,
+                daemon_version: None,
+                started_at_ms: None,
             },
             MONITOR_MAX_FRAME,
         )
@@ -473,14 +488,14 @@ fn snapshot_retains_current_facts_and_recent_ledger_and_retirements() {
         .unwrap();
     for i in 0..105 {
         conn.execute(
-            "INSERT INTO facts VALUES ('repo',?1,'boundary','neutral','{}','retired',1,1,0,0,0)",
+            "INSERT INTO facts VALUES ('repo',?1,'boundary','neutral','{}','retired',1,1,0,0,0,NULL)",
             [format!("retired-{i}")],
         )
         .unwrap();
     }
     for state in ["active", "candidate"] {
         conn.execute(
-            "INSERT INTO facts VALUES ('repo',?1,'boundary','neutral','{}',?1,1,1,0,0,0)",
+            "INSERT INTO facts VALUES ('repo',?1,'boundary','neutral','{}',?1,1,1,0,0,0,NULL)",
             [state],
         )
         .unwrap();

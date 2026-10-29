@@ -18,6 +18,18 @@ use tkmd::monitor::Monitor;
 use tkmd::server::{Bind, Server};
 use tkmd::settings::{FileSettings, Settings};
 
+fn key_file(home: &std::path::Path, configured: Option<&str>) -> std::path::PathBuf {
+    configured.filter(|path| !path.is_empty()).map_or_else(
+        || default_key_file(home),
+        |path| {
+            path.strip_prefix("~/").map_or_else(
+                || std::path::PathBuf::from(path),
+                |relative| home.join(relative),
+            )
+        },
+    )
+}
+
 fn write_integration_status(paths: &Paths, integrations: &Integrations) {
     let statuses: Vec<_> = integrations.status().into_iter().map(|status| {
         let state = match status.state { AdapterState::Enabled => "enabled", AdapterState::Disabled { .. } => "disabled", AdapterState::Backoff { .. } => "backoff" };
@@ -115,18 +127,23 @@ async fn main() -> ExitCode {
     options.env = env.clone();
     let decide = Settings::load(&paths, None, config_env.clone()).decide;
     if decide.enabled {
-        let own_key = default_key_file(&home);
+        let path = key_file(
+            &home,
+            config
+                .as_ref()
+                .and_then(|config| config.get_str("decide.api_key_path")),
+        );
         let key_env = var("OPENROUTER_API_KEY").or_else(|| {
             (config
                 .as_ref()
-                .and_then(|c| c.get_bool("integrations.otherskill_key_reuse"))
+                .and_then(|config| config.get_bool("integrations.otherskill_key_reuse"))
                 == Some(true)
-                && std::fs::symlink_metadata(&own_key)
+                && std::fs::symlink_metadata(&path)
                     .is_err_and(|error| error.kind() == std::io::ErrorKind::NotFound))
             .then(|| otherskill::read_key(&home))
             .flatten()
         });
-        let key = load_key(key_env, &own_key, None).ok();
+        let key = load_key(key_env, &path, None).ok();
         let endpoint = var("TKM_DECIDE_ENDPOINT");
         options.decider = build_decider(decide, key, endpoint.as_deref(), options.ledger.clone());
     }
@@ -203,4 +220,23 @@ async fn main() -> ExitCode {
     }
     daemon.shutdown().await;
     ExitCode::SUCCESS
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn configured_key_path_reuses_absolute_and_home_relative_paths() {
+        let home = std::path::Path::new("/fixture/home");
+        assert_eq!(
+            key_file(home, Some("/fixture/account/key.env")),
+            std::path::PathBuf::from("/fixture/account/key.env")
+        );
+        assert_eq!(
+            key_file(home, Some("~/keys/openrouter.env")),
+            home.join("keys/openrouter.env")
+        );
+        assert_eq!(key_file(home, None), default_key_file(home));
+    }
 }

@@ -1,0 +1,11 @@
+Daemon: down (read-only DB); version unknown; uptime unknown
+Preset: balanced
+Adapters: superorchestrator off (adapter unavailable; configured auto); otherskill off (adapter unavailable; configured auto)
+Repository: github.com/acme/api
+  Harnesses: none observed
+  Facts: 0 active, 0 candidates, 0 retired in last 7 days
+  Loop guard: redirect; envelope unknown; 0 redirects, 0 escalations in last 7 days
+  Pruning: propose; 0 pending proposals
+  Spend: $0.000000 decisions today / $0.500000 daily cap (global)
+  Savings: no priced sessions (baseline 0, treatment 0)
+  Last actions: none

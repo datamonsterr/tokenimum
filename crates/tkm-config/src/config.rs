@@ -125,6 +125,12 @@ pub struct EffectiveConfig {
     pub errors: Vec<ConfigError>,
 }
 impl EffectiveConfig {
+    /// Iterate over effective keys, values, and winning layers in key order.
+    pub fn entries(&self) -> impl Iterator<Item = (&str, &Value, Layer)> {
+        self.values
+            .iter()
+            .map(|(key, (value, layer))| (key.as_str(), value, *layer))
+    }
     /// Look up a typed value.
     #[must_use]
     pub fn get(&self, key: &str) -> Option<&Value> {
@@ -518,7 +524,8 @@ fn build_registry() -> Vec<Key> {
             "integrations.otherskill_key_reuse",
             Kind::Bool,
             "false",
-            "Reuse a private otherskill OpenRouter key with consent."
+            "Reuse a private otherskill OpenRouter key with consent.",
+            restricted
         ),
         key!(
             "ui.web.enabled",
