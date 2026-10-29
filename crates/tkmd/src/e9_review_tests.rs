@@ -236,4 +236,40 @@ async fn pending_signal_tracks_queued_and_cleared_context() {
             .pending,
         Some(false)
     );
+    let tool = session_request(dir.path(), tkm_proto::EventKind::ToolDone, "unused");
+    daemon.handle_tool_done(&tool);
+    {
+        let mut state = crate::daemon::lock(&daemon.state);
+        state
+            .sessions
+            .get_mut(&tag)
+            .unwrap()
+            .turn
+            .as_mut()
+            .unwrap()
+            .pending_redirect = Some("steer".into());
+    }
+    assert_eq!(
+        daemon
+            .stamp_pending(&tool, crate::daemon::noop_reply(Host::Claude))
+            .pending,
+        Some(true)
+    );
+    {
+        let mut state = crate::daemon::lock(&daemon.state);
+        state
+            .sessions
+            .get_mut(&tag)
+            .unwrap()
+            .turn
+            .as_mut()
+            .unwrap()
+            .pending_redirect = None;
+    }
+    assert_eq!(
+        daemon
+            .stamp_pending(&tool, crate::daemon::noop_reply(Host::Claude))
+            .pending,
+        Some(false)
+    );
 }

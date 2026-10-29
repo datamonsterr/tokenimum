@@ -181,6 +181,7 @@ pub(crate) fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 pub(crate) fn noop_reply(host: Host) -> Reply {
     Reply {
         version: PROTOCOL_VERSION,
+        pending: None,
         action: ReplyAction::Nothing,
         stdout: host.noop_reply().to_owned(),
     }
@@ -418,7 +419,24 @@ impl Daemon {
                 noop_reply(host)
             }
         };
-        cap_reply(reply, host)
+        cap_reply(self.stamp_pending(&request, reply), host)
+    }
+
+    pub(crate) fn stamp_pending(&self, request: &Request, mut reply: Reply) -> Reply {
+        if let Ok(Some(event)) = self.adapters.get(request.host).map_event(request) {
+            let state = lock(&self.state);
+            reply.pending = state
+                .sessions
+                .get(&(event.host, event.session_id))
+                .map(|session| {
+                    session.pending_inject.is_some()
+                        || session
+                            .turn
+                            .as_ref()
+                            .is_some_and(|turn| turn.pending_redirect.is_some())
+                });
+        }
+        reply
     }
 
     async fn dispatch(self: &Arc<Self>, request: &Request) -> HResult<Reply> {
@@ -494,7 +512,7 @@ impl Daemon {
             Err(error) => Err(error.into()),
         };
         match result {
-            Ok(reply) => cap_reply(reply, host),
+            Ok(reply) => cap_reply(self.stamp_pending(request, reply), host),
             Err(error) => {
                 self.log_error(&format!("{} tool_done: {error}", host.as_str()));
                 noop_reply(host)
@@ -523,6 +541,7 @@ impl Daemon {
         (
             Reply {
                 version: PROTOCOL_VERSION,
+                pending: None,
                 action,
                 stdout,
             },

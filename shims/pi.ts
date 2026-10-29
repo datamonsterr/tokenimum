@@ -2,26 +2,31 @@
 // tokenimum-sha256: {{HASH}}
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent"
 export default function (pi: ExtensionAPI) {
+  const pending = new Map<string, boolean>()
   const cap = (_key: string, value: unknown) => (typeof value === "string" && value.length > 8000 ? value.slice(0, 8000) : value)
   const call = async (name: string, kind: string, event: any, ctx: any, ms: number): Promise<any> => {
+    const id = ctx.sessionManager.getSessionId()
     try {
       const slim = { ...event, messages: undefined, systemPrompt: undefined, systemPromptOptions: undefined }
       const payload = JSON.stringify({ hook: name, event: slim, cwd: ctx.cwd, session_id: ctx.sessionManager.getSessionId() }, cap)
-      if (new TextEncoder().encode(payload).length > 100000) return {}
+      if (new TextEncoder().encode(payload).length > 100000) { pending.delete(id); return {} }
       const args = ["--host", "pi", "--event", kind, "--host-event", name, "--payload", payload]
       const run = await pi.exec("tkm-hook", args, { timeout: ms, cwd: ctx.cwd })
-      return run.code === 0 && !run.killed && run.stdout.trim() ? (JSON.parse(run.stdout) ?? {}) : {}
-    } catch {
-      return {}
-    }
+      const reply = run.code === 0 && !run.killed && run.stdout.trim() ? (JSON.parse(run.stdout) ?? {}) : {}
+      if (typeof id === "string") { if (typeof reply.pending === "boolean") pending.set(id, reply.pending); else pending.delete(id) }
+      return reply
+    } catch { pending.delete(id); return {} }
   }
   const hook = (name: string, kind: string, ms = 1000) =>
     pi.on(name as any, async (event: any, ctx: any) => {
-      const reply = await call(name, kind, event, ctx, ms)
-      try {
+      const apply = (reply: any) => { try {
         if (reply.notice) ctx.ui.notify(reply.notice, "info")
         if (typeof reply.steer === "string") pi.sendMessage({ customType: "tokenimum", content: reply.steer, display: false }, { deliverAs: "steer" })
-      } catch {}
+      } catch {} }
+      const work = call(name, kind, event, ctx, ms)
+      if (kind === "tool_done" && pending.get(ctx.sessionManager.getSessionId()) === false) { void work.then(apply); return }
+      const reply = await work
+      apply(reply)
       if (name === "before_agent_start" && typeof reply.context === "string") {
         return { message: { customType: "tokenimum", content: reply.context, display: false } }
       }

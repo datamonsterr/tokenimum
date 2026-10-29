@@ -648,6 +648,19 @@ pub fn run_hook_with_fallible_stdin<I, S, E, F>(
 
     match connect_and_exchange(socket_path, &request) {
         ExchangeOutcome::Reply(reply) => {
+            if matches!(host, Host::Opencode | Host::Pi)
+                && let Some(pending) = reply.pending
+            {
+                let mut payload = serde_json::from_str::<serde_json::Value>(&reply.stdout)
+                    .unwrap_or_else(|_| serde_json::json!({}));
+                if let Some(object) = payload.as_object_mut() {
+                    object.insert("pending".into(), serde_json::Value::Bool(pending));
+                    if let Ok(text) = serde_json::to_string(&payload) {
+                        let _ = out.write_all(text.as_bytes());
+                        return;
+                    }
+                }
+            }
             let _ = out.write_all(reply.stdout.as_bytes());
         }
         ExchangeOutcome::VersionMismatch => {

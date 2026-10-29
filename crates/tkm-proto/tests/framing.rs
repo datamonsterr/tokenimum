@@ -50,6 +50,7 @@ fn reply_round_trip_preserves_every_action_and_verbatim_stdout() {
     ] {
         let expected = Reply {
             version: PROTOCOL_VERSION,
+            pending: None,
             action,
             stdout: "{\"host_specific\":true}\n".into(),
         };
@@ -176,6 +177,7 @@ fn protocol_version_mismatch_remains_visible_to_caller() {
     assert_ne!(decoded.version, PROTOCOL_VERSION);
     let reply = Reply {
         version: PROTOCOL_VERSION + 1,
+        pending: None,
         action: ReplyAction::Nothing,
         stdout: String::new(),
     };
@@ -306,9 +308,9 @@ proptest! {
 fn reply_preserves_pending_signal_through_framing() {
     let reply = Reply {
         version: PROTOCOL_VERSION,
+        pending: Some(true),
         action: ReplyAction::Nothing,
         stdout: String::new(),
-        pending: Some(true),
     };
     let frame = encode_frame(&reply, MAX_REPLY_FRAME).unwrap();
     let decoded: Reply = read_frame(Cursor::new(frame), MAX_REPLY_FRAME).unwrap();

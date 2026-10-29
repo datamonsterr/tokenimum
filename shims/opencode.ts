@@ -2,23 +2,21 @@
 // tokenimum-sha256: {{HASH}}
 import type { Plugin } from "@opencode-ai/plugin"
 export const Tokenimum: Plugin = async ({ client, $, directory }) => {
+  const pending = new Map<string, boolean>()
   const call = async (kind: string, host: string, payload: object, ms: number): Promise<any> => {
     let timer: any
+    const id = (payload as any).input?.sessionID ?? (payload as any).event?.properties?.info?.id ?? (payload as any).event?.properties?.sessionID
     try {
       const body = JSON.stringify(payload)
-      if (new TextEncoder().encode(body).length > 100000) return {}
+      if (new TextEncoder().encode(body).length > 100000) { pending.delete(id); return {} }
       const run = $`tkm-hook --host opencode --event ${kind} --host-event ${host} < ${new Response(body)}`.cwd(directory).quiet().nothrow().text()
       const out = await Promise.race([run, new Promise<string>((done) => (timer = setTimeout(() => done(""), ms)))])
-      return out.trim() ? (JSON.parse(out) ?? {}) : {}
-    } catch {
-      return {}
-    } finally {
-      clearTimeout(timer)
-    }
+      const reply = out.trim() ? (JSON.parse(out) ?? {}) : {}
+      if (typeof id === "string") { if (typeof reply.pending === "boolean") pending.set(id, reply.pending); else pending.delete(id) }
+      return reply
+    } catch { pending.delete(id); return {} } finally { clearTimeout(timer) }
   }
-  const notify = async (message?: string) => {
-    try { if (message) await client.tui.showToast({ body: { message, variant: "info" } }) } catch {}
-  }
+  const notify = async (message?: string) => { try { if (message) await client.tui.showToast({ body: { message, variant: "info" } }) } catch {} }
   const kinds: Record<string, string> = { "session.created": "session_start", "session.idle": "turn_end", "session.deleted": "session_end" }
   return {
     "chat.message": async (input, output) => {
@@ -30,7 +28,8 @@ export const Tokenimum: Plugin = async ({ client, $, directory }) => {
       await notify(reply.notice)
     },
     "tool.execute.after": async (input, output) => {
-      await notify((await call("tool_done", "tool.execute.after", { hook: "tool.execute.after", input, output }, 1000)).notice)
+      const work = call("tool_done", "tool.execute.after", { hook: "tool.execute.after", input, output }, 1000).then((reply) => notify(reply.notice))
+      if (pending.get(input.sessionID) !== false) await work
     },
     event: async ({ event }) => {
       const kind = kinds[event.type]
