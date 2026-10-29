@@ -164,16 +164,17 @@ mod report_schema_tests {
             None
         );
         assert_eq!(store.list_facts(&repo, None).unwrap().len(), 1);
-        assert!(store.list_recent_events(-1).unwrap().is_empty());
-        assert!(store.list_events_by_session(1).unwrap().is_empty());
+        assert_eq!(store.list_recent_events(-1).unwrap().len(), 0);
+        assert_eq!(store.list_events_by_session(1).unwrap().len(), 0);
         assert!(store.get_event(1).unwrap().is_none());
-        assert!(store.list_recent_decisions(-1).unwrap().is_empty());
+        assert_eq!(store.list_recent_decisions(-1).unwrap().len(), 0);
         assert!(store.get_decision(1).unwrap().is_none());
-        assert!(
+        assert_eq!(
             store
                 .list_decisions_by_model_purpose("m", "p", -1)
                 .unwrap()
-                .is_empty()
+                .len(),
+            0
         );
         let version: i64 = store
             .conn

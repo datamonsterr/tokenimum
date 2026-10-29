@@ -91,6 +91,8 @@ fn doctor_reports_healthy_with_fake_monitor_and_installed_hooks() {
         let frame = tkm_proto::encode_frame(
             &MonitorMessage::Hello {
                 version: tkm_proto::PROTOCOL_VERSION,
+                daemon_version: None,
+                started_at_ms: None,
             },
             MONITOR_MAX_FRAME,
         )
