@@ -58,3 +58,24 @@ fn prune_apply_then_restore_leaves_foreign_entries() {
     assert!(!contents.contains("mcp__example__unused"));
     assert!(s.run(&["prune", "restore"]).status.success());
 }
+#[test]
+fn prune_unsupported_host_reports_proposal_only() {
+    let s = support_ops::Sandbox::new();
+    let paths = tkm_config::paths::Paths::from_dirs(
+        s.home.path(),
+        Some(&s.home.path().join("data")),
+        Some(&s.home.path().join("config")),
+        Some(&s.home.path().join("run")),
+    );
+    let store = tkm_store::Store::open(paths.db).unwrap();
+    let repo = tkm_config::repo::repo_identity(&s.repo, "", Some(s.home.path()));
+    for _ in 0..5 {
+        store
+            .record_tool_unused_session(&repo.key, Host::Codex, "example")
+            .unwrap();
+    }
+    let out = s.run(&["prune", "apply"]);
+    assert!(out.status.success());
+    assert!(String::from_utf8_lossy(&out.stdout).contains("proposal only"));
+    assert!(store.list_denylist(&s.repo).unwrap().is_empty());
+}
