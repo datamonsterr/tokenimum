@@ -133,6 +133,14 @@ pub struct WebServer {
 impl WebServer {
     /// Start a dashboard; failures leave the daemon unaffected.
     pub async fn start(daemon: Arc<Daemon>, paths: &Paths, bind: &str) -> Result<Self, String> {
+        Self::start_with_actions(daemon, paths, bind, None).await
+    }
+    async fn start_with_actions(
+        daemon: Arc<Daemon>,
+        paths: &Paths,
+        bind: &str,
+        actions: Option<Arc<dyn Actions>>,
+    ) -> Result<Self, String> {
         let address = tkm_ui::web::validate_bind(bind).map_err(|e| e.to_string())?;
         let token = tkm_ui::web::generate_token().map_err(|e| e.to_string())?;
         let listener = tokio::net::TcpListener::bind(address)
@@ -150,10 +158,12 @@ impl WebServer {
                 token: token.clone(),
             },
             snapshot,
-            Arc::new(DaemonActions {
-                db: paths.db.clone(),
-                daemon: Arc::clone(&daemon),
-                deny_lock: Mutex::new(()),
+            actions.unwrap_or_else(|| {
+                Arc::new(DaemonActions {
+                    db: paths.db.clone(),
+                    daemon: Arc::clone(&daemon),
+                    deny_lock: Mutex::new(()),
+                })
             }),
             paths.db.clone(),
         );
@@ -433,6 +443,69 @@ mod tests {
         let state = monitor.read().map_err(|_| std::io::Error::other("lock"))?;
         assert!(!state.degraded);
         assert_eq!(state.savings[0].cost, 2.0);
+        Ok(())
+    }
+    #[tokio::test]
+    async fn shutdown_rejects_stalled_authenticated_body() -> Result<(), Box<dyn std::error::Error>>
+    {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        struct Fake(Arc<AtomicUsize>);
+        impl Actions for Fake {
+            fn forget_fact(&self, _: &str, _: &str) -> Result<String, String> {
+                self.0.fetch_add(1, Ordering::SeqCst);
+                Ok(String::new())
+            }
+            fn restore_tool(&self, _: &str, _: &str, _: &str) -> Result<String, String> {
+                self.0.fetch_add(1, Ordering::SeqCst);
+                Ok(String::new())
+            }
+            fn switch_preset(&self, _: &str, _: &str) -> Result<String, String> {
+                self.0.fetch_add(1, Ordering::SeqCst);
+                Ok(String::new())
+            }
+        }
+        let dir = tempfile::tempdir()?;
+        let paths = Paths::from_dirs(
+            dir.path(),
+            Some(dir.path()),
+            Some(dir.path()),
+            Some(dir.path()),
+        );
+        paths.ensure_runtime_dir()?;
+        let daemon = Daemon::new(crate::daemon::DaemonOptions::new(paths.clone()));
+        let calls = Arc::new(AtomicUsize::new(0));
+        let web = WebServer::start_with_actions(
+            daemon,
+            &paths,
+            "127.0.0.1:0",
+            Some(Arc::new(Fake(Arc::clone(&calls)))),
+        )
+        .await
+        .map_err(io::Error::other)?;
+        let file = paths.socket.with_file_name("tkmd-web.json");
+        let info: serde_json::Value = serde_json::from_slice(&std::fs::read(&file)?)?;
+        let host = info["url"]
+            .as_str()
+            .ok_or("url")?
+            .trim_start_matches("http://")
+            .trim_end_matches('/');
+        let token = info["token"].as_str().ok_or("token")?;
+        let body = r#"{"repo":"repo","fact_id":"fact"}"#;
+        let mut client = tokio::net::TcpStream::connect(host).await?;
+        client.write_all(format!("POST /api/actions/forget_fact HTTP/1.1\r\nHost: {host}\r\nAuthorization: Bearer {token}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", body.len()).as_bytes()).await?;
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        web.shutdown().await;
+        assert!(!file.exists());
+        let _ = client.write_all(body.as_bytes()).await;
+        let mut response = Vec::new();
+        let _ = tokio::time::timeout(
+            std::time::Duration::from_secs(1),
+            client.read_to_end(&mut response),
+        )
+        .await;
+        assert!(!String::from_utf8_lossy(&response).starts_with("HTTP/1.1 200"));
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
         Ok(())
     }
     #[tokio::test]
