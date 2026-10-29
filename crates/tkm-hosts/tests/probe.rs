@@ -104,7 +104,6 @@ fn shim_hosts_have_probe_coverage_for_all_lifecycle_events() {
 fn env_markers_are_empty_for_hosts_without_markers() {
     assert_eq!(tkm_hosts::env_markers(Host::Claude), &[] as &[&str]);
     assert_eq!(tkm_hosts::env_markers(Host::Codex), &[] as &[&str]);
-    assert_eq!(tkm_hosts::env_markers(Host::Pi), &[] as &[&str]);
 }
 
 #[test]
@@ -113,4 +112,9 @@ fn opencode_forwards_its_database_and_data_home_overrides() {
         tkm_hosts::env_markers(Host::Opencode),
         ["OPENCODE_DB", "XDG_DATA_HOME"]
     );
+}
+
+#[test]
+fn pi_forwards_its_agent_directory_override() {
+    assert_eq!(tkm_hosts::env_markers(Host::Pi), ["PI_CODING_AGENT_DIR"]);
 }

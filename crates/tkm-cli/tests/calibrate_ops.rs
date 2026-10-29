@@ -247,7 +247,7 @@ fn fixture_precision_targets_gate_shadow_for_every_purpose_and_model() {
                 model_version: row.model_version.clone(),
                 purpose: purpose.into(),
             };
-            gate.refresh(std::slice::from_ref(&row));
+            gate.refresh(std::slice::from_ref(row));
             assert!(tkm_decide::calibrate::CalibrationStore::get(&gate, &key).is_some());
             let mut below = row.clone();
             below.precision = 0.899;
