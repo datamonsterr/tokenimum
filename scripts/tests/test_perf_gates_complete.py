@@ -12,7 +12,7 @@ class GatesTest(unittest.TestCase):
         workflow = (ROOT / '.github/workflows/bench.yml').read_text()
         self.assertNotIn('| Pending |', adr)
         self.assertNotIn('--bench placeholder', workflow)
-        for required in ('prompt_scored', 'prompt_cached', 'fold_session', 'shim-opencode', 'shim-pi'):
+        for required in ('prompt/scored', 'prompt/cached', 'fold_session', 'shim-opencode', 'shim-pi'):
             self.assertIn(required, workflow)
 
 
