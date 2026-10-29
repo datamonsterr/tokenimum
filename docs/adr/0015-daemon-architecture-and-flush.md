@@ -45,6 +45,9 @@ Date: 2026-10-29. Status: accepted (epic E4.2).
    reloaded (the `decisions` table has no timestamp); this is a known gap, listed in the epic report.
 10. **Test hooks.** `TKM_DECIDE_ENDPOINT` points the decision client at a local fake server
     (`HttpTransport::with_endpoint`, added additively to `tkm-decide`).
+11. **Request ordering.** First frames register in accept order, then requests for each
+    `(host, session_id)` execute in that order independently of other sessions and client
+    disconnects. The server caps accepted connections at 1,024; excess clients fail open.
 
 ## Sources checked 2026-10-29
 

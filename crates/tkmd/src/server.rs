@@ -1,8 +1,9 @@
 //! E4.2 hook socket server: Unix socket, length-prefixed JSON frames (`tkm-proto`).
 
+use std::collections::HashMap;
 use std::fs::File;
 use std::io;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use tkm_config::paths::secure_socket;
@@ -11,14 +12,19 @@ use tkm_proto::{
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{UnixListener, UnixStream};
-use tokio::sync::oneshot;
+use tokio::sync::{Semaphore, oneshot};
 
 use crate::daemon::{Daemon, noop_reply};
+use crate::state::Tag;
 
 /// Longest a client may take to deliver a header or body.
 const READ_LIMIT: Duration = Duration::from_secs(5);
 /// How long a probe waits for a live daemon to accept.
 const PROBE_LIMIT: Duration = Duration::from_millis(500);
+/// Bounds accepted connections and pending session requests.
+const MAX_CONNECTIONS: usize = 1024;
+
+type OrderMap = Mutex<HashMap<Tag, (Arc<()>, oneshot::Receiver<()>)>>;
 
 fn probe_is_refused(probe: &Result<io::Result<UnixStream>, tokio::time::error::Elapsed>) -> bool {
     matches!(probe, Ok(Err(error)) if error.kind() == io::ErrorKind::ConnectionRefused)
@@ -84,18 +90,25 @@ impl Server {
         tokio::pin!(shutdown);
         let (first, mut last) = oneshot::channel::<()>();
         drop(first);
+        let order = Arc::new(OrderMap::default());
+        let slots = Arc::new(Semaphore::new(MAX_CONNECTIONS));
         loop {
             tokio::select! {
                 accepted = self.listener.accept() => {
                     match accepted {
                         Ok((stream, _)) => {
+                            let Ok(permit) = slots.clone().try_acquire_owned() else {
+                                continue;
+                            };
                             let daemon = self.daemon.clone();
-                            // Hooks run one after another, so connection order is event order.
-                            // Handling follows accept order even when a slow hook gave up early.
+                            let order = order.clone();
+                            // Register first frames in accept order, then release the next
+                            // connection without waiting for this session's handler.
                             let (done, next) = oneshot::channel();
                             let previous = std::mem::replace(&mut last, next);
                             tokio::spawn(async move {
-                                serve_connection(stream, &daemon, Some(previous), done).await;
+                                let _permit = permit;
+                                serve_connection(stream, &daemon, &order, previous, done).await;
                             });
                         }
                         Err(error) => self.daemon.log_error(&format!("accept: {error}")),
@@ -130,18 +143,23 @@ async fn read_request(stream: &mut UnixStream) -> Result<Option<Request>, String
         .map_err(|error| format!("bad frame body: {error}"))
 }
 
-/// Longest a request waits for the previous connection's request to finish.
-const ORDER_LIMIT: Duration = Duration::from_millis(250);
-
 async fn serve_connection(
     mut stream: UnixStream,
     daemon: &Arc<Daemon>,
-    mut previous: Option<oneshot::Receiver<()>>,
-    done: oneshot::Sender<()>,
+    order: &OrderMap,
+    previous: oneshot::Receiver<()>,
+    registered: oneshot::Sender<()>,
 ) {
-    let _done = done; // dropping it releases the next connection
+    let mut registration = Some((previous, registered));
     loop {
-        let request = match read_request(&mut stream).await {
+        let read = read_request(&mut stream).await;
+        let registration_done = if let Some((previous, registered)) = registration.take() {
+            let _ = previous.await;
+            Some(registered)
+        } else {
+            None
+        };
+        let request = match read {
             Ok(Some(request)) => request,
             Ok(None) => return,
             Err(message) => {
@@ -150,12 +168,36 @@ async fn serve_connection(
                 return;
             }
         };
-        // Only the first request of a connection is ordered; hooks send one per connection.
-        if let Some(previous) = previous.take() {
-            let _ = tokio::time::timeout(ORDER_LIMIT, previous).await;
+        let tag = daemon
+            .adapters()
+            .get(request.host)
+            .map_event(&request)
+            .ok()
+            .flatten()
+            .map(|event| (event.host, event.session_id));
+        let mut ticket = tag.map(|tag| {
+            let marker = Arc::new(());
+            let (done, next) = oneshot::channel();
+            let previous = crate::daemon::lock(order).insert(tag.clone(), (marker.clone(), next));
+            (tag, marker, done, previous.map(|(_, receiver)| receiver))
+        });
+        drop(registration_done);
+        if let Some((_, _, _, Some(previous))) = ticket.as_mut() {
+            let _ = previous.await;
         }
         let host = request.host;
         let reply = daemon.handle(request).await;
+        if let Some((tag, marker, done, _)) = ticket {
+            let mut entries = crate::daemon::lock(order);
+            if entries
+                .get(&tag)
+                .is_some_and(|(last, _)| Arc::ptr_eq(last, &marker))
+            {
+                entries.remove(&tag);
+            }
+            drop(entries);
+            drop(done);
+        }
         let frame = encode_frame(&reply, MAX_REPLY_FRAME)
             .or_else(|_| encode_frame(&noop_reply(host), MAX_REPLY_FRAME));
         let Ok(frame) = frame else {
