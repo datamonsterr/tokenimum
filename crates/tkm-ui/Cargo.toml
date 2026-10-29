@@ -14,7 +14,7 @@ workspace = true
 ratatui = { workspace = true }
 crossterm = { workspace = true }
 axum = { workspace = true, optional = true }
-tokio = { workspace = true }
+tokio = { workspace = true, features = ["rt", "sync"] }
 
 tkm-proto = { workspace = true }
 tkm-store = { workspace = true }
