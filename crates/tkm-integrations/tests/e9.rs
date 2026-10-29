@@ -271,3 +271,83 @@ fn escalation_sends_mcp_and_times_out() {
     assert!(start.elapsed() < Duration::from_secs(6));
     assert!(h.in_backoff());
 }
+
+#[test]
+fn otherskill_uses_session_directory() {
+    let dir = tempfile::tempdir().unwrap();
+    let session = dir.path().join("session");
+    fs::create_dir(&session).unwrap();
+    let marker = dir.path().join("pwd");
+    script(
+        dir.path(),
+        "otherskill",
+        &format!(
+            "pwd > '{}'; printf '%s' '{{\"status\":\"ok\",\"selected\":[]}}'",
+            marker.display()
+        ),
+    );
+    let source = OtherskillSource::new(dir.path().as_os_str().to_owned(), health());
+    source.candidates_in(&RepoKey::default(), Host::Claude, "p", &session);
+    assert_eq!(
+        fs::read_to_string(marker).unwrap().trim(),
+        session.to_str().unwrap()
+    );
+}
+
+#[test]
+fn otherskill_rejects_oversized_stdout() {
+    let dir = tempfile::tempdir().unwrap();
+    script(
+        dir.path(),
+        "otherskill",
+        "/usr/bin/head -c 1100000 /dev/zero",
+    );
+    let source = OtherskillSource::new(dir.path().as_os_str().to_owned(), health());
+    let start = Instant::now();
+    assert!(
+        source
+            .candidates(&RepoKey::default(), Host::Claude, "p")
+            .is_empty()
+    );
+    assert!(start.elapsed() < Duration::from_secs(2));
+}
+
+#[test]
+fn otherskill_timeout_with_inherited_stdout_returns_promptly() {
+    let dir = tempfile::tempdir().unwrap();
+    script(dir.path(), "otherskill", "/bin/sleep 30 & wait");
+    let source = OtherskillSource::new(dir.path().as_os_str().to_owned(), health());
+    let start = Instant::now();
+    assert!(
+        source
+            .candidates(&RepoKey::default(), Host::Claude, "p")
+            .is_empty()
+    );
+    assert!(start.elapsed() < Duration::from_millis(1700));
+}
+
+#[test]
+fn escalation_rejects_null_initialize_result() {
+    let dir = tempfile::tempdir().unwrap();
+    script(
+        dir.path(),
+        "superorchestrator",
+        "read line; printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":null}'",
+    );
+    let h = health();
+    let escalator = SuperorchestratorEscalator::new(
+        dir.path().as_os_str().to_owned(),
+        dir.path().to_path_buf(),
+        h.clone(),
+    );
+    let env = BTreeMap::from([
+        ("SUPERORCHESTRATOR_RUN_ID".into(), "run".into()),
+        ("SUPERORCHESTRATOR_RUN_TOKEN".into(), "secret".into()),
+    ]);
+    escalator.observe_session(Host::Claude, "s", dir.path(), &env);
+    escalator.escalate(&EscalationEvent {
+        session_id: "s".into(),
+        ..Default::default()
+    });
+    assert!(h.in_backoff());
+}
