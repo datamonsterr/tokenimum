@@ -144,6 +144,42 @@ async fn disabled_facts_and_ledger_do_not_persist_fold_results() {
 }
 
 #[tokio::test]
+async fn fold_sends_one_candidate_batch_and_fails_open_on_decision_failure() {
+    use tkm_decide::client::{NoDecisionReason, Outcome};
+    let env = Env::new();
+    let decider = ScriptedDecider::new(Outcome::NoDecision(NoDecisionReason::AllFailed));
+    let daemon = daemon_with(&env, Settings::default(), decider.clone());
+    let path =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/replay-form-repair.jsonl");
+    daemon.handle(start_request(path.to_str().unwrap())).await;
+    daemon.handle(end_request(path.to_str().unwrap())).await;
+    daemon.settle().await;
+    let requests = decider.requests.lock().unwrap();
+    let filters: Vec<_> = requests
+        .iter()
+        .filter(|request| request.purpose == tkm_decide::cache::Purpose::FactFilter)
+        .collect();
+    assert_eq!(filters.len(), 1);
+    assert!(
+        filters[0]
+            .questions
+            .keys()
+            .any(|key| key.starts_with("stable_"))
+    );
+    assert!(
+        filters[0]
+            .questions
+            .keys()
+            .any(|key| key.starts_with("safe_"))
+    );
+    let store = tkm_store::open_read_only(&env.paths.db).unwrap();
+    let count: i64 = store
+        .query_row("SELECT COUNT(*) FROM facts", [], |row| row.get(0))
+        .unwrap();
+    assert!(count > 0, "failure must preserve code-only facts");
+}
+
+#[tokio::test]
 async fn partial_session_contributes_to_the_ledger_only() {
     let env = Env::new();
     // 3 of 10 records are unreadable: more than 20% skipped.

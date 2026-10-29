@@ -19,6 +19,8 @@ pub enum Purpose {
     Relevance,
     /// Judge candidate facts.
     FactFilter,
+    /// Judge contradictions of exercised repository facts.
+    FactContradiction,
     /// Select the next corrective action.
     Redirect,
 }
@@ -30,6 +32,7 @@ impl Purpose {
             Self::LoopGuard => "loop_guard",
             Self::Relevance => "relevance",
             Self::FactFilter => "fact_filter",
+            Self::FactContradiction => "fact_contradiction",
             Self::Redirect => "redirect",
         }
     }
@@ -39,7 +42,7 @@ impl Purpose {
         match self {
             Self::Relevance => 600_000,
             Self::FactFilter => 86_400_000,
-            Self::LoopGuard | Self::Redirect => 0,
+            Self::LoopGuard | Self::Redirect | Self::FactContradiction => 0,
         }
     }
 }
