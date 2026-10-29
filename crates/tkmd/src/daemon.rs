@@ -1168,7 +1168,7 @@ impl Daemon {
                     Effect::Judge(job) => me.run_judge(*job).await,
                     Effect::Escalate(job) => me.run_escalation(job).await,
                     Effect::Resolve(seed, generation) => {
-                        me.resolve_session(seed, generation, false).await
+                        me.resolve_session(seed, generation, false).await;
                     }
                 }
                 me.inflight.fetch_sub(1, Ordering::SeqCst);
