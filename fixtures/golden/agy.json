@@ -64,7 +64,7 @@
         "text": "tokenimum: the last 19 calls repeated \"ImportError\". Re-read the error and the failing expectation before editing again. Failing command: \"python -m pytest -q\"."
       },
       "redirect": "reread_error",
-      "stdout": ""
+      "stdout": "{}"
     }
   ],
   "fold_fact_ids": []

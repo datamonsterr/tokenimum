@@ -525,3 +525,20 @@ fn quoted_dotted_key_is_not_a_registered_key() {
         );
     }
 }
+
+#[test]
+fn process_environment_variables_are_not_unknown_config_keys() {
+    let t = Temp::new();
+    let mut i = inputs(&t);
+    for name in [
+        "TKM_TKMD_BIN",
+        "TKM_PROBE_EVENTS",
+        "TKM_HOST",
+        "TKM_SESSION_ID",
+        "TKM_DELEGATED",
+    ] {
+        i.env.push((name.into(), "x".into()));
+    }
+    let config = load(&i).unwrap();
+    assert!(config.errors.is_empty(), "{:?}", config.errors);
+}
