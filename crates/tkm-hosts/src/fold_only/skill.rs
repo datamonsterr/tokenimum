@@ -3,11 +3,21 @@
 //! The skill lets the agent pull repository facts on demand. It lists read-only
 //! commands only and makes no claim about effects.
 
+use crate::writer::deny::refuse_tracked;
 use crate::writer::{Update, atomic_update, read_optional, retry_update, safe_target};
 use crate::{AdapterError, InstallReport};
 use std::fs;
 use std::path::{Path, PathBuf};
 use tkm_proto::Host;
+
+/// Options for [`install`] and [`uninstall`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct SkillOptions {
+    /// Allow changing a git-tracked project skill file.
+    pub allow_tracked: bool,
+    /// Compute the change without writing.
+    pub dry_run: bool,
+}
 
 const MARKER_PREFIX: &str = "<!-- tokenimum-skill version=";
 
@@ -81,28 +91,55 @@ fn report_only(host: Host, dry_run: bool) -> InstallReport {
     }
 }
 
+/// Resolves the skill file, refusing a symlinked file and, in project scope, a
+/// tracked one unless `opts.allow_tracked`. A project scope needs a git repository.
+fn checked_path(
+    path: &Path,
+    scope: &Path,
+    project: bool,
+    opts: SkillOptions,
+) -> Result<PathBuf, AdapterError> {
+    if fs::symlink_metadata(path).is_ok_and(|meta| meta.file_type().is_symlink()) {
+        return Err(AdapterError::UnsafeTarget {
+            path: path.to_path_buf(),
+            reason: "skill file is a symlink".to_owned(),
+        });
+    }
+    let target = safe_target(scope, path)?;
+    if project && !opts.allow_tracked && path.exists() {
+        refuse_tracked(scope, path)?;
+    }
+    Ok(target)
+}
+
 /// Installs the skill under `agent_home`, or under `repo_root` for project scope.
 ///
-/// Atomic, idempotent and honours `dry_run`. Refuses a symlink that leaves the
-/// scope root and an existing `SKILL.md` that tokenimum did not generate.
+/// Atomic, idempotent and honours `dry_run`. Refuses a symlinked `SKILL.md`, a
+/// symlink that leaves the scope root, an existing `SKILL.md` that tokenimum did
+/// not generate, and (project scope) a git-tracked file unless `allow_tracked`.
 /// Hosts without a documented directory return a report-only result.
 ///
 /// # Errors
-/// [`AdapterError::UnsafeTarget`] for refusals, otherwise I/O failures.
+/// [`AdapterError::UnsafeTarget`] for refusals, otherwise git or I/O failures.
 pub fn install(
     host: Host,
     agent_home: &Path,
     repo_root: Option<&Path>,
-    dry_run: bool,
+    opts: SkillOptions,
 ) -> Result<InstallReport, AdapterError> {
     let Some(path) = skill_path(host, agent_home, repo_root) else {
-        return Ok(report_only(host, dry_run));
+        return Ok(report_only(host, opts.dry_run));
     };
-    let target = safe_target(repo_root.unwrap_or(agent_home), &path)?;
+    let target = checked_path(
+        &path,
+        repo_root.unwrap_or(agent_home),
+        repo_root.is_some(),
+        opts,
+    )?;
     let content = render(host);
     retry_update(read_optional(&target)?, |snapshot| {
         let mut report = InstallReport {
-            dry_run,
+            dry_run: opts.dry_run,
             ..InstallReport::default()
         };
         if snapshot.is_some_and(|text| !owned(text)) {
@@ -115,7 +152,7 @@ pub fn install(
             return Ok(Update::Done(report));
         }
         report.changed_files.push(path.clone());
-        if dry_run {
+        if opts.dry_run {
             return Ok(Update::Done(report));
         }
         match atomic_update(&target, snapshot, Some(&content), || Ok(()))? {
@@ -126,35 +163,45 @@ pub fn install(
 }
 
 /// Removes the skill file when it carries the tokenimum marker, plus its
-/// directory when that becomes empty. A file without the marker is left alone.
+/// `tokenimum` directory when that becomes empty. A file without the marker is
+/// left alone; a symlinked or (project scope) tracked file is refused.
 ///
 /// # Errors
-/// [`AdapterError::UnsafeTarget`] for an escaping symlink, otherwise I/O failures.
+/// [`AdapterError::UnsafeTarget`] for refusals, otherwise git or I/O failures.
 pub fn uninstall(
     host: Host,
     agent_home: &Path,
     repo_root: Option<&Path>,
-    dry_run: bool,
+    opts: SkillOptions,
 ) -> Result<InstallReport, AdapterError> {
     let mut report = InstallReport {
-        dry_run,
+        dry_run: opts.dry_run,
         ..InstallReport::default()
     };
     let Some(path) = skill_path(host, agent_home, repo_root) else {
         return Ok(report);
     };
-    let target = safe_target(repo_root.unwrap_or(agent_home), &path)?;
+    let target = checked_path(
+        &path,
+        repo_root.unwrap_or(agent_home),
+        repo_root.is_some(),
+        opts,
+    )?;
     retry_update(read_optional(&target)?, |snapshot| {
         if !snapshot.is_some_and(owned) {
             return Ok(Update::Done(()));
         }
         report.changed_files = vec![path.clone()];
-        if dry_run {
+        if opts.dry_run {
             return Ok(Update::Done(()));
         }
         match atomic_update(&target, snapshot, None, || Ok(()))? {
             Update::Done(()) => {
-                if let Some(directory) = target.parent() {
+                if let Some(directory) = target.parent()
+                    && directory
+                        .file_name()
+                        .is_some_and(|name| name == "tokenimum")
+                {
                     // Best effort: fails, and is kept, when the directory holds other files.
                     let _ = fs::remove_dir(directory);
                 }

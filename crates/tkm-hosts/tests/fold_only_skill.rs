@@ -132,7 +132,16 @@ fn install_writes_file_and_is_idempotent() {
 #[test]
 fn install_dry_run_writes_nothing() {
     let scratch = Scratch::new();
-    let report = install(Host::Opencode, &scratch.0, None, SkillOptions { dry_run: true, ..SkillOptions::default() }).unwrap();
+    let report = install(
+        Host::Opencode,
+        &scratch.0,
+        None,
+        SkillOptions {
+            dry_run: true,
+            ..SkillOptions::default()
+        },
+    )
+    .unwrap();
     assert!(report.dry_run);
     assert_eq!(report.changed_files.len(), 1);
     assert!(!scratch.0.join("skills").exists());
@@ -202,7 +211,16 @@ fn uninstall_removes_owned_file_and_empty_directory() {
 fn uninstall_dry_run_keeps_file() {
     let scratch = Scratch::new();
     install(Host::Claude, &scratch.0, None, SkillOptions::default()).unwrap();
-    let report = uninstall(Host::Claude, &scratch.0, None, SkillOptions { dry_run: true, ..SkillOptions::default() }).unwrap();
+    let report = uninstall(
+        Host::Claude,
+        &scratch.0,
+        None,
+        SkillOptions {
+            dry_run: true,
+            ..SkillOptions::default()
+        },
+    )
+    .unwrap();
     assert!(report.dry_run);
     assert_eq!(report.changed_files.len(), 1);
     assert!(scratch.0.join("skills/tokenimum/SKILL.md").is_file());
@@ -240,16 +258,29 @@ fn install_project_scope_refuses_tracked_skill_without_opt_in() {
     git(&repo, &["add", "."]);
     git(
         &repo,
-        &["-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-qm", "x"],
+        &[
+            "-c",
+            "user.name=t",
+            "-c",
+            "user.email=t@example.com",
+            "commit",
+            "-qm",
+            "x",
+        ],
     );
-    let stale = fs::read_to_string(&path).unwrap().replace("host=claude", "host=old");
+    let stale = fs::read_to_string(&path)
+        .unwrap()
+        .replace("host=claude", "host=old");
     fs::write(&path, &stale).unwrap();
     let err = install(Host::Claude, &home, Some(&repo), SkillOptions::default()).unwrap_err();
     assert!(matches!(err, AdapterError::UnsafeTarget { .. }), "{err:?}");
     assert_eq!(fs::read_to_string(&path).unwrap(), stale);
     let err = uninstall(Host::Claude, &home, Some(&repo), SkillOptions::default()).unwrap_err();
     assert!(matches!(err, AdapterError::UnsafeTarget { .. }), "{err:?}");
-    let allow = SkillOptions { allow_tracked: true, ..SkillOptions::default() };
+    let allow = SkillOptions {
+        allow_tracked: true,
+        ..SkillOptions::default()
+    };
     install(Host::Claude, &home, Some(&repo), allow).unwrap();
     assert_eq!(fs::read_to_string(&path).unwrap(), render(Host::Claude));
 }
@@ -268,7 +299,13 @@ fn symlinked_skill_file_is_refused_by_install_and_uninstall() {
     let err = uninstall(Host::Claude, &scratch.0, None, SkillOptions::default()).unwrap_err();
     assert!(matches!(err, AdapterError::UnsafeTarget { .. }), "{err:?}");
     assert!(real.is_file());
-    assert!(dir.join("SKILL.md").symlink_metadata().unwrap().file_type().is_symlink());
+    assert!(
+        dir.join("SKILL.md")
+            .symlink_metadata()
+            .unwrap()
+            .file_type()
+            .is_symlink()
+    );
 }
 
 #[test]

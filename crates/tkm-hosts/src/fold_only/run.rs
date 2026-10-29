@@ -73,6 +73,11 @@ pub fn plan<A: Into<OsString>>(
 
 /// Runs the plan with inherited stdio and waits for it to exit.
 ///
+/// Signals: Ctrl-C reaches the child and this process alike (same foreground
+/// process group). The caller (`tkm run`, epic E7) must ignore SIGINT in the
+/// parent while the child runs, so the parent survives to see the exit and fire
+/// `ended`. This library does not touch signal handlers (it forbids `unsafe`).
+///
 /// # Errors
 /// [`AdapterError::Io`] when the spawn fails (the observer sees nothing) or the
 /// wait fails (the observer saw `started` but gets no `ended`).

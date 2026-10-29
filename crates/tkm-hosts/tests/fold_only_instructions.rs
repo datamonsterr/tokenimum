@@ -507,7 +507,10 @@ fn apply_existing_file_backs_up_original_bytes_and_excludes_only_backup() {
     assert_eq!(fs::read(&bak).unwrap(), b"# mine\r\nkeep\n");
     assert!(report.changed_files.contains(&bak));
     let exclude = fs::read_to_string(scratch.0.join(".git/info/exclude")).unwrap_or_default();
-    assert!(exclude.lines().any(|l| l == "/AGENTS.md.tkm-bak"), "{exclude:?}");
+    assert!(
+        exclude.lines().any(|l| l == "/AGENTS.md.tkm-bak"),
+        "{exclude:?}"
+    );
     assert!(!exclude.lines().any(|l| l == "/AGENTS.md"), "{exclude:?}");
 }
 
@@ -518,7 +521,10 @@ fn backup_is_written_once_and_never_overwritten() {
     fs::write(scratch.0.join("AGENTS.md"), "original\n").unwrap();
     apply(&scratch.0, Host::Codex, "one", ApplyOptions::default()).unwrap();
     apply(&scratch.0, Host::Codex, "two", ApplyOptions::default()).unwrap();
-    assert_eq!(fs::read(scratch.0.join("AGENTS.md.tkm-bak")).unwrap(), b"original\n");
+    assert_eq!(
+        fs::read(scratch.0.join("AGENTS.md.tkm-bak")).unwrap(),
+        b"original\n"
+    );
 }
 
 #[test]
@@ -531,7 +537,11 @@ fn remove_from_restores_original_bytes_and_deletes_backup() {
     let report = remove_from(&scratch.0, Host::Codex, ApplyOptions::default()).unwrap();
     assert_eq!(fs::read(&path).unwrap(), b"# mine\n\nkeep\n");
     assert!(!scratch.0.join("AGENTS.md.tkm-bak").exists());
-    assert!(report.changed_files.contains(&scratch.0.join("AGENTS.md.tkm-bak")));
+    assert!(
+        report
+            .changed_files
+            .contains(&scratch.0.join("AGENTS.md.tkm-bak"))
+    );
 }
 
 #[test]
@@ -545,7 +555,10 @@ fn remove_from_keeps_file_and_backup_when_person_edited_elsewhere() {
     fs::write(&path, edited).unwrap();
     remove_from(&scratch.0, Host::Codex, ApplyOptions::default()).unwrap();
     let after = fs::read_to_string(&path).unwrap();
-    assert!(after.contains("# mine") && after.contains("added later"), "{after:?}");
+    assert!(
+        after.contains("# mine") && after.contains("added later"),
+        "{after:?}"
+    );
     assert!(!after.contains("tokenimum:begin"));
     assert!(scratch.0.join("AGENTS.md.tkm-bak").exists());
 }
@@ -562,7 +575,11 @@ fn apply_dry_run_on_existing_file_leaves_bytes() {
     };
     let report = apply(&scratch.0, Host::Codex, "fact", opts).unwrap();
     assert!(report.changed_files.contains(&path));
-    assert!(report.changed_files.contains(&scratch.0.join("AGENTS.md.tkm-bak")));
+    assert!(
+        report
+            .changed_files
+            .contains(&scratch.0.join("AGENTS.md.tkm-bak"))
+    );
     assert!(!scratch.0.join("AGENTS.md.tkm-bak").exists());
     assert_eq!(fs::read_to_string(&path).unwrap(), "# mine\n");
 }
@@ -664,7 +681,10 @@ fn markers_in_prose_and_code_fences_are_not_blocks() {
     assert_eq!(remove(PROSE_AND_FENCE), PROSE_AND_FENCE);
     let spliced = splice(PROSE_AND_FENCE, "real");
     assert!(spliced.starts_with(PROSE_AND_FENCE), "{spliced:?}");
-    assert!(spliced.ends_with("real\n<!-- tokenimum:end -->\n"), "{spliced:?}");
+    assert!(
+        spliced.ends_with("real\n<!-- tokenimum:end -->\n"),
+        "{spliced:?}"
+    );
     assert_eq!(remove(&spliced), PROSE_AND_FENCE);
 }
 
@@ -683,7 +703,8 @@ fn apply_leaves_prose_and_fenced_markers_byte_identical() {
 
 #[test]
 fn real_block_after_a_fence_is_found() {
-    let text = format!("{PROSE_AND_FENCE}\n<!-- tokenimum:begin -->\nold\n<!-- tokenimum:end -->\n");
+    let text =
+        format!("{PROSE_AND_FENCE}\n<!-- tokenimum:begin -->\nold\n<!-- tokenimum:end -->\n");
     let out = splice(&text, "new");
     assert!(out.starts_with(PROSE_AND_FENCE));
     assert!(out.contains("new") && !out.contains("old"));
@@ -709,7 +730,10 @@ fn apply_refuses_two_begin_markers() {
     let text = "<!-- tokenimum:begin -->\na\n<!-- tokenimum:end -->\n\n<!-- tokenimum:begin -->\nb\n<!-- tokenimum:end -->\n";
     fs::write(&path, text).unwrap();
     let err = apply(&scratch.0, Host::Codex, "x", ApplyOptions::default()).unwrap_err();
-    assert!(matches!(err, tkm_hosts::AdapterError::InvalidPayload { .. }), "{err:?}");
+    assert!(
+        matches!(err, tkm_hosts::AdapterError::InvalidPayload { .. }),
+        "{err:?}"
+    );
     assert_eq!(fs::read_to_string(&path).unwrap(), text);
     assert!(!scratch.0.join("AGENTS.md.tkm-bak").exists());
 }
@@ -721,14 +745,18 @@ fn remove_from_refuses_two_begin_markers() {
     let text = "<!-- tokenimum:begin -->\na\n<!-- tokenimum:begin -->\nb\n<!-- tokenimum:end -->\n";
     fs::write(scratch.0.join("AGENTS.md"), text).unwrap();
     let err = remove_from(&scratch.0, Host::Codex, ApplyOptions::default()).unwrap_err();
-    assert!(matches!(err, tkm_hosts::AdapterError::InvalidPayload { .. }), "{err:?}");
+    assert!(
+        matches!(err, tkm_hosts::AdapterError::InvalidPayload { .. }),
+        "{err:?}"
+    );
 }
 
 #[test]
 fn begin_in_fence_does_not_count_as_second_begin() {
     let scratch = Scratch::new();
     scratch.init_git();
-    let text = format!("{PROSE_AND_FENCE}\n<!-- tokenimum:begin -->\nold\n<!-- tokenimum:end -->\n");
+    let text =
+        format!("{PROSE_AND_FENCE}\n<!-- tokenimum:begin -->\nold\n<!-- tokenimum:end -->\n");
     fs::write(scratch.0.join("AGENTS.md"), &text).unwrap();
     apply(&scratch.0, Host::Codex, "new", ApplyOptions::default()).unwrap();
 }
@@ -757,7 +785,10 @@ fn splice_then_remove_restores_original_bytes() {
 #[test]
 fn crlf_file_gets_crlf_block() {
     let out = splice("A\r\nB\r\n", "one\ntwo\n");
-    assert!(!out.replace("\r\n", "").contains('\n'), "bare LF in {out:?}");
+    assert!(
+        !out.replace("\r\n", "").contains('\n'),
+        "bare LF in {out:?}"
+    );
     assert!(out.contains("one\r\ntwo\r\n"));
 }
 
@@ -815,9 +846,17 @@ fn dry_run_reports_exclude_without_writing_it() {
     let scratch = Scratch::new();
     scratch.init_git();
     let before = fs::read_to_string(scratch.0.join(".git/info/exclude")).unwrap_or_default();
-    let opts = ApplyOptions { dry_run: true, ..Default::default() };
+    let opts = ApplyOptions {
+        dry_run: true,
+        ..Default::default()
+    };
     let report = apply(&scratch.0, Host::Codex, "fact", opts).unwrap();
-    assert!(report.changed_files.iter().any(|p| p.ends_with("info/exclude")));
+    assert!(
+        report
+            .changed_files
+            .iter()
+            .any(|p| p.ends_with("info/exclude"))
+    );
     let after = fs::read_to_string(scratch.0.join(".git/info/exclude")).unwrap_or_default();
     assert_eq!(before, after);
 }

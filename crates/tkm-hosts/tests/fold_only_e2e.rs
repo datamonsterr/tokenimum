@@ -13,10 +13,10 @@ use tkm_core::inject::{Config, InjectCandidate, Source, estimate_tokens, render,
 use tkm_core::model::{Call, RepoKey, Session, Turn};
 use tkm_hosts::claude::ClaudeAdapter;
 use tkm_hosts::codex::CodexAdapter;
-use tkm_hosts::opencode::OpencodeAdapter;
-use tkm_hosts::pi::PiAdapter;
 use tkm_hosts::fold_only::instructions::{ApplyOptions, apply};
 use tkm_hosts::fold_only::{IntegrationMode, mode_for};
+use tkm_hosts::opencode::OpencodeAdapter;
+use tkm_hosts::pi::PiAdapter;
 use tkm_hosts::{HostAdapter, SessionSource};
 use tkm_proto::Host;
 
@@ -245,7 +245,8 @@ fn opencode_fixture_claim_lands_inside_markers() {
     let dir = repo_scratch_dir();
     let db = dir.join("opencode.db");
     let sql = fs::read_to_string(
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/fold_only/opencode-repair.sql"),
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/fold_only/opencode-repair.sql"),
     )
     .unwrap();
     let conn = rusqlite::Connection::open(&db).unwrap();
@@ -264,7 +265,10 @@ fn opencode_fixture_claim_lands_inside_markers() {
     let (claims, text) = fold_and_inject(Host::Opencode, session);
     let block = inside_markers(&text);
     for claim in &claims {
-        assert!(block.contains(claim.as_str()), "{claim:?} missing from {block:?}");
+        assert!(
+            block.contains(claim.as_str()),
+            "{claim:?} missing from {block:?}"
+        );
     }
     let _ = fs::remove_dir_all(dir);
 }
@@ -274,7 +278,8 @@ fn pi_fixture_claim_lands_inside_markers() {
     let session = PiAdapter::new()
         .read_session(&SessionSource {
             agent_home: "/synthetic/agent".into(),
-            path: PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/fold_only/pi-repair.jsonl"),
+            path: PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("tests/fixtures/fold_only/pi-repair.jsonl"),
             session_id: "00000000-0000-4000-8000-000000000001".into(),
             repo_key: RepoKey("synthetic-origin".into()),
             cwd: "/home/user/project".into(),
@@ -283,7 +288,10 @@ fn pi_fixture_claim_lands_inside_markers() {
     let (claims, text) = fold_and_inject(Host::Pi, session);
     let block = inside_markers(&text);
     for claim in &claims {
-        assert!(block.contains(claim.as_str()), "{claim:?} missing from {block:?}");
+        assert!(
+            block.contains(claim.as_str()),
+            "{claim:?} missing from {block:?}"
+        );
     }
 }
 

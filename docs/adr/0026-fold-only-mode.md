@@ -39,10 +39,17 @@ its docs are readable.
 <!-- tokenimum:end -->
 ```
 
-`splice` replaces the first complete block in place or appends one after a blank line. Bytes
-outside the markers never change. `remove` undoes `splice` exactly for files ending in a
-newline (it drops the added blank line and newline). A begin marker without an end marker is
-not a block; `apply` refuses it with `InvalidPayload` rather than append a second block.
+A marker counts only when it is alone on its line (trailing whitespace and CR ignored) and
+outside a fenced code block (``` or ~~~). Prose and examples that quote the markers are inert.
+`validate` (called by `apply` and `remove_from`) returns `InvalidPayload` for more than one
+begin marker, or a begin marker without an end marker; nothing is written then.
+
+`splice` replaces the block in place or appends one after a blank line. The block uses the
+file's line ending (CRLF when its first line ends in CRLF, otherwise LF). Bytes outside the
+markers never change. A file without a final newline gets a block without one. `remove`
+undoes `splice` exactly for LF and CRLF files, with or without a final newline (tests
+`splice_then_remove_restores_original_bytes`, `apply_then_remove_from_round_trips_crlf_file`).
+A block placed by hand loses only its own lines. Mixed line endings follow the first line.
 
 ### 3. Safety rules (SPEC 6.12, ADR 0001 item 9)
 
@@ -54,15 +61,22 @@ not a block; `apply` refuses it with `InvalidPayload` rather than append a secon
   recompute if the file changed meanwhile, refusal on a second change.
 - Re-applying the same body changes nothing.
 
-### 4. Creation marker and `.git/info/exclude`
+### 4. Backup, creation marker and `.git/info/exclude`
 
-When tokenimum creates the file it writes an empty `<file>.tkm-bak` (ADR 0011 "did not
-exist" marker) and appends `/<file>` and `/<file>.tkm-bak` once each to the path from
-`git rev-parse --git-path info/exclude` (`writer::deny::update_exclude`, now taking the line
-as a parameter). A file that already existed gets no marker and no exclude entry, so a
-person's untracked file is not hidden. `remove_from` deletes the file and marker only when
-the marker is empty and nothing but whitespace remains; exclude lines stay (harmless, and
-another process may share them).
+`<file>.tkm-bak` has two meanings, told apart by its content (ADR 0011):
+
+- **Empty**: tokenimum created the file. `remove_from` deletes the file and marker when only
+  whitespace remains.
+- **Original bytes**: the file existed. The backup is written once, before the first write,
+  and never overwritten. `remove_from` writes the backup's bytes back and deletes the backup
+  when the result equals it. If the person edited the file elsewhere, their edits stay and so
+  does the backup. An existing empty file gets no backup (it would look like the marker).
+
+`.git/info/exclude` (path from `git rev-parse --git-path info/exclude`) is updated only after
+the atomic write succeeded: `/<file>` and `/<file>.tkm-bak` when tokenimum created the file,
+`/<file>.tkm-bak` alone for an existing file (the person's file stays visible to git). A write
+that fails or loses a race to a concurrently created file leaves the exclude file untouched.
+Each line is added once. Exclude lines stay after removal (harmless).
 
 ### 5. Skill directories
 
@@ -77,7 +91,9 @@ another process may share them).
 `skill_path` returns `None` where nothing is verified; `install` and `uninstall` then return a
 report-only result. The file starts with YAML frontmatter (`name: tokenimum`) and has the
 marker `<!-- tokenimum-skill version=<v> host=<h>; ... -->` right after it. Install refuses an
-existing `SKILL.md` without the marker; uninstall removes only a file with it.
+existing `SKILL.md` without the marker; uninstall removes only a file with it. Both refuse a
+symlinked `SKILL.md`, and in project scope a git-tracked one unless `SkillOptions::allow_tracked`.
+Uninstall removes the `tokenimum` directory only when it is named `tokenimum` and empty.
 
 ### 6. Skill content
 
@@ -96,3 +112,11 @@ Time comes from a caller-supplied `Clock`; the library has no hidden clock. The 
 
 `mode_for(host, shims)`: opencode and Pi are `Shim` with shims and `FoldOnly` without; every
 other host is `Hooks`.
+
+### 9. Notes for E7 (`tkm run`)
+
+Ctrl-C goes to the whole foreground process group, so the harness and `tkm run` both get
+SIGINT. The `tkm run` caller must ignore SIGINT in the parent while the child runs; otherwise
+the parent dies before `execute` returns and `ended` (the immediate-fold trigger) never fires.
+The library cannot do this itself (`forbid(unsafe_code)`, no signal dependency) and documents
+the requirement on `run::execute`.
