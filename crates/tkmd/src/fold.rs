@@ -799,7 +799,7 @@ mod replay_tests {
         };
         let path = PathBuf::from(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../../fixtures/claude/sessions/e928a2cf-e31b-4154-805b-919991d042ea.jsonl"
+            "/tests/fixtures/replay-form-repair.jsonl"
         ));
         let settings = Arc::new(Settings::default());
         let job = FoldJob {

@@ -57,6 +57,7 @@ pub(crate) fn plan(ctx: &Ctx<'_>) -> Result<ServiceRecord, CliError> {
         path,
         content,
         owned,
+        detached: false,
         directories,
     })
 }
@@ -105,7 +106,7 @@ fn write_new_service(service: &ServiceRecord) -> Result<(), CliError> {
     result.map_err(Into::into)
 }
 
-pub(crate) fn start(ctx: &mut Ctx<'_>, service: &ServiceRecord) -> Result<(), CliError> {
+pub(crate) fn start(ctx: &mut Ctx<'_>, service: &mut ServiceRecord) -> Result<(), CliError> {
     let manager = if cfg!(target_os = "macos") {
         "launchctl"
     } else {
@@ -137,6 +138,7 @@ pub(crate) fn start(ctx: &mut Ctx<'_>, service: &ServiceRecord) -> Result<(), Cl
             reload && enable && start
         };
         if started {
+            service.detached = false;
             return Ok(());
         }
         writeln!(
@@ -162,6 +164,7 @@ pub(crate) fn start(ctx: &mut Ctx<'_>, service: &ServiceRecord) -> Result<(), Cl
     }
     match child.spawn() {
         Ok(child) => {
+            service.detached = true;
             drop(child);
         }
         Err(_) => writeln!(ctx.stderr, "warn daemon: detached tkmd could not start")?,
@@ -170,6 +173,17 @@ pub(crate) fn start(ctx: &mut Ctx<'_>, service: &ServiceRecord) -> Result<(), Cl
 }
 
 pub(crate) fn stop(ctx: &mut Ctx<'_>, service: &ServiceRecord) -> Result<(), CliError> {
+    if service.detached {
+        if matches!(
+            crate::daemon::probe(&ctx.paths),
+            crate::daemon::DaemonState::Running { .. }
+        ) {
+            return Err(state::failure(
+                "detached tkmd is running; stop it with `pkill -x tkmd`, then re-run tkm uninstall",
+            ));
+        }
+        return Ok(());
+    }
     let manager = if cfg!(target_os = "macos") {
         "launchctl"
     } else {
@@ -200,16 +214,14 @@ pub(crate) fn stop(ctx: &mut Ctx<'_>, service: &ServiceRecord) -> Result<(), Cli
             stop && disable
         };
         if !stopped {
-            writeln!(
-                ctx.stderr,
-                "warn service: {manager} could not stop/disable tkmd"
-            )?;
+            return Err(state::failure(format!(
+                "{manager} could not stop/disable tkmd"
+            )));
         }
     } else {
-        writeln!(
-            ctx.stderr,
-            "warn service: {manager} missing; cannot stop/disable tkmd"
-        )?;
+        return Err(state::failure(format!(
+            "{manager} missing; cannot stop/disable tkmd"
+        )));
     }
     Ok(())
 }

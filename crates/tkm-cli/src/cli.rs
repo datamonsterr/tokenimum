@@ -117,7 +117,7 @@ pub struct DashboardArgs {}
 #[derive(Debug, Args)]
 pub struct WhyArgs {
     /// Event identifier, or `last` for the most recent action.
-    #[arg(value_name = "EVENT")]
+    #[arg(value_name = "EVENT", default_value = "last")]
     pub event: String,
     /// Limit the explanation to this session.
     #[arg(long, value_name = "ID")]

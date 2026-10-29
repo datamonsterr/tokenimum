@@ -2,7 +2,20 @@
 use crate::{ctx::Ctx, daemon, error::CliError};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tkm_core::model::{Host, Timestamp};
+use tkm_decide::redact::{RedactContext, Redactor};
 use tkm_store::Store;
+
+pub(crate) fn redactor(ctx: &Ctx<'_>) -> Redactor {
+    Redactor::new(RedactContext {
+        repo_root: ctx.repo.root.clone(),
+        home: ctx
+            .env
+            .iter()
+            .find(|(key, _)| key == "HOME")
+            .map_or_else(std::path::PathBuf::new, |(_, value)| value.into()),
+        env: ctx.env.clone(),
+    })
+}
 
 #[must_use]
 pub(crate) fn now_ms() -> i64 {

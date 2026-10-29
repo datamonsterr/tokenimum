@@ -22,3 +22,9 @@ The end request triggers a fold for the wrapper ID, but cannot guarantee an
 immediate fold of the harness's actual session. Daemon-side discovery and
 correlation of the real session is follow-up work; the idle watcher remains the
 fallback. No harness-specific discovery is added to the CLI.
+
+## Signal handling
+
+The CLI registers only SIGINT while waiting for the child, as required by ADR 0026.
+SIGTERM and SIGHUP retain their default dispositions so an external stop does not
+leave the wrapper waiting for a child that ignored the stop request.

@@ -239,7 +239,7 @@ fn events(
     connection: &rusqlite::Connection,
     record: &InstallRecord,
 ) -> Result<(), CliError> {
-    let mut statement = connection.prepare("SELECT DISTINCT e.kind FROM events e JOIN sessions s ON s.id=e.session_id WHERE s.host=?1 AND s.agent_home=?2").map_err(state::failure)?;
+    let mut statement = connection.prepare("SELECT DISTINCT COALESCE(json_extract(e.inputs, '$.native'), json_extract(e.inputs, '$.event')) AS observed FROM events e JOIN sessions s ON s.id=e.session_id WHERE e.kind='hook.seen' AND s.host=?1 AND s.agent_home=?2 AND observed IS NOT NULL").map_err(state::failure)?;
     let seen = statement
         .query_map(
             rusqlite::params![record.host.as_str(), record.agent_home.to_string_lossy()],

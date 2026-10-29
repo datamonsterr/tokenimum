@@ -41,6 +41,8 @@ struct AdapterReport {
 #[derive(Serialize)]
 struct RepoReport {
     repo_key: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    config_source: Option<&'static str>,
     harnesses: Vec<HarnessReport>,
     facts: FactCounts,
     loop_guard: LoopReport,
@@ -190,11 +192,28 @@ pub fn run_at(ctx: &mut Ctx<'_>, args: &StatusArgs, now_ms: i64) -> Result<ExitC
         })
         .map(|d| d.cost_usd)
         .sum();
-    let repositories = keys
-        .iter()
-        .map(|repo| repo_report(&store, repo, &config, &events, now_ms, today))
-        .collect::<Result<_, _>>()
-        .map_err(|e| report::store_error(ctx, e))?;
+    let mut repositories = Vec::new();
+    let redactor = report::redactor(ctx);
+    for repo in &keys {
+        let (repo_config, source) = if args.all {
+            let root = checkout(ctx, &store, repo)?;
+            let source = if root.is_some() {
+                "global + repository"
+            } else {
+                "global only (checkout unknown)"
+            };
+            (ctx.load_config_for_repo(root)?, Some(source))
+        } else {
+            (ctx.load_config()?, None)
+        };
+        let mut report = repo_report(&store, repo, &repo_config, &events, now_ms, today)
+            .map_err(|e| report::store_error(ctx, e))?;
+        report.config_source = source;
+        for action in &mut report.last_actions {
+            action.explanation = redactor.redact(&action.explanation);
+        }
+        repositories.push(report);
+    }
     let report = StatusReport {
         daemon,
         preset: config.get_str("preset").unwrap_or("balanced").into(),
@@ -208,6 +227,33 @@ pub fn run_at(ctx: &mut Ctx<'_>, args: &StatusArgs, now_ms: i64) -> Result<ExitC
     };
     ctx.stdout.write_all(output.as_bytes())?;
     Ok(ExitCode::SUCCESS)
+}
+
+fn checkout(
+    ctx: &Ctx<'_>,
+    store: &Store,
+    repo: &RepoKey,
+) -> Result<Option<std::path::PathBuf>, CliError> {
+    use tkm_config::repo::{IdentitySource, repo_identity};
+    let mut paths = vec![ctx.cwd.clone()];
+    paths.extend(
+        store
+            .list_sessions_by_repo(repo, -1)
+            .map_err(|e| report::store_error(ctx, e))?
+            .into_iter()
+            .map(|s| s.cwd),
+    );
+    let home = super::init::state::home(ctx).ok();
+    let ceilings = super::init::state::env(ctx, "GIT_CEILING_DIRECTORIES").unwrap_or_default();
+    for path in paths {
+        if path.is_dir() {
+            let identity = repo_identity(&path, ceilings, home.as_deref());
+            if identity.key == *repo && identity.how != IdentitySource::Dir {
+                return Ok(Some(identity.root));
+            }
+        }
+    }
+    Ok(None)
 }
 
 fn repo_report(
@@ -380,6 +426,7 @@ fn repo_report(
     }
     Ok(RepoReport {
         repo_key: repo.0.clone(),
+        config_source: None,
         harnesses,
         facts: FactCounts {
             active: facts
@@ -466,6 +513,9 @@ fn render(report: &StatusReport) -> String {
     );
     for repo in &report.repositories {
         let _ = writeln!(text, "Repository: {}", report::line(&repo.repo_key));
+        if let Some(source) = repo.config_source {
+            let _ = writeln!(text, "  Configuration: {source}");
+        }
         if repo.harnesses.is_empty() {
             text.push_str("  Harnesses: none observed\n");
         }

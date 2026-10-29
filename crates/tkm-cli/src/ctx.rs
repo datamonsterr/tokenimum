@@ -84,9 +84,18 @@ impl<'a> Ctx<'a> {
     /// # Errors
     /// Returns an error when a configuration file cannot be read or parsed.
     pub fn load_config(&self) -> Result<EffectiveConfig, CliError> {
+        self.load_config_for_repo(
+            (self.repo.how != IdentitySource::Dir).then(|| self.repo.root.clone()),
+        )
+    }
+
+    pub(crate) fn load_config_for_repo(
+        &self,
+        repo_root: Option<PathBuf>,
+    ) -> Result<EffectiveConfig, CliError> {
         let inputs = LoadInputs {
             global_path: self.paths.global_config.clone(),
-            repo_root: (self.repo.how != IdentitySource::Dir).then(|| self.repo.root.clone()),
+            repo_root,
             env: self
                 .env
                 .iter()

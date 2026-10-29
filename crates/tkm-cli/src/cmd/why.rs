@@ -40,7 +40,8 @@ pub fn run(ctx: &mut Ctx<'_>, args: &WhyArgs) -> Result<ExitCode, CliError> {
         let explanation =
             explanation(&store, &event, &session).map_err(|e| report::store_error(ctx, e))?;
         if let Some(explanation) = explanation {
-            writeln!(ctx.stdout, "{}", explain::render(&explanation))?;
+            let rendered = report::redactor(ctx).redact(&explain::render(&explanation));
+            writeln!(ctx.stdout, "{rendered}")?;
             return Ok(ExitCode::SUCCESS);
         }
     }

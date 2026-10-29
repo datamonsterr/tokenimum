@@ -5,14 +5,14 @@ use crate::{
     daemon,
     error::CliError,
 };
-use std::{collections::BTreeMap, path::PathBuf, process::ExitCode};
+use std::{collections::BTreeMap, process::ExitCode, sync::Arc};
 use tkm_decide::{
     api::Question,
     budget::InMemoryLedger,
     cache::Purpose,
     chain::SystemClock,
     client::{DecideRequest, DecisionClient, HttpTransport, Outcome},
-    key::{self, KeyError},
+    key::KeyError,
 };
 
 /// List configured models or probe their availability.
@@ -44,28 +44,26 @@ pub fn run(ctx: &mut Ctx<'_>, args: &ModelsArgs) -> Result<ExitCode, CliError> {
         }
     }
     if let Some(ModelsCommand::Probe(_)) = &args.command {
-        probe(ctx, settings.decide)?;
+        probe(ctx, &config, settings.decide)?;
     }
     Ok(ExitCode::SUCCESS)
 }
 fn db_error(error: rusqlite::Error) -> CliError {
     CliError::Usage(format!("database query failed: {error}"))
 }
-fn probe(ctx: &mut Ctx<'_>, config: tkm_decide::config::DecideConfig) -> Result<(), CliError> {
+#[allow(clippy::too_many_lines)] // Probe execution and accounting stay in one bounded workflow.
+fn probe(
+    ctx: &mut Ctx<'_>,
+    effective: &tkm_config::config::EffectiveConfig,
+    config: tkm_decide::config::DecideConfig,
+) -> Result<(), CliError> {
     let env = ctx.env.clone();
     let var = |name: &str| {
         env.iter()
             .find(|(key, _)| key == name)
             .map(|(_, value)| value.clone())
     };
-    let home = var("HOME")
-        .map(PathBuf::from)
-        .ok_or(CliError::PathsUnavailable)?;
-    let key = match key::load_key(
-        var("OPENROUTER_API_KEY"),
-        &key::default_key_file(&home),
-        None,
-    ) {
+    let key = match super::init::key::load(ctx, effective) {
         Ok(key) if config.enabled => key,
         Ok(_) | Err(KeyError::Missing) => {
             writeln!(ctx.stdout, "skipped (offline)")?;
@@ -80,6 +78,9 @@ fn probe(ctx: &mut Ctx<'_>, config: tkm_decide::config::DecideConfig) -> Result<
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()?;
+    let store = daemon::open_db_for_write(&ctx.paths)?;
+    let ledger = Arc::new(InMemoryLedger::default());
+    let mut recorded = 0;
     for model in &config.chain {
         let mut one = config.clone();
         one.chain = vec![model.clone()];
@@ -93,7 +94,7 @@ fn probe(ctx: &mut Ctx<'_>, config: tkm_decide::config::DecideConfig) -> Result<
             Some(key.clone()),
             transport,
             SystemClock,
-            InMemoryLedger::default(),
+            Arc::clone(&ledger),
         );
         let request = DecideRequest {
             purpose: Purpose::LoopGuard,
@@ -107,17 +108,55 @@ fn probe(ctx: &mut Ctx<'_>, config: tkm_decide::config::DecideConfig) -> Result<
                 },
             )]),
         };
-        let available = runtime.block_on(async {
+        let questions =
+            serde_json::to_value(&request.questions).map_err(super::status::report::json_error)?;
+        let outcomes = runtime.block_on(async {
             if model.free_probe || model.slug.ends_with(":free") {
-                client
-                    .reprobe_free(request)
-                    .await
-                    .into_iter()
-                    .any(|o| matches!(o, Outcome::Decision(_)))
+                client.reprobe_free(request).await
             } else {
-                matches!(client.decide(request).await, Outcome::Decision(_))
+                vec![client.decide(request).await]
             }
         });
+        let available = outcomes
+            .iter()
+            .any(|outcome| matches!(outcome, Outcome::Decision(_)));
+        let answers = outcomes
+            .iter()
+            .find_map(|outcome| match outcome {
+                Outcome::Decision(decision) => Some(&decision.answers),
+                _ => None,
+            })
+            .map(serde_json::to_value)
+            .transpose()
+            .map_err(super::status::report::json_error)?
+            .unwrap_or_else(|| serde_json::json!({}));
+        let attempts = ledger.rows();
+        for attempt in attempts.iter().skip(recorded) {
+            store
+                .insert_decision_with_context(
+                    &tkm_store::NewDecision {
+                        model: attempt
+                            .model_version
+                            .as_ref()
+                            .unwrap_or(&attempt.requested_model)
+                            .clone(),
+                        purpose: "models_probe".into(),
+                        questions: questions.clone(),
+                        answers: answers.clone(),
+                        cost_usd: attempt.cost_usd.unwrap_or(0.0),
+                        latency_ms: u32::try_from(attempt.latency_ms).unwrap_or(u32::MAX),
+                        shadow: true,
+                    },
+                    Some(tkm_core::model::Timestamp(
+                        i64::try_from(attempt.ts_ms).unwrap_or(i64::MAX),
+                    )),
+                    Some(&ctx.repo.key),
+                    None,
+                    None,
+                )
+                .map_err(super::init::state::failure)?;
+        }
+        recorded = attempts.len();
         writeln!(
             ctx.stdout,
             "{}: {}",

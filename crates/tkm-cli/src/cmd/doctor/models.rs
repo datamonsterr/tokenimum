@@ -94,15 +94,23 @@ pub(super) fn probe(
             })
             .unwrap_or_else(|| serde_json::json!({}));
         store
-            .insert_decision(&tkm_store::NewDecision {
-                model: attempt.model_version.unwrap_or(attempt.requested_model),
-                purpose: "doctor_probe".into(),
-                questions: questions.clone(),
-                answers,
-                cost_usd: attempt.cost_usd.unwrap_or(0.0),
-                latency_ms: u32::try_from(attempt.latency_ms).unwrap_or(u32::MAX),
-                shadow: true,
-            })
+            .insert_decision_with_context(
+                &tkm_store::NewDecision {
+                    model: attempt.model_version.unwrap_or(attempt.requested_model),
+                    purpose: "doctor_probe".into(),
+                    questions: questions.clone(),
+                    answers,
+                    cost_usd: attempt.cost_usd.unwrap_or(0.0),
+                    latency_ms: u32::try_from(attempt.latency_ms).unwrap_or(u32::MAX),
+                    shadow: true,
+                },
+                Some(tkm_core::model::Timestamp(
+                    i64::try_from(attempt.ts_ms).unwrap_or(i64::MAX),
+                )),
+                Some(&ctx.repo.key),
+                None,
+                None,
+            )
             .map_err(state::failure)?;
     }
     let mut healthy = !outcomes.is_empty();

@@ -100,8 +100,7 @@ fn paid_probe(command: &[&str], configured_path: bool) {
                     stream
                         .set_read_timeout(Some(Duration::from_secs(2)))
                         .unwrap();
-                    let mut buffer = [0; 8192];
-                    let _ = stream.read(&mut buffer).unwrap();
+                    read_request(&mut stream);
                     let body = serde_json::json!({"model":"test/model-20261029", "answers":{question:{"type":"noul","noul":1.0}}, "usage":{"input_tokens":1,"output_tokens":1,"cost":0.000_001}}).to_string();
                     write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).unwrap();
                     return true;
@@ -157,4 +156,28 @@ fn models_probe_with_environment_key_records_daily_spend() {
 #[test]
 fn doctor_paid_probe_records_timestamp_and_daily_spend() {
     paid_probe(&["doctor", "--probe"], false);
+}
+
+fn read_request(stream: &mut std::net::TcpStream) {
+    let mut request = Vec::new();
+    loop {
+        let mut buffer = [0; 4096];
+        let count = stream.read(&mut buffer).unwrap();
+        assert!(count > 0, "incomplete probe request");
+        request.extend_from_slice(&buffer[..count]);
+        if let Some(end) = request.windows(4).position(|bytes| bytes == b"\r\n\r\n") {
+            let headers = String::from_utf8_lossy(&request[..end]);
+            let length = headers
+                .lines()
+                .find_map(|line| {
+                    let (name, value) = line.split_once(':')?;
+                    name.eq_ignore_ascii_case("content-length")
+                        .then(|| value.trim().parse::<usize>().unwrap())
+                })
+                .unwrap_or(0);
+            if request.len() >= end + 4 + length {
+                break;
+            }
+        }
+    }
 }

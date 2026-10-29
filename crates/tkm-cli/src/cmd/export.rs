@@ -4,7 +4,7 @@ use crate::{cli::ExportArgs, ctx::Ctx, error::CliError};
 use serde::Serialize;
 use std::collections::BTreeSet;
 use std::process::ExitCode;
-use tkm_decide::redact::{RedactContext, Redactor};
+use tkm_decide::redact::Redactor;
 use tkm_store::{
     DecisionRecord, DenylistEntry, FactRecord, InstallRecord, LedgerRecord, Repo, SessionRecord,
     ToolEvidence,
@@ -88,15 +88,7 @@ pub fn run(ctx: &mut Ctx<'_>, args: &ExportArgs) -> Result<ExitCode, CliError> {
     };
     let export = load().map_err(|e| report::store_error(ctx, e))?;
     let mut value = serde_json::to_value(&export).map_err(report::json_error)?;
-    let redactor = Redactor::new(RedactContext {
-        repo_root: ctx.repo.root.clone(),
-        home: ctx
-            .env
-            .iter()
-            .find(|(k, _)| k == "HOME")
-            .map_or_else(std::path::PathBuf::new, |(_, v)| v.into()),
-        env: ctx.env.clone(),
-    });
+    let redactor = report::redactor(ctx);
     redact_export(&mut value, &redactor, args.show_digests);
     let output = serde_json::to_string_pretty(&value).map_err(report::json_error)?;
     writeln!(ctx.stdout, "{output}")?;
@@ -108,9 +100,13 @@ fn redact_export(value: &mut serde_json::Value, redactor: &Redactor, show_digest
             if !show_digests {
                 fields.retain(|key, _| !key.contains("digest"));
             }
-            for value in fields.values_mut() {
-                redact_export(value, redactor, show_digests);
-            }
+            *fields = std::mem::take(fields)
+                .into_iter()
+                .map(|(key, mut value)| {
+                    redact_export(&mut value, redactor, show_digests);
+                    (redactor.redact(&key), value)
+                })
+                .collect();
         }
         serde_json::Value::Array(values) => {
             for value in values {

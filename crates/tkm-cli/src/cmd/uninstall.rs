@@ -18,6 +18,7 @@ use crate::{cli::UninstallArgs, ctx::Ctx, daemon, error::CliError};
 #[allow(clippy::too_many_lines)] // Keep host reversal and final shared-service recovery together.
 pub fn run(ctx: &mut Ctx<'_>, args: &UninstallArgs) -> Result<ExitCode, CliError> {
     if !ctx.paths.db.try_exists()? {
+        super::init::reversal::restore(ctx, args.dry_run)?;
         writeln!(ctx.stdout, "No recorded installations.")?;
         return Ok(ExitCode::SUCCESS);
     }
@@ -99,6 +100,9 @@ pub fn run(ctx: &mut Ctx<'_>, args: &UninstallArgs) -> Result<ExitCode, CliError
                 }
             }
         }
+    }
+    if remaining.is_empty() && !failed {
+        super::init::reversal::restore(ctx, args.dry_run)?;
     }
     Ok(if failed {
         ExitCode::FAILURE
@@ -192,18 +196,19 @@ fn remove_service(ctx: &mut Ctx<'_>, service: &state::ServiceRecord) -> Result<(
     if fs::symlink_metadata(&service.path).is_ok_and(|metadata| metadata.file_type().is_symlink()) {
         return Err(state::failure("service path is a symlink"));
     }
-    match fs::read_to_string(&service.path) {
-        Ok(content) if content == service.content => {
-            system::stop(ctx, service)?;
-            fs::remove_file(&service.path)?;
-        }
+    let exists = match fs::read_to_string(&service.path) {
+        Ok(content) if content == service.content => true,
         Ok(_) => {
             return Err(state::failure(
                 "service file changed; refusing to remove it",
             ));
         }
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
         Err(error) => return Err(error.into()),
+    };
+    system::stop(ctx, service)?;
+    if exists {
+        fs::remove_file(&service.path)?;
     }
     state::remove_empty_directories(&service.directories)
 }

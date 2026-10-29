@@ -13,6 +13,7 @@ use crate::{ctx::Ctx, error::CliError};
 
 pub(crate) enum Choice {
     Offline,
+    Environment,
     Reuse(PathBuf),
     Enter(String),
 }
@@ -38,6 +39,10 @@ pub(crate) fn load(ctx: &Ctx<'_>, config: &EffectiveConfig) -> Result<ApiKey, Ke
 
 pub(crate) fn automatic(ctx: &Ctx<'_>, config: &EffectiveConfig) -> Result<Choice, CliError> {
     let path = key_path(ctx, config)?;
+    if let Some(value) = state::env(ctx, "OPENROUTER_API_KEY").filter(|v| !v.trim().is_empty()) {
+        load_key(Some(value.to_owned()), &path, None).map_err(state::failure)?;
+        return Ok(Choice::Environment);
+    }
     if path.try_exists()? {
         load_key(None, &path, None).map_err(state::failure)?;
         Ok(Choice::Reuse(path))
@@ -49,6 +54,7 @@ pub(crate) fn automatic(ctx: &Ctx<'_>, config: &EffectiveConfig) -> Result<Choic
 pub(crate) fn describe(choice: &Choice) -> String {
     match choice {
         Choice::Offline => "offline (no key file)".into(),
+        Choice::Environment => "from environment".into(),
         Choice::Reuse(path) => format!("reuse {}", path.display()),
         Choice::Enter(_) => "new key (hidden)".into(),
     }
@@ -132,7 +138,14 @@ pub(crate) fn apply(
     choice: &Choice,
     config: &mut ConfigFile,
 ) -> Result<(), CliError> {
+    let new_key = if matches!(choice, Choice::Enter(_)) {
+        Some(default_key_file(&state::home(ctx)?))
+    } else {
+        None
+    };
+    super::reversal::record(ctx, new_key.as_deref())?;
     match choice {
+        Choice::Environment => config.set("decide.enabled", "true")?,
         Choice::Offline => config.set("decide.enabled", "false")?,
         Choice::Reuse(path) => {
             config.set(
@@ -155,6 +168,11 @@ pub(crate) fn apply(
                 options.mode(0o600);
             }
             let mut file = options.open(&path)?;
+            if let Err(error) = super::reversal::created_key(ctx, &path) {
+                drop(file);
+                let _ = fs::remove_file(&path);
+                return Err(error);
+            }
             writeln!(file, "OPENROUTER_API_KEY='{secret}'")?;
             file.sync_all()?;
             config.set(

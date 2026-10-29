@@ -41,6 +41,8 @@ pub(crate) struct ServiceRecord {
     pub path: PathBuf,
     pub content: String,
     pub owned: bool,
+    #[serde(default)]
+    pub detached: bool,
     pub directories: Vec<PathBuf>,
 }
 

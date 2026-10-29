@@ -1,6 +1,7 @@
 //! Plan-first, fail-open installation of harness integrations and the daemon service.
 
 pub(crate) mod key;
+pub(crate) mod reversal;
 pub(crate) mod state;
 pub(crate) mod system;
 
@@ -164,6 +165,9 @@ pub fn run(ctx: &mut Ctx<'_>, args: &InitArgs) -> Result<ExitCode, CliError> {
         match system::write_service(&service) {
             Ok(()) => {
                 state::canonicalize_directories(&mut service.directories);
+                if let Err(error) = system::start(ctx, &mut service) {
+                    writeln!(ctx.stderr, "warn service: {error}")?;
+                }
                 for mut record in existing {
                     let mut metadata = state::metadata(&record)?;
                     metadata.service = Some(service.clone());
@@ -171,9 +175,6 @@ pub fn run(ctx: &mut Ctx<'_>, args: &InitArgs) -> Result<ExitCode, CliError> {
                     state::extend_paths(&mut record.files_written, [service.path.clone()]);
                     state::set_metadata(&mut record, &metadata)?;
                     store.upsert_install(&record).map_err(state::failure)?;
-                }
-                if let Err(error) = system::start(ctx, &service) {
-                    writeln!(ctx.stderr, "warn service: {error}")?;
                 }
             }
             Err(error) => {

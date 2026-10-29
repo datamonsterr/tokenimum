@@ -92,6 +92,14 @@ fn fit_loop(ctx: &mut Ctx<'_>) -> Result<(), CliError> {
             continue;
         };
         let defaults = Thresholds::default();
+        if fit.threshold <= defaults.t_low {
+            writeln!(
+                ctx.stdout,
+                "{model}: refusing fit: t_stuck must be greater than t_low ({})",
+                defaults.t_low
+            )?;
+            continue;
+        }
         let count = u32::try_from(samples.len())
             .map_err(|_| CliError::Usage("too many calibration samples".into()))?;
         writeln!(

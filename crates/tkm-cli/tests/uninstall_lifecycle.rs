@@ -196,8 +196,21 @@ fn uninstall_running_detached_daemon_prints_stop_command_and_keeps_manifest() {
     fs::create_dir_all(fixture.paths.socket.parent().unwrap()).unwrap();
     let listener =
         UnixListener::bind(fixture.paths.socket.with_file_name(MONITOR_SOCKET_NAME)).unwrap();
+    listener.set_nonblocking(true).unwrap();
     let peer = std::thread::spawn(move || {
-        let (mut stream, _) = listener.accept().unwrap();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        let mut stream = loop {
+            match listener.accept() {
+                Ok((stream, _)) => break stream,
+                Err(error)
+                    if error.kind() == std::io::ErrorKind::WouldBlock
+                        && std::time::Instant::now() < deadline =>
+                {
+                    std::thread::sleep(std::time::Duration::from_millis(10))
+                }
+                Err(error) => panic!("uninstall did not probe detached daemon: {error}"),
+            }
+        };
         let hello = MonitorMessage::Hello {
             version: tkm_proto::PROTOCOL_VERSION,
             daemon_version: None,

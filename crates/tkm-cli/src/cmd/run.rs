@@ -163,14 +163,10 @@ pub fn run(ctx: &mut Ctx<'_>, args: &RunArgs) -> Result<ExitCode, CliError> {
         .enable_io()
         .build()?;
     #[cfg(unix)]
-    let _signals = {
+    let _sigint = {
         use tokio::signal::unix::{SignalKind, signal};
         let _guard = runtime.enter();
-        (
-            signal(SignalKind::interrupt())?,
-            signal(SignalKind::terminate())?,
-            signal(SignalKind::hangup())?,
-        )
+        signal(SignalKind::interrupt())?
     };
     // On non-Unix platforms signal handling is currently a no-op.
     let now = SystemTime::now()

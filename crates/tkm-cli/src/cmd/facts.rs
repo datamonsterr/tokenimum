@@ -65,18 +65,19 @@ pub fn run(ctx: &mut Ctx<'_>, args: &FactsArgs) -> Result<ExitCode, CliError> {
             report::line(&ctx.repo.key.0)
         )?;
     }
+    let redactor = report::redactor(ctx);
     for fact in facts {
         let claim = claim(&fact);
         if args.brief {
-            writeln!(ctx.stdout, "{}: {}", report::line(&fact.fact_id), claim)?;
+            let rendered = redactor.redact(&format!("{}: {claim}", report::line(&fact.fact_id)));
+            writeln!(ctx.stdout, "{rendered}")?;
         } else {
-            writeln!(
-                ctx.stdout,
-                "{} [{}]: {}",
+            let rendered = redactor.redact(&format!(
+                "{} [{}]: {claim}",
                 report::line(&fact.fact_id),
-                fact.state.as_str(),
-                claim
-            )?;
+                fact.state.as_str()
+            ));
+            writeln!(ctx.stdout, "{rendered}")?;
             writeln!(
                 ctx.stdout,
                 "  Evidence: {} confirmations, {} contradictions; fired {}/{} sessions; state changed {}",
