@@ -184,7 +184,7 @@ fn stuck_loop_records_shadow_decisions_through_the_real_hook() {
     );
     assert_eq!(daemon.hook("session_start", "SessionStart"), "");
     daemon.hook("prompt", "UserPromptSubmit");
-    let failing: Value = fixture("PostToolUseFailure-bash");
+    let failing: Value = failing_payload();
     let payload = serde_json::to_vec(&failing).unwrap();
     for _ in 0..20 {
         assert_eq!(

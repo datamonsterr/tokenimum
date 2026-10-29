@@ -123,9 +123,16 @@ pub fn tool_done() -> Request {
     request(EventKind::ToolDone, fixture("PostToolUse-bash"))
 }
 
-/// A failing Bash call; every call carries the same error so the guard sees repeats.
+/// A failing Bash call; every call carries the same error line, so the guard sees repeats.
+/// (The fixture's bare `Exit code 1` carries no error pattern the guard recognises.)
+pub fn failing_payload() -> Value {
+    let mut payload = fixture("PostToolUseFailure-bash");
+    payload["error"] = json!("ValueError: boom");
+    payload
+}
+
 pub fn failing_tool_done() -> Request {
-    request(EventKind::ToolDone, fixture("PostToolUseFailure-bash"))
+    request(EventKind::ToolDone, failing_payload())
 }
 
 pub fn additional_context(reply: &Reply) -> Option<String> {
