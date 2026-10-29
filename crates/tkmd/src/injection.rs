@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use tkm_core::facts::Scope;
 use tkm_core::inject::{self, InjectCandidate, Source};
@@ -45,6 +45,10 @@ struct PromptContext {
     injected: std::collections::BTreeSet<String>,
 }
 
+fn remaining(budget: Duration, elapsed: Duration) -> Duration {
+    budget.saturating_sub(elapsed)
+}
+
 fn fnv(text: &str) -> u64 {
     text.bytes().fold(0xcbf2_9ce4_8422_2325_u64, |hash, byte| {
         (hash ^ u64::from(byte)).wrapping_mul(0x0000_0100_0000_01b3)
@@ -79,6 +83,7 @@ impl Daemon {
         event: tkm_core::model::HookEvent,
     ) -> HResult<Reply> {
         let seed = self.seed(request, &event);
+        self.refresh_session_credentials(&seed);
         self.ensure_session(seed, false).await;
         let tag: Tag = (event.host, event.session_id.clone());
         let prompt = event.prompt.clone().unwrap_or_default();
@@ -157,6 +162,7 @@ impl Daemon {
         self: &Arc<Self>,
         context: &PromptContext,
     ) -> HResult<Option<(String, Vec<String>)>> {
+        let started = Instant::now();
         let me = self.clone();
         let loading = context.clone();
         let candidates = tokio::task::spawn_blocking(move || me.load_candidates(&loading))
@@ -177,7 +183,11 @@ impl Daemon {
             let ids = Self::ids_in_block(&items, &block);
             return Ok(Some((block, ids)));
         }
-        let scores = self.score_candidates(context, &items).await;
+        let wait = remaining(
+            Duration::from_millis(context.settings.relevance_timeout_ms),
+            started.elapsed(),
+        );
+        let scores = self.score_candidates(context, &items, wait).await;
         let (selected, block) = if let Some(scores) = scores {
             let selected = inject::select(&items, Some(&scores), config);
             let block = inject::render(&selected);
@@ -207,8 +217,9 @@ impl Daemon {
         &self,
         context: &PromptContext,
         items: &[InjectCandidate],
+        wait: Duration,
     ) -> Option<BTreeMap<String, f64>> {
-        if !context.settings.decide.enabled {
+        if !context.settings.decide.enabled || wait.is_zero() {
             return None;
         }
         let redactor = Redactor::new(RedactContext {
@@ -244,7 +255,6 @@ impl Daemon {
             state,
             questions,
         };
-        let wait = Duration::from_millis(context.settings.relevance_timeout_ms);
         match tokio::time::timeout(wait, self.decider.decide(request)).await {
             Ok(Outcome::Decision(decision)) => {
                 let mut scores = BTreeMap::new();
@@ -337,17 +347,21 @@ impl Daemon {
                 }
             }
         }
-        for skill in self
-            .skills
-            .candidates(&context.repo, context.host, &context.prompt)
-        {
-            items.push(InjectCandidate {
-                id: format!("skill:{}", skill.id),
-                source: Source::Skills,
-                tokens: inject::estimate_tokens(&skill.text),
-                text: skill.text,
-                fire_gate_prevents: false,
-            });
+        if context.settings.otherskill_mode != tkm_integrations::detect::Mode::Off {
+            for skill in self.skills.candidates_in(
+                &context.repo,
+                context.host,
+                &context.prompt,
+                &context.cwd,
+            ) {
+                items.push(InjectCandidate {
+                    id: format!("skill:{}", skill.id),
+                    source: Source::Skills,
+                    tokens: inject::estimate_tokens(&skill.text),
+                    text: skill.text,
+                    fire_gate_prevents: false,
+                });
+            }
         }
         Ok(items)
     }
@@ -356,6 +370,18 @@ impl Daemon {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn scoring_budget_subtracts_candidate_loading() {
+        assert_eq!(
+            remaining(Duration::from_millis(1200), Duration::from_millis(700)),
+            Duration::from_millis(500)
+        );
+        assert_eq!(
+            remaining(Duration::from_millis(1200), Duration::from_millis(1500)),
+            Duration::ZERO
+        );
+    }
 
     #[test]
     fn memory_lines_keep_only_pointer_bullets() {

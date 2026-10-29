@@ -41,6 +41,10 @@ pub struct Settings {
     pub facts: FactsConfig,
     /// Pruning evidence settings.
     pub prune: PruneConfig,
+    /// Session integration modes.
+    pub otherskill_mode: tkm_integrations::detect::Mode,
+    /// Session orchestrator integration mode.
+    pub superorchestrator_mode: tkm_integrations::detect::Mode,
     /// Decision client settings.
     pub decide: DecideConfig,
     /// How long `prompt` waits for relevance scoring before using the cached default block.
@@ -65,6 +69,8 @@ impl Default for Settings {
             },
             facts,
             prune: PruneConfig::default(),
+            otherskill_mode: tkm_integrations::detect::Mode::Auto,
+            superorchestrator_mode: tkm_integrations::detect::Mode::Auto,
             decide: DecideConfig::default(),
             relevance_timeout_ms: 1_200,
             config_errors: Vec::new(),
@@ -94,6 +100,14 @@ impl Settings {
             ..Self::default()
         };
 
+        out.otherskill_mode = config
+            .get_str("integrations.otherskill")
+            .and_then(|s| s.parse().ok())
+            .unwrap_or_default();
+        out.superorchestrator_mode = config
+            .get_str("integrations.superorchestrator")
+            .and_then(|s| s.parse().ok())
+            .unwrap_or_default();
         out.loop_mode = match config.get_str("loop.mode") {
             Some("off") => LoopMode::Off,
             Some("shadow") => LoopMode::Shadow,
