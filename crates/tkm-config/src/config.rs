@@ -60,7 +60,12 @@ impl LoadInputs {
     /// Capture process environment with the supplied global path and repository.
     #[must_use]
     pub fn from_env(global_path: PathBuf, repo_root: Option<PathBuf>, flags: Vec<String>) -> Self {
-        unimplemented!()
+        Self {
+            global_path,
+            repo_root,
+            flags,
+            env: std::env::vars().collect(),
+        }
     }
 }
 /// Resolved values and diagnostics.
@@ -76,47 +81,687 @@ impl EffectiveConfig {
     /// Look up a typed value.
     #[must_use]
     pub fn get(&self, key: &str) -> Option<&Value> {
-        unimplemented!()
+        self.values.get(key).map(|v| &v.0)
     }
     /// Look up a boolean.
     #[must_use]
     pub fn get_bool(&self, key: &str) -> Option<bool> {
-        unimplemented!()
+        match self.get(key)? {
+            Value::Bool(v) => Some(*v),
+            _ => None,
+        }
     }
     /// Look up an integer.
     #[must_use]
     pub fn get_int(&self, key: &str) -> Option<i64> {
-        unimplemented!()
+        match self.get(key)? {
+            Value::Int(v) => Some(*v),
+            _ => None,
+        }
     }
     /// Look up a floating-point value.
     #[must_use]
     pub fn get_float(&self, key: &str) -> Option<f64> {
-        unimplemented!()
+        match self.get(key)? {
+            Value::Float(v) => Some(*v),
+            _ => None,
+        }
     }
     /// Look up text.
     #[must_use]
     pub fn get_str(&self, key: &str) -> Option<&str> {
-        unimplemented!()
+        match self.get(key)? {
+            Value::String(v) => Some(v),
+            _ => None,
+        }
     }
     /// Look up a list.
     #[must_use]
     pub fn get_list(&self, key: &str) -> Option<&[String]> {
-        unimplemented!()
+        match self.get(key)? {
+            Value::List(v) => Some(v),
+            _ => None,
+        }
     }
     /// Identify the winning source.
     #[must_use]
     pub fn source(&self, key: &str) -> Option<Layer> {
-        unimplemented!()
+        self.values.get(key).map(|v| v.1)
     }
 }
+#[derive(Clone, Copy)]
+enum Kind {
+    Bool,
+    Int,
+    Float(f64, f64),
+    String,
+    Enum(&'static [&'static str]),
+    List,
+}
+struct Key {
+    name: &'static str,
+    kind: Kind,
+    default: &'static str,
+    description: &'static str,
+    restricted: bool,
+}
+macro_rules! key {
+    ($name:literal, $kind:expr, $default:literal, $description:literal) => {
+        Key {
+            name: $name,
+            kind: $kind,
+            default: $default,
+            description: $description,
+            restricted: false,
+        }
+    };
+    ($name:literal, $kind:expr, $default:literal, $description:literal, restricted) => {
+        Key {
+            name: $name,
+            kind: $kind,
+            default: $default,
+            description: $description,
+            restricted: true,
+        }
+    };
+}
+fn registry() -> Vec<Key> {
+    let mut keys = vec![
+        key!(
+            "preset",
+            Kind::Enum(&["observe", "balanced", "aggressive", "offline"]),
+            "balanced",
+            "Select the configuration preset."
+        ),
+        key!(
+            "facts.enabled",
+            Kind::Bool,
+            "true",
+            "Enable repository fact learning."
+        ),
+        key!(
+            "facts.evidence",
+            Kind::Enum(&["code", "decide"]),
+            "decide",
+            "Choose the fact evidence mechanism."
+        ),
+        key!(
+            "facts.promote_confirmations",
+            Kind::Int,
+            "3",
+            "Sessions confirming a fact before promotion."
+        ),
+        key!(
+            "facts.recency_decay",
+            Kind::Float(0.0, 1.0),
+            "0.8",
+            "Per-session fact score decay."
+        ),
+        key!(
+            "facts.contradiction_weight",
+            Kind::Float(0.0, f64::MAX),
+            "5.0",
+            "Weight of a contradiction."
+        ),
+        key!(
+            "facts.fire_gate",
+            Kind::Float(0.0, 1.0),
+            "0.40",
+            "Minimum exercised-session failure fraction."
+        ),
+        key!(
+            "facts.fire_min_sessions",
+            Kind::Int,
+            "4",
+            "Minimum sessions for the fact fire gate."
+        ),
+        key!("facts.max_facts", Kind::Int, "4", "Maximum facts injected."),
+        key!(
+            "facts.max_tokens",
+            Kind::Int,
+            "150",
+            "Maximum tokens in the fact block."
+        ),
+        key!(
+            "prune.evidence_prompts",
+            Kind::Int,
+            "10",
+            "Unused prompts before pruning evidence."
+        ),
+        key!(
+            "prune.min_sessions",
+            Kind::Int,
+            "2",
+            "Minimum sessions for pruning evidence."
+        ),
+        key!(
+            "prune.sessions_any",
+            Kind::Int,
+            "5",
+            "Alternative session count for pruning."
+        ),
+        key!(
+            "prune.quiet_minutes",
+            Kind::Int,
+            "60",
+            "Quiet period before writing a deny list."
+        ),
+        key!(
+            "prune.mode",
+            Kind::Enum(&["off", "report", "propose", "apply"]),
+            "propose",
+            "Pruning action mode.",
+            restricted
+        ),
+        key!(
+            "loop.min_turns",
+            Kind::Int,
+            "20",
+            "Minimum calls before judging a turn."
+        ),
+        key!(
+            "loop.gate_min_turns",
+            Kind::Int,
+            "18",
+            "Minimum calls before the gate opens."
+        ),
+        key!(
+            "loop.gate_error_outputs",
+            Kind::Int,
+            "8",
+            "Error outputs that open the gate."
+        ),
+        key!(
+            "loop.edit_churn",
+            Kind::Int,
+            "4",
+            "Edits per file counted as churn."
+        ),
+        key!(
+            "loop.stagnation",
+            Kind::Float(0.0, 1.0),
+            "0.20",
+            "Repeated failure fraction."
+        ),
+        key!(
+            "loop.envelope_pct",
+            Kind::Int,
+            "90",
+            "Percentile of good turn lengths."
+        ),
+        key!(
+            "loop.envelope_margin",
+            Kind::Float(0.0, f64::MAX),
+            "1.25",
+            "Good turn envelope multiplier."
+        ),
+        key!(
+            "loop.envelope_min_samples",
+            Kind::Int,
+            "5",
+            "Good turns needed for an envelope."
+        ),
+        key!(
+            "loop.backstop_mult",
+            Kind::Float(0.0, f64::MAX),
+            "2.5",
+            "Rule backstop envelope multiplier."
+        ),
+        key!(
+            "loop.redirects_per_turn",
+            Kind::Int,
+            "1",
+            "Redirect budget per turn."
+        ),
+        key!(
+            "loop.level",
+            Kind::Enum(&["conservative", "default", "aggressive"]),
+            "default",
+            "Loop guard sensitivity."
+        ),
+        key!(
+            "loop.mode",
+            Kind::Enum(&["off", "shadow", "redirect"]),
+            "redirect",
+            "Loop guard action mode."
+        ),
+        key!(
+            "loop.escalate_command",
+            Kind::String,
+            "",
+            "Optional escalation command.",
+            restricted
+        ),
+        key!(
+            "inject.enabled",
+            Kind::Bool,
+            "true",
+            "Enable context injection."
+        ),
+        key!(
+            "inject.max_tokens",
+            Kind::Int,
+            "600",
+            "Maximum injection tokens."
+        ),
+        key!(
+            "inject.memory",
+            Kind::Bool,
+            "true",
+            "Include memory pointers."
+        ),
+        key!(
+            "inject.instructions_file",
+            Kind::Bool,
+            "false",
+            "Include instruction files."
+        ),
+        key!(
+            "inject.instructions_file_tracked",
+            Kind::Bool,
+            "false",
+            "Allow tracked instruction files."
+        ),
+        key!("ledger.enabled", Kind::Bool, "true", "Enable usage ledger."),
+        key!(
+            "decide.enabled",
+            Kind::Bool,
+            "true",
+            "Enable decision requests."
+        ),
+        key!(
+            "decide.chain",
+            Kind::List,
+            "[\"inception/mercury-decide-20260930\",\"perplexity/pplx-decider-flash-v1.2\",\"typesafe/jev-1.14\"]",
+            "Decision model fallback chain."
+        ),
+        key!(
+            "decide.agreement",
+            Kind::Bool,
+            "false",
+            "Require agreement between models."
+        ),
+        key!(
+            "decide.shadow",
+            Kind::Bool,
+            "false",
+            "Record decisions without acting."
+        ),
+        key!(
+            "decide.budget_daily_usd",
+            Kind::Float(0.0, f64::MAX),
+            "0.50",
+            "Daily decision budget in dollars.",
+            restricted
+        ),
+        key!(
+            "decide.budget_session_usd",
+            Kind::Float(0.0, f64::MAX),
+            "0.02",
+            "Session decision budget in dollars.",
+            restricted
+        ),
+        key!(
+            "decide.api_key_path",
+            Kind::String,
+            "~/.config/tokenimum/openrouter.env",
+            "Path to the decision API key.",
+            restricted
+        ),
+        key!(
+            "calibration.t_stuck",
+            Kind::Float(0.0, 1.0),
+            "0.85",
+            "Stuck probability threshold."
+        ),
+        key!(
+            "calibration.t_progress",
+            Kind::Float(0.0, 1.0),
+            "0.30",
+            "Progress probability threshold."
+        ),
+        key!(
+            "calibration.t_low",
+            Kind::Float(0.0, 1.0),
+            "0.30",
+            "Low stuck threshold."
+        ),
+        key!(
+            "calibration.t_high",
+            Kind::Float(0.0, 1.0),
+            "0.80",
+            "High stuck threshold."
+        ),
+        key!(
+            "calibration.shadow_days",
+            Kind::Int,
+            "14",
+            "Minimum shadow period in days."
+        ),
+        key!(
+            "calibration.shadow_turns",
+            Kind::Int,
+            "200",
+            "Minimum judged turns in shadow."
+        ),
+        key!(
+            "calibration.min_precision",
+            Kind::Float(0.0, 1.0),
+            "0.9",
+            "Minimum calibration precision."
+        ),
+        key!(
+            "integrations.superorchestrator",
+            Kind::Enum(&["auto", "on", "off"]),
+            "auto",
+            "Superorchestrator integration mode."
+        ),
+        key!(
+            "integrations.otherskill",
+            Kind::Enum(&["auto", "on", "off"]),
+            "auto",
+            "Otherskill integration mode."
+        ),
+        key!(
+            "ui.web.enabled",
+            Kind::Bool,
+            "false",
+            "Enable the web dashboard."
+        ),
+        key!(
+            "ui.web.bind",
+            Kind::String,
+            "127.0.0.1:7878",
+            "Web dashboard bind address."
+        ),
+    ];
+    for (enabled, level) in [
+        ("hosts.claude.enabled", "hosts.claude.level"),
+        ("hosts.codex.enabled", "hosts.codex.level"),
+        ("hosts.agy.enabled", "hosts.agy.level"),
+        ("hosts.cursor.enabled", "hosts.cursor.level"),
+        ("hosts.kimi.enabled", "hosts.kimi.level"),
+        ("hosts.deepseek.enabled", "hosts.deepseek.level"),
+        ("hosts.opencode.enabled", "hosts.opencode.level"),
+        ("hosts.pi.enabled", "hosts.pi.level"),
+    ] {
+        keys.push(Key {
+            name: enabled,
+            kind: Kind::Bool,
+            default: "true",
+            description: "Enable this host adapter.",
+            restricted: false,
+        });
+        keys.push(Key {
+            name: level,
+            kind: Kind::Enum(&["auto", "hooks", "shim", "fold-only"]),
+            default: "auto",
+            description: "Select this host's integration level.",
+            restricted: false,
+        });
+    }
+    keys
+}
+fn parse_text(key: &Key, raw: &str) -> Result<Value, String> {
+    let bad = || format!("invalid value for {}: {raw}", key.name);
+    match key.kind {
+        Kind::Bool => raw.parse().map(Value::Bool).map_err(|_| bad()),
+        Kind::Int => raw
+            .parse::<i64>()
+            .ok()
+            .filter(|v| *v >= 0)
+            .map(Value::Int)
+            .ok_or_else(bad),
+        Kind::Float(min, max) => raw
+            .parse::<f64>()
+            .ok()
+            .filter(|v| v.is_finite() && *v >= min && *v <= max)
+            .map(Value::Float)
+            .ok_or_else(bad),
+        Kind::String => Ok(Value::String(raw.to_owned())),
+        Kind::Enum(options) => {
+            if options.contains(&raw) {
+                Ok(Value::String(raw.to_owned()))
+            } else {
+                Err(bad())
+            }
+        }
+        Kind::List => {
+            let item = raw.parse::<toml_edit::Value>().map_err(|_| bad())?;
+            let arr = item.as_array().ok_or_else(bad)?;
+            arr.iter()
+                .map(|v| v.as_str().map(str::to_owned).ok_or_else(bad))
+                .collect::<Result<Vec<_>, _>>()
+                .map(Value::List)
+        }
+    }
+}
+fn parse_item(key: &Key, item: &toml_edit::Item) -> Result<Value, String> {
+    let bad = || format!("wrong type or invalid value for {}", key.name);
+    match key.kind {
+        Kind::Bool => item.as_bool().map(Value::Bool).ok_or_else(bad),
+        Kind::Int => item
+            .as_integer()
+            .filter(|v| *v >= 0)
+            .map(Value::Int)
+            .ok_or_else(bad),
+        Kind::Float(min, max) => item
+            .as_float()
+            .filter(|v| v.is_finite() && *v >= min && *v <= max)
+            .map(Value::Float)
+            .ok_or_else(bad),
+        Kind::String => item
+            .as_str()
+            .map(|v| Value::String(v.to_owned()))
+            .ok_or_else(bad),
+        Kind::Enum(options) => item
+            .as_str()
+            .filter(|v| options.contains(v))
+            .map(|v| Value::String(v.to_owned()))
+            .ok_or_else(bad),
+        Kind::List => item
+            .as_array()
+            .ok_or_else(bad)?
+            .iter()
+            .map(|v| v.as_str().map(str::to_owned).ok_or_else(bad))
+            .collect::<Result<Vec<_>, _>>()
+            .map(Value::List),
+    }
+}
+fn preset(name: &str) -> &'static [(&'static str, &'static str)] {
+    match name {
+        "observe" => &[
+            ("inject.enabled", "false"),
+            ("loop.mode", "shadow"),
+            ("prune.mode", "report"),
+            ("decide.shadow", "true"),
+        ],
+        "aggressive" => &[
+            ("facts.promote_confirmations", "2"),
+            ("loop.level", "aggressive"),
+            ("prune.mode", "apply"),
+            ("decide.agreement", "false"),
+            ("inject.max_tokens", "900"),
+        ],
+        "offline" => &[
+            ("facts.evidence", "code"),
+            ("decide.enabled", "false"),
+            ("prune.mode", "propose"),
+            ("inject.memory", "false"),
+        ],
+        _ => &[],
+    }
+}
+fn restricted(key: &Key, value: &Value) -> bool {
+    key.restricted && (key.name != "prune.mode" || *value == Value::String("apply".to_owned()))
+}
+fn apply(
+    config: &mut EffectiveConfig,
+    key: &Key,
+    value: Value,
+    layer: Layer,
+    repo_selected: Option<Layer>,
+) {
+    if (matches!(layer, Layer::Repo | Layer::RepoLocal)
+        || (layer == Layer::Preset && repo_selected.is_some()))
+        && restricted(key, &value)
+    {
+        config.ignored.push(Ignored {
+            layer: repo_selected.unwrap_or(layer),
+            key: key.name.to_owned(),
+            reason: "repository configuration cannot set this value".into(),
+        });
+    } else {
+        config.values.insert(key.name.to_owned(), (value, layer));
+    }
+}
+fn flatten(
+    table: &dyn toml_edit::TableLike,
+    prefix: &str,
+    output: &mut Vec<(String, toml_edit::Item)>,
+) {
+    for (name, item) in table.iter() {
+        let key = if prefix.is_empty() {
+            name.to_owned()
+        } else {
+            format!("{prefix}.{name}")
+        };
+        if let Some(child) = item.as_table_like() {
+            flatten(child, &key, output);
+        } else {
+            output.push((key, item.clone()));
+        }
+    }
+}
+fn read_file(path: &std::path::Path) -> Result<Vec<(String, toml_edit::Item)>, String> {
+    let content = match std::fs::read_to_string(path) {
+        Ok(s) => s,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(e) => return Err(format!("{}: {e}", path.display())),
+    };
+    let document = content
+        .parse::<toml_edit::DocumentMut>()
+        .map_err(|e| format!("{}: {e}", path.display()))?;
+    let mut result = Vec::new();
+    flatten(document.as_table(), "", &mut result);
+    Ok(result)
+}
 /// Load and validate all layers. Malformed files return an error with their path.
+///
+/// # Errors
+/// Returns an error for unreadable or malformed files.
 pub fn load(inputs: &LoadInputs) -> Result<EffectiveConfig, String> {
-    unimplemented!()
+    let keys = registry();
+    let mut config = EffectiveConfig::default();
+    for key in &keys {
+        let value = if key.name == "loop.escalate_command" {
+            Value::Unset
+        } else {
+            parse_text(key, key.default)?
+        };
+        config
+            .values
+            .insert(key.name.into(), (value, Layer::Default));
+    }
+    let global = inputs
+        .env
+        .iter()
+        .rev()
+        .find(|(k, _)| k == "TKM_CONFIG")
+        .map_or_else(|| inputs.global_path.clone(), |(_, v)| PathBuf::from(v));
+    let mut layers = vec![(Layer::Global, read_file(&global)?)];
+    if let Some(root) = &inputs.repo_root {
+        layers.push((Layer::Repo, read_file(&root.join(".tokenimum.toml"))?));
+        layers.push((
+            Layer::RepoLocal,
+            read_file(&root.join(".tokenimum.local.toml"))?,
+        ));
+    }
+    let mut entries: Vec<(Layer, String, Result<Value, String>)> = Vec::new();
+    for (layer, items) in layers {
+        for (name, item) in items {
+            let parsed = keys.iter().find(|k| k.name == name).map_or_else(
+                || Err(format!("unknown key: {name}")),
+                |key| parse_item(key, &item),
+            );
+            entries.push((layer, name, parsed));
+        }
+    }
+    for (name, value) in &inputs.env {
+        if !name.starts_with("TKM_") || name == "TKM_CONFIG" || name == "TKM_DISABLE" {
+            continue;
+        }
+        if let Some(key) = keys
+            .iter()
+            .find(|key| format!("TKM_{}", key.name.replace('.', "_").to_uppercase()) == *name)
+        {
+            entries.push((Layer::Env, key.name.into(), parse_text(key, value)));
+        } else {
+            config
+                .errors
+                .push(format!("unknown environment variable: {name}"));
+        }
+    }
+    for flag in &inputs.flags {
+        if let Some((name, value)) = flag.split_once('=') {
+            let parsed = keys.iter().find(|k| k.name == name).map_or_else(
+                || Err(format!("unknown key: {name}")),
+                |key| parse_text(key, value),
+            );
+            entries.push((Layer::Flags, name.into(), parsed));
+        } else {
+            config.errors.push(format!("invalid flag: {flag}"));
+        }
+    }
+    let selected = entries
+        .iter()
+        .rev()
+        .find_map(|(layer, key, value)| {
+            if key == "preset" {
+                if let Ok(Value::String(name)) = value {
+                    Some((name.as_str(), *layer))
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        })
+        .unwrap_or(("balanced", Layer::Default));
+    for (name, raw) in preset(selected.0) {
+        if let Some(key) = keys.iter().find(|key| key.name == *name) {
+            apply(
+                &mut config,
+                key,
+                parse_text(key, raw)?,
+                Layer::Preset,
+                if matches!(selected.1, Layer::Repo | Layer::RepoLocal) {
+                    Some(selected.1)
+                } else {
+                    None
+                },
+            );
+        }
+    }
+    for (layer, name, value) in entries {
+        match value {
+            Ok(value) => {
+                if let Some(key) = keys.iter().find(|key| key.name == name) {
+                    apply(&mut config, key, value, layer, None);
+                }
+            }
+            Err(error) => config.errors.push(error),
+        }
+    }
+    Ok(config)
 }
 /// Check whether a process environment disables tokenimum.
 #[must_use]
 pub fn is_disabled(env: &[(String, String)]) -> bool {
-    unimplemented!()
+    env.iter()
+        .rev()
+        .find(|(key, _)| key == "TKM_DISABLE")
+        .is_some_and(|(_, v)| v == "1" || v.eq_ignore_ascii_case("true"))
 }
 /// A TOML layer preserving document formatting.
 pub struct ConfigFile {
@@ -126,34 +771,167 @@ pub struct ConfigFile {
 }
 impl ConfigFile {
     /// Load a file or start an empty document when missing.
+    ///
+    /// # Errors
+    /// Returns an error if the file cannot be read or parsed.
     pub fn load(path: PathBuf, layer: Layer) -> Result<Self, String> {
-        unimplemented!()
+        let content = match std::fs::read_to_string(&path) {
+            Ok(s) => s,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+            Err(e) => return Err(format!("{}: {e}", path.display())),
+        };
+        let document = content
+            .parse::<toml_edit::DocumentMut>()
+            .map_err(|e| format!("{}: {e}", path.display()))?;
+        Ok(Self {
+            path,
+            layer,
+            document,
+        })
     }
     /// Retrieve a value as TOML text.
     #[must_use]
     pub fn get(&self, key: &str) -> Option<String> {
-        unimplemented!()
+        let mut current = self.document.as_item();
+        for part in key.split('.') {
+            current = current.as_table_like()?.get(part)?;
+        }
+        Some(current.to_string())
     }
     /// Validate and set a dotted key.
-    pub fn set(&mut self, key: &str, value: &str) -> Result<(), String> {
-        unimplemented!()
+    ///
+    /// # Errors
+    /// Returns an error for unknown, invalid, or disallowed values.
+    pub fn set(&mut self, key: &str, raw: &str) -> Result<(), String> {
+        let keys = registry();
+        let definition = keys
+            .iter()
+            .find(|k| k.name == key)
+            .ok_or_else(|| format!("unknown key: {key}"))?;
+        let normalized = if let Ok(value) = raw.parse::<toml_edit::Value>() {
+            if let Some(s) = value.as_str() {
+                s.to_owned()
+            } else {
+                raw.to_owned()
+            }
+        } else {
+            raw.to_owned()
+        };
+        let value = parse_text(definition, &normalized)?;
+        if matches!(self.layer, Layer::Repo | Layer::RepoLocal) && restricted(definition, &value) {
+            return Err(format!("repository cannot set {key}"));
+        }
+        let item = match value {
+            Value::Bool(v) => toml_edit::value(v),
+            Value::Int(v) => toml_edit::value(v),
+            Value::Float(v) => toml_edit::value(v),
+            Value::String(v) => toml_edit::value(v),
+            Value::List(_) => raw.parse::<toml_edit::Item>().map_err(|e| format!("{e}"))?,
+            Value::Unset => return Err("cannot set unset value".into()),
+        };
+        let mut parts = key.split('.').peekable();
+        let mut table = self.document.as_table_mut();
+        while let Some(part) = parts.next() {
+            if parts.peek().is_none() {
+                table.insert(part, item);
+                break;
+            }
+            if !table.contains_key(part) {
+                table.insert(part, toml_edit::Item::Table(toml_edit::Table::new()));
+            }
+            table = table
+                .get_mut(part)
+                .and_then(toml_edit::Item::as_table_mut)
+                .ok_or_else(|| format!("{part} is not a table"))?;
+        }
+        Ok(())
     }
     /// Remove a dotted key.
+    ///
+    /// # Errors
+    /// Returns an error for an unknown key.
     pub fn unset(&mut self, key: &str) -> Result<(), String> {
-        unimplemented!()
+        if !registry().iter().any(|k| k.name == key) {
+            return Err(format!("unknown key: {key}"));
+        }
+        let mut parts = key.split('.').peekable();
+        let mut table = self.document.as_table_mut();
+        while let Some(part) = parts.next() {
+            if parts.peek().is_none() {
+                table.remove(part);
+                break;
+            }
+            match table.get_mut(part).and_then(toml_edit::Item::as_table_mut) {
+                Some(next) => table = next,
+                None => return Ok(()),
+            }
+        }
+        Ok(())
     }
     /// Save the document to its layer file.
+    ///
+    /// # Errors
+    /// Returns an error if the destination cannot be written.
     pub fn save(&self) -> Result<(), String> {
-        unimplemented!()
+        if let Some(parent) = self.path.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| format!("{}: {e}", parent.display()))?;
+        }
+        std::fs::write(&self.path, self.document.to_string())
+            .map_err(|e| format!("{}: {e}", self.path.display()))
     }
 }
 /// Describe a registered key and its effective source.
 #[must_use]
 pub fn explain(config: &EffectiveConfig, key: &str) -> Option<String> {
-    unimplemented!()
+    let keys = registry();
+    let k = keys.iter().find(|k| k.name == key)?;
+    let allowed = match k.kind {
+        Kind::Bool => "true | false".to_owned(),
+        Kind::Int => "non-negative integer".to_owned(),
+        Kind::Float(min, max) => format!("{min}..={max}"),
+        Kind::String => "string".to_owned(),
+        Kind::Enum(values) => values.join(" | "),
+        Kind::List => "string list".to_owned(),
+    };
+    Some(format!(
+        "{} Default: {}. Allowed: {}. Source: {:?}.",
+        k.description,
+        k.default,
+        allowed,
+        config.source(key)?
+    ))
 }
 /// Return keys whose values differ from the active preset.
 #[must_use]
 pub fn diff_from_preset(config: &EffectiveConfig) -> Vec<String> {
-    unimplemented!()
+    let mut baseline = EffectiveConfig::default();
+    let keys = registry();
+    for key in &keys {
+        let value = if key.name == "loop.escalate_command" {
+            Value::Unset
+        } else if let Ok(v) = parse_text(key, key.default) {
+            v
+        } else {
+            continue;
+        };
+        baseline
+            .values
+            .insert(key.name.into(), (value, Layer::Default));
+    }
+    let name = config.get_str("preset").unwrap_or("balanced");
+    for (name, raw) in preset(name) {
+        if let Some(key) = keys.iter().find(|k| k.name == *name) {
+            if let Ok(value) = parse_text(key, raw) {
+                baseline
+                    .values
+                    .insert((*name).into(), (value, Layer::Preset));
+            }
+        }
+    }
+    config
+        .values
+        .iter()
+        .filter(|(name, (value, _))| name.as_str() != "preset" && baseline.get(name) != Some(value))
+        .map(|(name, _)| name.clone())
+        .collect()
 }
