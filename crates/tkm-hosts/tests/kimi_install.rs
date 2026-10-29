@@ -213,3 +213,73 @@ fn invalid_hooks_shape_returns_invalid_payload() {
     let err = adapter.install(&temp.context()).unwrap_err();
     assert!(matches!(err, AdapterError::InvalidPayload { .. }));
 }
+
+#[test]
+fn created_file_with_foreign_comment_is_kept_on_uninstall() {
+    let temp = Scratch::new();
+    let adapter = KimiAdapter::new();
+
+    adapter.install(&temp.context()).unwrap();
+    let mut text = fs::read_to_string(temp.config_path()).unwrap();
+    text.push_str("# my own note\n");
+    fs::write(temp.config_path(), text).unwrap();
+
+    adapter.uninstall(&temp.context()).unwrap();
+    assert!(temp.config_path().exists());
+    let after = fs::read_to_string(temp.config_path()).unwrap();
+    assert!(after.contains("# my own note"));
+    assert!(!after.contains("tkm-hook"));
+}
+
+#[test]
+fn comment_above_owned_table_survives_uninstall() {
+    let temp = Scratch::with_fixtures();
+    let adapter = KimiAdapter::new();
+
+    adapter.install(&temp.context()).unwrap();
+    let text = fs::read_to_string(temp.config_path()).unwrap();
+    let marker = "[[hooks]]\nevent = \"UserPromptSubmit\"";
+    assert!(text.contains(marker));
+    let edited = text.replacen(marker, &format!("# keep me\n{marker}"), 1);
+    fs::write(temp.config_path(), edited).unwrap();
+
+    adapter.uninstall(&temp.context()).unwrap();
+    let after = fs::read_to_string(temp.config_path()).unwrap();
+    assert!(after.contains("# keep me"));
+    assert!(after.contains("foreign-logger --start"));
+    assert!(!after.contains("tkm-hook"));
+}
+
+#[test]
+fn reinstall_keeps_comment_above_stale_owned_table() {
+    let temp = Scratch::new();
+    fs::write(
+        temp.config_path(),
+        "# keep me\n[[hooks]]\nevent = \"Stop\"\ncommand = \"tkm-hook --host kimi --event turn_end\"\ntimeout = 9\n",
+    )
+    .unwrap();
+    let adapter = KimiAdapter::new();
+
+    adapter.install(&temp.context()).unwrap();
+    let after = fs::read_to_string(temp.config_path()).unwrap();
+    assert!(after.contains("# keep me"));
+    assert!(after.contains("tkm-hook --host kimi --event session_start"));
+    assert!(!after.contains("timeout = 9"));
+}
+
+#[test]
+fn comment_added_after_install_survives_uninstall() {
+    let temp = Scratch::with_fixtures();
+    let adapter = KimiAdapter::new();
+
+    adapter.install(&temp.context()).unwrap();
+    let mut text = fs::read_to_string(temp.config_path()).unwrap();
+    text.push_str("# added later\n");
+    fs::write(temp.config_path(), text).unwrap();
+
+    adapter.uninstall(&temp.context()).unwrap();
+    let after = fs::read_to_string(temp.config_path()).unwrap();
+    assert!(after.contains("# added later"));
+    assert!(after.contains("foreign-logger --start"));
+    assert!(!after.contains("tkm-hook"));
+}

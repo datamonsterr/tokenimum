@@ -233,3 +233,73 @@ fn project_scope_is_unsupported() {
         other => panic!("expected Unsupported, got {other:?}"),
     }
 }
+
+#[test]
+fn created_file_with_foreign_comment_is_kept_on_uninstall() {
+    let temp = Scratch::new();
+    let adapter = CodewhaleAdapter::new();
+
+    adapter.install(&temp.context()).unwrap();
+    let mut text = fs::read_to_string(temp.config_path()).unwrap();
+    text.push_str("# my own note\n");
+    fs::write(temp.config_path(), text).unwrap();
+
+    adapter.uninstall(&temp.context()).unwrap();
+    assert!(temp.config_path().exists());
+    let after = fs::read_to_string(temp.config_path()).unwrap();
+    assert!(after.contains("# my own note"));
+    assert!(!after.contains("tkm-hook"));
+}
+
+#[test]
+fn comment_above_owned_table_survives_uninstall() {
+    let temp = Scratch::with_fixtures();
+    let adapter = CodewhaleAdapter::new();
+
+    adapter.install(&temp.context()).unwrap();
+    let text = fs::read_to_string(temp.config_path()).unwrap();
+    let marker = "[[hooks.hooks]]\nevent = \"message_submit\"";
+    assert!(text.contains(marker));
+    let edited = text.replacen(marker, &format!("# keep me\n{marker}"), 1);
+    fs::write(temp.config_path(), edited).unwrap();
+
+    adapter.uninstall(&temp.context()).unwrap();
+    let after = fs::read_to_string(temp.config_path()).unwrap();
+    assert!(after.contains("# keep me"));
+    assert!(after.contains("security-auditor --strict"));
+    assert!(!after.contains("tkm-hook"));
+}
+
+#[test]
+fn reinstall_keeps_comment_above_stale_owned_table() {
+    let temp = Scratch::new();
+    fs::write(
+        temp.config_path(),
+        "# keep me\n[[hooks.hooks]]\nevent = \"turn_end\"\ncommand = \"tkm-hook --host deepseek --event turn_end\"\ntimeout_secs = 9\n",
+    )
+    .unwrap();
+    let adapter = CodewhaleAdapter::new();
+
+    adapter.install(&temp.context()).unwrap();
+    let after = fs::read_to_string(temp.config_path()).unwrap();
+    assert!(after.contains("# keep me"));
+    assert!(after.contains("tkm-hook --host deepseek --event session_start"));
+    assert!(!after.contains("timeout_secs = 9"));
+}
+
+#[test]
+fn comment_added_after_install_survives_uninstall() {
+    let temp = Scratch::with_fixtures();
+    let adapter = CodewhaleAdapter::new();
+
+    adapter.install(&temp.context()).unwrap();
+    let mut text = fs::read_to_string(temp.config_path()).unwrap();
+    text.push_str("# added later\n");
+    fs::write(temp.config_path(), text).unwrap();
+
+    adapter.uninstall(&temp.context()).unwrap();
+    let after = fs::read_to_string(temp.config_path()).unwrap();
+    assert!(after.contains("# added later"));
+    assert!(after.contains("security-auditor --strict"));
+    assert!(!after.contains("tkm-hook"));
+}

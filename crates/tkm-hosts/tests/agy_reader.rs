@@ -312,3 +312,29 @@ fn malformed_and_unknown_steps_skipped_and_partial_marking() {
         Err(AdapterError::Io(_))
     ));
 }
+
+#[test]
+fn unanswered_call_does_not_shift_later_results() {
+    let adapter = AgyAdapter::new();
+    let log = temporary_log(
+        r#"{"step_index":0,"source":"USER_EXPLICIT","type":"USER_INPUT","status":"DONE","created_at":"2026-10-29T04:58:10Z","content":"<USER_REQUEST>\nGo\n</USER_REQUEST>"}
+{"step_index":1,"source":"MODEL","type":"PLANNER_RESPONSE","status":"DONE","created_at":"2026-10-29T04:58:11Z","tool_calls":[{"name":"read_file","args":{"AbsolutePath":"/project/a.txt"}}]}
+{"step_index":2,"source":"MODEL","type":"PLANNER_RESPONSE","status":"DONE","created_at":"2026-10-29T04:58:12Z","tool_calls":[{"name":"run_command","args":{"CommandLine":"ls"}}]}
+{"step_index":3,"source":"MODEL","type":"GENERIC","status":"DONE","created_at":"2026-10-29T04:58:13Z","content":"listing"}
+{"step_index":4,"source":"MODEL","type":"PLANNER_RESPONSE","status":"DONE","created_at":"2026-10-29T04:58:14Z","tool_calls":[{"name":"read_file","args":{"AbsolutePath":"/project/b.txt"}}]}
+"#,
+    );
+    let src = source(log.clone(), "s", "/project");
+    let session = adapter.read_session(&src).unwrap();
+    let _ = fs::remove_file(log);
+
+    assert_eq!(session.turns.len(), 1);
+    let calls = &session.turns[0].calls;
+    assert_eq!(calls.len(), 3);
+    assert_eq!(calls[0].tool, "read_file");
+    assert_eq!(calls[0].output_digest, "");
+    assert_eq!(calls[1].tool, "run_command");
+    assert_eq!(calls[1].output_digest, "listing");
+    assert_eq!(calls[2].tool, "read_file");
+    assert_eq!(calls[2].output_digest, "");
+}

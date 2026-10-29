@@ -252,3 +252,41 @@ fn io_and_malformed_errors() {
     let _ = fs::remove_file(file_path);
     let _ = fs::remove_dir(temp_dir);
 }
+
+#[test]
+fn unknown_leaf_id_falls_back_to_file_order_and_marks_partial() {
+    let adapter = CodewhaleAdapter::new();
+    let temp_dir = std::env::temp_dir().join("tkm-codewhale-leaf-missing");
+    fs::create_dir_all(&temp_dir).unwrap();
+    let file_path = temp_dir.join("sess_leaf.json");
+
+    let doc = json!({
+        "schema_version": 1,
+        "metadata": { "id": "sess_leaf", "workspace": "/tmp" },
+        "journal": {
+            "leaf_id": "no_such_entry",
+            "entries": [
+                { "id": "e1", "parent_id": null, "kind": "user", "text": "first prompt" },
+                { "id": "e2", "parent_id": "e1", "kind": "user", "text": "second prompt" }
+            ]
+        }
+    });
+    fs::write(&file_path, serde_json::to_vec(&doc).unwrap()).unwrap();
+
+    let source = SessionSource {
+        agent_home: PathBuf::from("/tmp"),
+        path: file_path.clone(),
+        session_id: "sess_leaf".to_owned(),
+        repo_key: RepoKey::default(),
+        cwd: PathBuf::from("/tmp"),
+    };
+
+    let session = adapter.read_session(&source).unwrap();
+    assert_eq!(session.turns.len(), 2);
+    assert_eq!(session.turns[0].prompt, "first prompt");
+    assert_eq!(session.turns[1].prompt, "second prompt");
+    assert!(session.partial);
+
+    let _ = fs::remove_file(file_path);
+    let _ = fs::remove_dir(temp_dir);
+}

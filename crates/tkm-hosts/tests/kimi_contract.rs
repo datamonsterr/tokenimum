@@ -275,3 +275,27 @@ fn fault_injection_malformed_requests_fail_open() {
         ""
     );
 }
+
+#[test]
+fn render_reply_json_object_text_renders_empty() {
+    let adapter = KimiAdapter::new();
+    let req = request(json!({
+        "hook_event_name": "UserPromptSubmit",
+        "session_id": "9a1b2c3d-4e5f-6a7b-8c9d-0e1f2a3b4c5d",
+        "prompt": "hi",
+    }));
+    let deny = r#"{"hookSpecificOutput":{"permissionDecision":"deny"}}"#;
+    assert_eq!(
+        adapter.render_reply(&req, &ReplyAction::Inject { text: deny.into() }),
+        ""
+    );
+    assert_eq!(
+        adapter.render_reply(
+            &req,
+            &ReplyAction::Inject {
+                text: format!("  \n{deny}")
+            }
+        ),
+        ""
+    );
+}

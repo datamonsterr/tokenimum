@@ -221,3 +221,87 @@ fn read_session_resolves_path_when_empty() {
     assert_eq!(session.turns.len(), 1);
     assert_eq!(session.turns[0].prompt, "computed path test");
 }
+
+#[test]
+fn invalid_utf8_line_is_skipped_not_fatal() {
+    let scratch = Scratch::new();
+    let mut bytes: Vec<u8> = Vec::new();
+    bytes.extend_from_slice(b"{\"role\":\"user\",\"content\":\"first\"}\n");
+    bytes.extend_from_slice(b"{\"role\":\"user\",\"content\":\"bad \xff\xfe\"}\n");
+    bytes.extend_from_slice(b"{\"role\":\"user\",\"content\":\"third\"}\n");
+    fs::write(scratch.0.join("context.jsonl"), bytes).unwrap();
+
+    let adapter = KimiAdapter::new();
+    let source = SessionSource {
+        agent_home: scratch.0.clone(),
+        path: scratch.0.clone(),
+        session_id: "s_utf8".into(),
+        repo_key: RepoKey("repo".into()),
+        cwd: PathBuf::from("/cwd"),
+    };
+
+    let session = adapter.read_session(&source).unwrap();
+    assert_eq!(session.turns.len(), 2);
+    assert_eq!(session.turns[0].prompt, "first");
+    assert_eq!(session.turns[1].prompt, "third");
+    assert_eq!(session.skipped_records, 1);
+    assert_eq!(session.total_records, 3);
+}
+
+#[test]
+fn invalid_utf8_wire_line_is_skipped_not_fatal() {
+    let scratch = Scratch::new();
+    fs::write(
+        scratch.0.join("context.jsonl"),
+        "{\"role\":\"user\",\"content\":\"hello\"}\n",
+    )
+    .unwrap();
+    let mut bytes: Vec<u8> = Vec::new();
+    bytes.extend_from_slice(b"{\"type\":\"metadata\",\"protocol_version\":\"1.0\"}\n");
+    bytes.extend_from_slice(b"{\"timestamp\":1730198400.1,\"message\":{\"type\":\"TurnBegin\"}}\n");
+    bytes.extend_from_slice(b"\xff\xfe broken\n");
+    bytes.extend_from_slice(b"{\"timestamp\":1730198403.0,\"message\":{\"type\":\"TurnEnd\"}}\n");
+    fs::write(scratch.0.join("wire.jsonl"), bytes).unwrap();
+
+    let adapter = KimiAdapter::new();
+    let source = SessionSource {
+        agent_home: scratch.0.clone(),
+        path: scratch.0.clone(),
+        session_id: "s_wire_utf8".into(),
+        repo_key: RepoKey("repo".into()),
+        cwd: PathBuf::from("/cwd"),
+    };
+
+    let session = adapter.read_session(&source).unwrap();
+    assert_eq!(session.skipped_records, 1);
+    assert_eq!(session.ended, Some(Timestamp(1_730_198_403_000)));
+}
+
+#[test]
+fn wire_first_line_event_is_not_skipped() {
+    let scratch = Scratch::new();
+    fs::write(
+        scratch.0.join("context.jsonl"),
+        "{\"role\":\"user\",\"content\":\"hello\"}\n",
+    )
+    .unwrap();
+    fs::write(
+        scratch.0.join("wire.jsonl"),
+        "{\"timestamp\":1730198400.1,\"message\":{\"type\":\"TurnBegin\"}}\n{\"timestamp\":1730198403.0,\"message\":{\"type\":\"TurnEnd\"}}\n",
+    )
+    .unwrap();
+
+    let adapter = KimiAdapter::new();
+    let source = SessionSource {
+        agent_home: scratch.0.clone(),
+        path: scratch.0.clone(),
+        session_id: "s_wire_first".into(),
+        repo_key: RepoKey("repo".into()),
+        cwd: PathBuf::from("/cwd"),
+    };
+
+    let session = adapter.read_session(&source).unwrap();
+    assert_eq!(session.started, Timestamp(1_730_198_400_100));
+    assert_eq!(session.ended, Some(Timestamp(1_730_198_403_000)));
+    assert_eq!(session.skipped_records, 0);
+}
