@@ -35,6 +35,63 @@ fn start_request(transcript_path: &str) -> tkm_proto::Request {
 }
 
 #[tokio::test]
+async fn late_resolution_does_not_reopen_an_ended_session() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::{Condvar, Mutex};
+    use tkmd::settings::SettingsSource;
+
+    struct DelayedSettings {
+        calls: AtomicUsize,
+        gate: (Mutex<bool>, Condvar),
+    }
+    impl SettingsSource for DelayedSettings {
+        fn settings_for(&self, root: Option<&Path>) -> Arc<Settings> {
+            if root.is_some() && self.calls.fetch_add(1, Ordering::SeqCst) == 0 {
+                let (lock, wake) = &self.gate;
+                let mut released = lock.lock().unwrap();
+                while !*released {
+                    released = wake.wait(released).unwrap();
+                }
+            }
+            Arc::new(Settings::default())
+        }
+    }
+    let env = Env::new();
+    let delayed = Arc::new(DelayedSettings {
+        calls: AtomicUsize::new(0),
+        gate: (Mutex::new(false), Condvar::new()),
+    });
+    let mut options = DaemonOptions::new(env.paths.clone());
+    options.settings = delayed.clone();
+    let daemon = Daemon::new(options);
+    daemon.start_workers();
+    let mut monitor = daemon.subscribe();
+    daemon.handle_tool_done(&tool_done());
+    assert!(eventually(2, || delayed.calls.load(Ordering::SeqCst) >= 1).await);
+    daemon.handle(session_end()).await;
+    *delayed.gate.0.lock().unwrap() = true;
+    delayed.gate.1.notify_all();
+    daemon.settle().await;
+    daemon.flush_now().await;
+    let store = tkm_store::open_read_only(&env.paths.db).unwrap();
+    let (ended, status): (Option<i64>, String) = store
+        .query_row(
+            "SELECT ended_at, fold_status FROM sessions WHERE session_id = ?1",
+            [session_end().payload["session_id"].as_str().unwrap()],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap();
+    assert!(ended.is_some());
+    assert_ne!(status, "open");
+    while monitor.try_recv().is_ok() {}
+    daemon.handle(stop()).await;
+    assert!(
+        monitor.try_recv().is_err(),
+        "session was resurrected in memory"
+    );
+}
+
+#[tokio::test]
 async fn session_end_marks_the_session_and_a_detached_fold_writes_the_ledger() {
     let env = Env::new();
     let daemon = daemon_with(&env, Settings::default(), Arc::new(NullDecider));
