@@ -229,7 +229,10 @@ async fn relevance_stays_shadowed_without_its_own_qualifying_calibration() {
         );
         let reply = daemon.handle(prompt()).await;
         let text = additional_context(&reply).unwrap();
-        assert!(text.contains("other.org"), "shadow uses code-only context");
+        assert!(
+            text.contains("other.org"),
+            "shadow uses code-only context (precision {precision}): {text}"
+        );
         daemon.flush_now().await;
         let rows = env.store().list_recent_decisions(-1).unwrap();
         assert!(
