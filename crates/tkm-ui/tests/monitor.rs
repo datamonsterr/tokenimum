@@ -407,3 +407,17 @@ fn snapshot_reads_persisted_decision() {
     assert_eq!(state.decisions[0].purpose, "loop_guard");
     assert_eq!(state.decisions[0].cost_usd, 0.1);
 }
+
+#[test]
+fn live_fact_insertions_are_bounded() {
+    let mut state = MonitorState::default();
+    for i in 0..2_001 {
+        state.apply(MonitorMessage::Fact(tkm_proto::monitor::FactNotice {
+            repo: "repo".into(),
+            fact_id: format!("fact-{i}"),
+            kind: "promoted".into(),
+        }));
+    }
+    assert_eq!(state.facts.len(), 2_000);
+    assert_eq!(state.facts[0].fact_id, "fact-1");
+}

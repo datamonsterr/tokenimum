@@ -236,3 +236,65 @@ fn token_has_expected_format_and_is_fresh() {
     );
     assert_ne!(first, web::generate_token().unwrap());
 }
+
+#[tokio::test]
+async fn confirmations_and_action_input_are_bounded() {
+    let app = app(Arc::new(Fake::default()), Arc::new(AtomicU64::new(0)));
+    for _ in 0..32 {
+        assert_eq!(
+            request(
+                app.clone(),
+                "POST",
+                "/api/actions/forget_fact",
+                "localhost:7878",
+                Some("secret"),
+                r#"{"repo":"repo","fact_id":"id"}"#
+            )
+            .await
+            .status(),
+            StatusCode::OK
+        );
+    }
+    assert_eq!(
+        request(
+            app.clone(),
+            "POST",
+            "/api/actions/forget_fact",
+            "localhost:7878",
+            Some("secret"),
+            r#"{"repo":"repo","fact_id":"id"}"#
+        )
+        .await
+        .status(),
+        StatusCode::TOO_MANY_REQUESTS
+    );
+    let oversized = serde_json::json!({"repo": "x".repeat(4097), "fact_id":"id"}).to_string();
+    assert_eq!(
+        request(
+            app,
+            "POST",
+            "/api/actions/forget_fact",
+            "localhost:7878",
+            Some("secret"),
+            &oversized
+        )
+        .await
+        .status(),
+        StatusCode::BAD_REQUEST
+    );
+}
+
+#[tokio::test]
+async fn restore_rejects_unrecorded_checkout() {
+    let app = app(Arc::new(Fake::default()), Arc::new(AtomicU64::new(0)));
+    let res = request(
+        app,
+        "POST",
+        "/api/actions/restore_tool",
+        "localhost:7878",
+        Some("secret"),
+        r#"{"checkout":"/unknown","host":"claude","tool":"tool"}"#,
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+}
