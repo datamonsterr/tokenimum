@@ -1,4 +1,4 @@
-# ADR 0011: Decision client defaults left open by SPEC 8
+# ADR 0013: Decision client defaults left open by SPEC 8
 
 Date: 2026-10-29. Status: accepted (epic E3).
 

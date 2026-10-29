@@ -1,4 +1,4 @@
-# ADR 0011: Configuration and repository identity
+# ADR 0012: Configuration and repository identity
 
 Date: 2026-10-29. Status: accepted.
 
