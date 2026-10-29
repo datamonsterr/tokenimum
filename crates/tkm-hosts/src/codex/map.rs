@@ -86,10 +86,10 @@ pub(crate) fn map_event(request: &Request) -> Result<Option<HookEvent>, AdapterE
 
 /// Codex delivers `tool_response` as a JSON string for shell chunks.
 fn parsed_response(response: &Value) -> Value {
-    if let Value::String(text) = response {
-        if let Ok(parsed @ Value::Object(_)) = serde_json::from_str::<Value>(text) {
-            return parsed;
-        }
+    if let Value::String(text) = response
+        && let Ok(parsed @ Value::Object(_)) = serde_json::from_str::<Value>(text)
+    {
+        return parsed;
     }
     response.clone()
 }
@@ -134,9 +134,9 @@ fn patch_edits(patch: &str, cwd: Option<&Path>) -> Vec<FileEdit> {
         .lines()
         .filter_map(|line| {
             PATCH_MARKERS.iter().find_map(|(marker, kind)| {
-                let path = repo_relative(line.strip_prefix(*marker)?, cwd)?;
+                let relative = repo_relative(line.strip_prefix(*marker)?, cwd)?;
                 Some(FileEdit {
-                    path,
+                    path: relative,
                     kind: *kind,
                     via: EditVia::Tool,
                 })

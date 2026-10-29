@@ -165,7 +165,7 @@ impl Reader {
 
     fn session_meta(&mut self, payload: &Map<String, Value>) {
         if let Some(id) = payload.get("id").and_then(Value::as_str) {
-            self.session.session_id = id.to_owned();
+            id.clone_into(&mut self.session.session_id);
         }
         if let Some(cwd) = payload.get("cwd").and_then(Value::as_str) {
             self.session.cwd = PathBuf::from(cwd);

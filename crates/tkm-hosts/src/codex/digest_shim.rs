@@ -36,10 +36,8 @@ pub(crate) fn command_digest(command: &str) -> String {
 
 /// Digest of tool input: the command for shell tools, else sorted compact JSON.
 pub(crate) fn args_digest(shell: bool, input: &Value) -> String {
-    if shell {
-        if let Some(command) = input.get("command").and_then(Value::as_str) {
-            return command_digest(command);
-        }
+    if shell && let Some(command) = input.get("command").and_then(Value::as_str) {
+        return command_digest(command);
     }
     if input.is_null() {
         return String::new();
