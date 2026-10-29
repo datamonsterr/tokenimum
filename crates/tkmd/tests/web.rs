@@ -120,3 +120,38 @@ fn enabled_daemon_publishes_dashboard_and_bind_failure_fails_open() {
         child.wait().unwrap();
     }
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn shutdown_with_hung_client_removes_discovery_file() {
+    use std::time::Duration;
+    let dir = tempfile::tempdir().unwrap();
+    let paths = Paths::from_dirs(
+        dir.path(),
+        Some(dir.path()),
+        Some(dir.path()),
+        Some(dir.path()),
+    );
+    paths.ensure_runtime_dir().unwrap();
+    let daemon = Daemon::new(DaemonOptions::new(paths.clone()));
+    let web = WebServer::start(daemon, &paths, "127.0.0.1:0")
+        .await
+        .unwrap();
+    let file = paths.socket.with_file_name("tkmd-web.json");
+    let info: serde_json::Value = serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
+    let host = info["url"]
+        .as_str()
+        .unwrap()
+        .trim_start_matches("http://")
+        .trim_end_matches('/');
+    let mut client = std::net::TcpStream::connect(host).unwrap();
+    write!(
+        client,
+        "POST /api/actions/forget_fact HTTP/1.1\r\nHost: {host}\r\nContent-Length: 100\r\n"
+    )
+    .unwrap();
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    tokio::time::timeout(Duration::from_secs(3), web.shutdown())
+        .await
+        .unwrap();
+    assert!(!file.exists());
+}
