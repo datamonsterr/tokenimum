@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "foreign_key": "custom_value",
+  "hooks": {
+    "sessionStart": [
+      {
+        "command": "./foreign-script.sh",
+        "timeout": 5
+      }
+    ]
+  }
+}

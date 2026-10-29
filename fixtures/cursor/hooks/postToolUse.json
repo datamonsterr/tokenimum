@@ -1,0 +1,18 @@
+{
+  "conversation_id": "c1a2b3c4-d5e6-7f8a-9b0c-1d2e3f4a5b6c",
+  "generation_id": "gen-001",
+  "model": "claude-3-7-sonnet",
+  "hook_event_name": "postToolUse",
+  "cursor_version": "0.45.0",
+  "workspace_roots": [
+    "/workspace/tokenimum"
+  ],
+  "user_email": "user@example.com",
+  "transcript_path": "/home/user/.cursor/projects/workspace-tokenimum/agent-transcripts/c1a2b3c4-d5e6-7f8a-9b0c-1d2e3f4a5b6c/c1a2b3c4-d5e6-7f8a-9b0c-1d2e3f4a5b6c.jsonl",
+  "tool_name": "Bash",
+  "tool_input": {
+    "command": "cargo check"
+  },
+  "tool_output": "Finished dev profile",
+  "duration": 1250
+}
