@@ -68,14 +68,19 @@ fn json_files(path: &Path) -> Vec<Value> {
 }
 
 fn legacy(source: &SessionSource) -> Option<Value> {
-    let storage = if source
+    let root = if source
         .path
-        .file_name()
-        .is_some_and(|name| name == "storage")
+        .extension()
+        .is_some_and(|extension| extension == "db")
     {
-        source.path.clone()
+        source.path.parent().unwrap_or(&source.path)
     } else {
-        source.path.join("storage")
+        &source.path
+    };
+    let storage = if root.file_name().is_some_and(|name| name == "storage") {
+        root.to_path_buf()
+    } else {
+        root.join("storage")
     };
     let sessions = std::fs::read_dir(storage.join("session")).ok()?;
     let info = sessions
