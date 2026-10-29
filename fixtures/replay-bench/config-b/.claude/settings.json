@@ -1,0 +1,1 @@
+{"permissions": {"allow": ["Read"]}, "hooks": {"Stop": [{"hooks": [{"type": "command", "command": "foreign-hook"}]}], "UserPromptSubmit": [{"hooks": [{"type": "command", "command": "tkm-hook", "args": ["--host", "claude", "--event", "prompt"], "timeout": 3}]}]}}

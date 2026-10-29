@@ -199,6 +199,8 @@ impl WebServer {
                             && let Ok(snapshot) = feed_state.reload_snapshot().await
                             && let Ok(mut state) = feed_state.monitor.write()
                         {
+                            state.unknown_session_costs = snapshot.unknown_session_costs;
+                            state.unknown_decision_costs = snapshot.unknown_decision_costs;
                             state.savings = snapshot.savings;
                             state.spend_days = snapshot.spend_days;
                         }

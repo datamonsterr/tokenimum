@@ -119,6 +119,7 @@ pub(crate) fn explanation(
     let mut checks = Vec::new();
     let mut cost = 0.0;
     let mut decisions = 0;
+    let mut unknown_cost = false;
     // New rows identify decision references separately because fact rowids share the integer namespace.
     let decision_ids = event
         .inputs
@@ -139,7 +140,11 @@ pub(crate) fn explanation(
                 continue;
             }
             decisions += 1;
-            cost += decision.cost_usd;
+            if let Some(value) = decision.cost_usd {
+                cost += value;
+            } else {
+                unknown_cost = true;
+            }
             let probability = |name: &str| {
                 decision
                     .answers
@@ -180,7 +185,11 @@ pub(crate) fn explanation(
         params.model_checks = checks.join("; ");
     }
     if decisions > 0 {
-        params.cost = format!("${cost:.6}");
+        params.cost = if unknown_cost {
+            "unknown".into()
+        } else {
+            format!("${cost:.6}")
+        };
     } else if params.cost.is_empty() {
         params.cost = "unknown".into();
     }

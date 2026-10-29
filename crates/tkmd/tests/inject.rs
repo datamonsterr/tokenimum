@@ -154,3 +154,39 @@ async fn block_moves_to_the_next_injectable_event_when_the_prompt_cannot_inject(
     // Delivered once.
     assert_eq!(daemon.handle_tool_done(&tool_done()).stdout, "");
 }
+
+#[tokio::test]
+async fn cursor_repeats_session_start_context_on_next_tool_result() {
+    let env = Env::new();
+    seed_fact(&env, "example.com");
+    let daemon = daemon_with(&env, Settings::default(), Arc::new(NullDecider));
+    let cursor = |name: &str, kind: EventKind| {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../fixtures/cursor/hooks")
+            .join(format!("{name}.json"));
+        let mut payload: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+        payload["workspace_roots"] = serde_json::json!(["~/dev/example"]);
+        let mut req = request(kind, payload);
+        req.host = tkm_proto::Host::Cursor;
+        req
+    };
+    daemon
+        .handle(cursor("beforeSubmitPrompt", EventKind::Prompt))
+        .await;
+    let start = daemon
+        .handle(cursor("sessionStart", EventKind::SessionStart))
+        .await;
+    let first: serde_json::Value = serde_json::from_str(&start.stdout).unwrap();
+    assert!(
+        first["additional_context"]
+            .as_str()
+            .unwrap()
+            .contains("example.com")
+    );
+    let tool = cursor("postToolUse", EventKind::ToolDone);
+    let repeated = daemon.handle_tool_done(&tool);
+    let second: serde_json::Value = serde_json::from_str(&repeated.stdout).unwrap();
+    assert_eq!(first["additional_context"], second["additional_context"]);
+    assert_eq!(daemon.handle_tool_done(&tool).stdout, "{}");
+}

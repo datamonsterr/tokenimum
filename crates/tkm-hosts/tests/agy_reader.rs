@@ -338,3 +338,16 @@ fn unanswered_call_does_not_shift_later_results() {
     assert_eq!(calls[2].tool, "read_file");
     assert_eq!(calls[2].output_digest, "");
 }
+
+#[test]
+fn planner_response_attributes_usage_to_reported_model() {
+    let path = temporary_log(
+        "{\"type\":\"USER_INPUT\",\"content\":\"hello\"}\n{\"type\":\"PLANNER_RESPONSE\",\"model\":\"fixture-model\",\"input_tokens\":12,\"output_tokens\":3}\n",
+    );
+    let session = AgyAdapter::new()
+        .read_session(&source(path.clone(), "s", "/repo"))
+        .unwrap();
+    assert_eq!(session.usage_by_model["fixture-model"].input, 12);
+    assert_eq!(session.turns[0].model.as_deref(), Some("fixture-model"));
+    fs::remove_file(path).unwrap();
+}

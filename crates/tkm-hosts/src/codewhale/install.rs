@@ -4,14 +4,23 @@ use toml_edit::{ArrayOfTables, DocumentMut, Item, Table};
 
 use crate::{AdapterError, InstallContext, InstallReport};
 
-const HOOK_SPECS: [(&str, tkm_proto::EventKind, u64); 6] = [
+const HOOK_SPECS: [(&str, tkm_proto::EventKind, u64); 7] = [
     ("session_start", tkm_proto::EventKind::SessionStart, 1),
     ("message_submit", tkm_proto::EventKind::Prompt, 3),
     ("tool_call_before", tkm_proto::EventKind::ToolBefore, 1),
     ("tool_call_after", tkm_proto::EventKind::ToolDone, 1),
     ("turn_end", tkm_proto::EventKind::TurnEnd, 1),
     ("session_end", tkm_proto::EventKind::SessionEnd, 1),
+    ("session_idle", tkm_proto::EventKind::TurnEnd, 1),
 ];
+
+fn command(event: &str, kind: tkm_proto::EventKind) -> String {
+    let mut command = format!("tkm-hook --host deepseek --event {}", kind.as_str());
+    if event == "session_idle" {
+        command.push_str(" --host-event session_idle");
+    }
+    command
+}
 
 fn is_owned(table: &Table) -> bool {
     let Some(cmd) = table.get("command").and_then(Item::as_str) else {
@@ -32,7 +41,7 @@ fn already_matches(doc: &DocumentMut) -> bool {
         return false;
     }
     for (table, &(ev, kind, timeout)) in owned.iter().zip(HOOK_SPECS.iter()) {
-        let expected_cmd = format!("tkm-hook --host deepseek --event {}", kind.as_str());
+        let expected_cmd = command(ev, kind);
         let expected_name = format!("tokenimum-{ev}");
         if table.get("event").and_then(Item::as_str) != Some(ev) {
             return false;
@@ -105,10 +114,7 @@ pub(super) fn install(context: &InstallContext) -> Result<InstallReport, Adapter
             let kept = std::mem::take(&mut carry);
             table.decor_mut().set_prefix(format!("{kept}# tokenimum\n"));
             table["event"] = toml_edit::value(ev);
-            table["command"] = toml_edit::value(format!(
-                "tkm-hook --host deepseek --event {}",
-                kind.as_str()
-            ));
+            table["command"] = toml_edit::value(command(ev, kind));
             table["name"] = toml_edit::value(format!("tokenimum-{ev}"));
             table["timeout_secs"] = toml_edit::value(i64::try_from(timeout).unwrap_or(1));
             table["continue_on_error"] = toml_edit::value(true);

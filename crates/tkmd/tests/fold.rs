@@ -263,3 +263,28 @@ fn fold_status(env: &Env) -> Option<String> {
         .ok()
         .filter(|s| s != "open")
 }
+
+#[tokio::test]
+async fn fold_prices_session_with_configured_model_rates() {
+    let env = Env::new();
+    let mut settings = Settings::default();
+    settings.pricing =
+        tkm_core::ledger::PriceTable::parse(include_str!("../../../fixtures/pricing/pricing.toml"))
+            .unwrap();
+    let text = std::fs::read_to_string(transcript()).unwrap();
+    let model = "example-model";
+    let replaced = text
+        .replace("claude-haiku-5-5", model)
+        .replace("claude-opus-5-5", model);
+    let path = env.dir.path().join("priced.jsonl");
+    std::fs::write(&path, replaced).unwrap();
+    let daemon = daemon_with(&env, settings, Arc::new(NullDecider));
+    daemon.handle(start_request(path.to_str().unwrap())).await;
+    daemon.handle(end_request(path.to_str().unwrap())).await;
+    daemon.settle().await;
+    let conn = tkm_store::open_read_only(&env.paths.db).unwrap();
+    let cost: f64 = conn
+        .query_row("SELECT priced_cost FROM ledger", [], |r| r.get(0))
+        .unwrap();
+    assert!(cost > 0.0);
+}

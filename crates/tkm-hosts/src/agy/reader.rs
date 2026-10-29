@@ -193,8 +193,26 @@ impl Reader {
             cache_write,
         };
         self.session.usage = self.session.usage.add(usage);
+        let model = record.get("model").and_then(Value::as_str);
+        if let Some(model) = model {
+            let total = self
+                .session
+                .usage_by_model
+                .entry(model.to_owned())
+                .or_default();
+            *total = total.add(usage);
+        }
         if let Some(turn) = self.current_turn.as_mut() {
             turn.usage = turn.usage.add(usage);
+            if let Some(model) = model {
+                let total = turn.usage_by_model.entry(model.to_owned()).or_default();
+                *total = total.add(usage);
+                turn.model = if turn.usage_by_model.len() == 1 {
+                    Some(model.to_owned())
+                } else {
+                    None
+                };
+            }
         }
         if let Some(tool_calls) = record.get("tool_calls").and_then(Value::as_array) {
             for tc in tool_calls {

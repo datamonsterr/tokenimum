@@ -940,7 +940,11 @@ impl Daemon {
         };
         let (reply, delivered) =
             Self::render(request, adapter, ReplyAction::Inject { text: text.clone() });
-        if !delivered && let Some(session) = lock(&self.state).sessions.get_mut(&tag) {
+        if delivered && request.host == Host::Cursor && event.kind == EventKind::SessionStart {
+            if let Some(session) = lock(&self.state).sessions.get_mut(&tag) {
+                session.pending_inject = join_text(Some(text), session.pending_inject.take());
+            }
+        } else if !delivered && let Some(session) = lock(&self.state).sessions.get_mut(&tag) {
             session.pending_inject = join_text(pending, session.pending_inject.take());
             if let Some(turn) = session.turn.as_mut()
                 && Some(turn.seq) == seq

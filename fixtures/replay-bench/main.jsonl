@@ -1,0 +1,15 @@
+{"type": "user", "timestamp": "2026-10-22T23:22:00Z", "message": {"content": "Create a synthetic widget"}}
+{"type": "assistant", "timestamp": "2026-10-22T23:22:10Z", "message": {"id": "one", "model": "synthetic-model", "content": [{"type": "tool_use", "id": "tool1", "name": "Bash", "input": {"command": "false"}}], "stop_reason": "tool_use", "usage": {"input_tokens": 10, "cache_creation_input_tokens": 20, "cache_read_input_tokens": 30, "output_tokens": 2}}}
+{"type": "assistant", "timestamp": "2026-10-22T23:22:10Z", "message": {"id": "one", "model": "synthetic-model", "content": [], "stop_reason": "end_turn", "usage": {"input_tokens": 10, "cache_creation_input_tokens": 20, "cache_read_input_tokens": 30, "output_tokens": 5}}}
+{"type": "user", "timestamp": "2026-10-22T23:22:00Z", "message": {"content": [{"type": "tool_result", "tool_use_id": "tool1", "is_error": true, "content": "synthetic failure"}]}}
+{"type": "user", "timestamp": "2026-10-22T23:22:00Z", "message": {"content": "<task-notification>synthetic</task-notification>"}}
+{"type": "user", "timestamp": "2026-10-22T23:22:00Z", "message": {"content": "<system-reminder>synthetic</system-reminder>"}}
+{"type": "user", "timestamp": "2026-10-22T23:22:00Z", "message": {"content": "Hook feedback: synthetic"}}
+{"type": "user", "timestamp": "2026-10-22T23:22:00Z", "message": {"content": "[Request interrupted by user]"}}
+{"type": "user", "timestamp": "2026-10-22T23:22:00Z", "message": {"content": "<interrupt>stop</interrupt>"}}
+{"type": "user", "timestamp": "2026-10-22T23:22:00Z", "message": {"content": "metadata"}, "isMeta": true}
+{"type": "user", "timestamp": "2026-10-22T23:22:00Z", "message": {"content": "compaction"}, "isCompactSummary": true}
+{"type": "user", "timestamp": "2026-10-22T23:22:00Z", "message": {"content": [{"type": "text", "text": "Add a test"}, {"type": "text", "text": "Keep it small"}]}}
+{"type": "user", "timestamp": "2026-10-22T23:22:00Z", "message": {"content": [{"type": "text", "text": "<system-reminder>injected</system-reminder>"}, {"type": "text", "text": "Preserve this typed request"}]}}
+{"type": "assistant", "timestamp": "2026-10-22T23:22:10Z", "message": {"id": "two", "model": "synthetic-model", "content": [], "stop_reason": "end_turn", "usage": {"input_tokens": 3, "cache_creation_input_tokens": 2, "cache_read_input_tokens": 1, "output_tokens": 4}}}
+{"type": "system", "subtype": "turn_duration", "timestamp": "2026-10-22T23:22:10Z"}

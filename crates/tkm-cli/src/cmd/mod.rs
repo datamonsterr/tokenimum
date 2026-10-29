@@ -29,6 +29,7 @@ pub mod why;
 /// Propagates command runtime, usage, or not-available errors.
 pub fn dispatch(ctx: &mut Ctx<'_>, command: &Command) -> Result<ExitCode, CliError> {
     match command {
+        Command::Bench(args) => crate::replay_bench::run(args),
         Command::Init(args) => init::run(ctx, args),
         Command::Uninstall(args) => uninstall::run(ctx, args),
         Command::Status(args) => status::run(ctx, args),
