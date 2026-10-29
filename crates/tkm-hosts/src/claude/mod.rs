@@ -4,11 +4,12 @@ mod install;
 mod map;
 mod reader;
 mod reply;
-mod time;
+pub(crate) mod time;
 
+use crate::writer::invalid;
 use crate::{AdapterError, HostAdapter, InstallContext, InstallReport, PruneTarget, SessionSource};
 use tkm_core::model::{HookEvent, Session};
-use tkm_proto::{Host, ReplyAction, Request};
+use tkm_proto::{Host, PROTOCOL_VERSION, ReplyAction, Request};
 
 /// Stateless Claude Code adapter; all filesystem roots are supplied by callers.
 #[derive(Debug, Default, Clone, Copy)]
@@ -46,5 +47,46 @@ impl HostAdapter for ClaudeAdapter {
             path: ".claude/settings.local.json".into(),
             key: "permissions.deny".to_owned(),
         }
+    }
+}
+
+fn native_event(request: &Request) -> Result<&str, AdapterError> {
+    if request.version != PROTOCOL_VERSION {
+        return Err(invalid("unsupported protocol version"));
+    }
+    if request.host != Host::Claude {
+        return Err(invalid("host does not match Claude"));
+    }
+    if !request.payload.is_object() {
+        return Err(invalid("payload must be an object"));
+    }
+    if request
+        .payload
+        .get("session_id")
+        .and_then(serde_json::Value::as_str)
+        .is_none()
+    {
+        return Err(invalid("required payload string is missing or invalid"));
+    }
+    if let Some(event) = request.payload.get("hook_event_name") {
+        event
+            .as_str()
+            .ok_or_else(|| invalid("hook_event_name must be a string"))
+            .and_then(|event| {
+                if request
+                    .host_event
+                    .as_deref()
+                    .is_some_and(|host| host != event)
+                {
+                    Err(invalid("hook_event_name conflicts with host_event"))
+                } else {
+                    Ok(event)
+                }
+            })
+    } else {
+        request
+            .host_event
+            .as_deref()
+            .ok_or_else(|| invalid("native event is missing"))
     }
 }

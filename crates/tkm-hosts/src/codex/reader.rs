@@ -10,12 +10,10 @@ use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 
 use serde_json::{Map, Value};
-use tkm_core::model::{
-    Call, EditKind, EditVia, FileEdit, Session, StopReason, Timestamp, Turn, Usage,
-};
+use tkm_core::model::{Call, Session, StopReason, Timestamp, Turn, Usage};
 use tkm_proto::Host;
 
-use super::repo_relative;
+use super::patch;
 use crate::digest::{args_digest, output_digest, truncate};
 use crate::{AdapterError, SessionSource};
 
@@ -47,23 +45,31 @@ const IGNORED_EVENTS: [&str; 12] = [
     "stream_error",
 ];
 
-/// Decompresses one zstd frame, failing when the output exceeds `limit` bytes.
+/// Decompresses all concatenated zstd frames with a cumulative output limit.
 ///
 /// # Errors
 /// Returns an [`io::Error`] for invalid or truncated zstd data, or when the
 /// decompressed size would exceed `limit` (decompression-bomb guard).
-pub fn decompress_zstd(bytes: &[u8], limit: usize) -> io::Result<Vec<u8>> {
-    let mut decoder = ruzstd::decoding::StreamingDecoder::new(bytes).map_err(io::Error::other)?;
-    let allowance = u64::try_from(limit).unwrap_or(u64::MAX).saturating_add(1);
+pub fn decompress_zstd(mut bytes: &[u8], limit: usize) -> io::Result<Vec<u8>> {
     let mut out = Vec::new();
-    decoder.by_ref().take(allowance).read_to_end(&mut out)?;
-    if out.len() > limit {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            format!("decompressed rollout exceeds limit of {limit} bytes"),
-        ));
+    loop {
+        let mut decoder =
+            ruzstd::decoding::StreamingDecoder::new(bytes).map_err(io::Error::other)?;
+        let allowance = u64::try_from(limit.saturating_sub(out.len()))
+            .unwrap_or(u64::MAX)
+            .saturating_add(1);
+        decoder.by_ref().take(allowance).read_to_end(&mut out)?;
+        if out.len() > limit {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("decompressed rollout exceeds limit of {limit} bytes"),
+            ));
+        }
+        bytes = decoder.into_inner();
+        if bytes.is_empty() {
+            return Ok(out);
+        }
     }
-    Ok(out)
 }
 
 fn load(path: &Path) -> Result<Vec<u8>, AdapterError> {
@@ -102,6 +108,7 @@ struct Reader {
     open: Option<usize>,
     model: Option<String>,
     last_seen: Option<Timestamp>,
+    previous_total_usage: Option<Value>,
 }
 
 impl Reader {
@@ -119,6 +126,7 @@ impl Reader {
             open: None,
             model: None,
             last_seen: None,
+            previous_total_usage: None,
         }
     }
 
@@ -223,9 +231,10 @@ impl Reader {
             "task_complete" => self.finish_turn(StopReason::OwnStop),
             "turn_aborted" => self.finish_turn(StopReason::Interrupted),
             "item_completed" => {
-                if let Some(item) = payload.get("item").and_then(Value::as_object) {
-                    self.item(item, payload);
-                }
+                return payload
+                    .get("item")
+                    .and_then(Value::as_object)
+                    .is_some_and(|item| self.item(item, payload));
             }
             "token_count" => self.token_count(payload),
             other => return IGNORED_EVENTS.contains(&other),
@@ -233,7 +242,7 @@ impl Reader {
         true
     }
 
-    fn item(&mut self, item: &Map<String, Value>, event: &Map<String, Value>) {
+    fn item(&mut self, item: &Map<String, Value>, event: &Map<String, Value>) -> bool {
         match item.get("type").and_then(Value::as_str) {
             Some("UserMessage") => {
                 let prompt = user_text(item);
@@ -254,22 +263,34 @@ impl Reader {
                 let call = mcp_call(item);
                 self.turn().calls.push(call);
             }
-            _ => {}
+            Some("AgentMessage") => {}
+            _ => return false,
         }
+        true
     }
 
     fn token_count(&mut self, payload: &Map<String, Value>) {
-        let Some(last) = payload
-            .get("info")
-            .and_then(|info| info.get("last_token_usage"))
-            .and_then(Value::as_object)
-        else {
+        let Some(info) = payload.get("info") else {
             return;
         };
+        let Some(last) = info.get("last_token_usage").and_then(Value::as_object) else {
+            return;
+        };
+        if let Some(total) = info
+            .get("total_token_usage")
+            .filter(|total| total.is_object())
+        {
+            if self.previous_total_usage.as_ref() == Some(total) {
+                return;
+            }
+            self.previous_total_usage = Some(total.clone());
+        }
         let count = |key: &str| last.get(key).and_then(Value::as_u64).unwrap_or(0);
         let cached = count("cached_input_tokens");
         let usage = Usage {
-            input: count("input_tokens").saturating_sub(cached),
+            input: count("input_tokens")
+                .saturating_sub(cached)
+                .saturating_sub(count("cache_write_input_tokens")),
             output: count("output_tokens"),
             cache_read: cached,
             cache_write: count("cache_write_input_tokens"),
@@ -358,38 +379,22 @@ fn command_call(item: &Map<String, Value>) -> Call {
 }
 
 fn patch_call(item: &Map<String, Value>, event: &Map<String, Value>, cwd: &Path) -> Call {
-    let mut edits = Vec::new();
-    let mut lines = Vec::new();
-    if let Some(changes) = item.get("changes").and_then(Value::as_object) {
-        for (path, change) in changes {
-            let (kind, label) = match change.get("type").and_then(Value::as_str) {
-                Some("add") => (EditKind::Create, "Add"),
-                Some("update") => (EditKind::Modify, "Update"),
-                Some("delete") => (EditKind::Delete, "Delete"),
-                _ => continue,
-            };
-            if let Some(path) = repo_relative(path, Some(cwd)) {
-                lines.push(format!("*** {label} File: {}", path.display()));
-                edits.push(FileEdit {
-                    path,
-                    kind,
-                    via: EditVia::Tool,
-                });
-            }
-        }
-    }
+    let changes = item
+        .get("changes")
+        .and_then(Value::as_object)
+        .map_or_else(Vec::new, |items| patch::from_items(items, Some(cwd)));
     let started = event.get("started_at_ms").and_then(Value::as_u64);
     let completed = event.get("completed_at_ms").and_then(Value::as_u64);
     Call {
         tool: "apply_patch".into(),
-        args_digest: truncate(&lines.join("\n"), MAX_DIGEST_CHARS),
+        args_digest: patch::args_digest(&changes),
         output_digest: output_digest(item.get("stdout").unwrap_or(&Value::Null)),
         exit_code: None,
         is_error: failed(item),
         duration_ms: completed
             .zip(started)
             .and_then(|(end, start)| end.checked_sub(start)),
-        edits,
+        edits: changes.iter().map(patch::Change::edit).collect(),
     }
 }
 
@@ -416,47 +421,9 @@ fn mcp_call(item: &Map<String, Value>) -> Call {
     }
 }
 
-/// Parses `YYYY-MM-DDTHH:MM:SS[.fff](Z|±HH:MM)` into Unix milliseconds.
+/// Shares the checked RFC3339 parser with Claude transcripts and live events.
 fn parse_timestamp(text: &str) -> Option<Timestamp> {
-    let (date, rest) = text.split_once('T')?;
-    let mut date_parts = date.splitn(3, '-');
-    let year: i64 = date_parts.next()?.parse().ok()?;
-    let month: i64 = date_parts.next()?.parse().ok()?;
-    let day: i64 = date_parts.next()?.parse().ok()?;
-    if !(1..=12).contains(&month) || !(1..=31).contains(&day) {
-        return None;
-    }
-
-    let (clock, offset_minutes) = if let Some(clock) = rest.strip_suffix('Z') {
-        (clock, 0)
-    } else {
-        let split = rest.rfind(['+', '-'])?;
-        let (clock, zone) = rest.split_at(split);
-        let (zone_hours, zone_minutes) = zone[1..].split_once(':')?;
-        let total = zone_hours.parse::<i64>().ok()? * 60 + zone_minutes.parse::<i64>().ok()?;
-        (clock, if zone.starts_with('-') { -total } else { total })
-    };
-    let mut clock_parts = clock.splitn(3, ':');
-    let hour: i64 = clock_parts.next()?.parse().ok()?;
-    let minute_of_hour: i64 = clock_parts.next()?.parse().ok()?;
-    let seconds_text = clock_parts.next()?;
-    let (seconds, fraction) = seconds_text.split_once('.').unwrap_or((seconds_text, ""));
-    let seconds: i64 = seconds.parse().ok()?;
-    if !fraction.bytes().all(|b| b.is_ascii_digit()) {
-        return None;
-    }
-    let millis: i64 = format!("{fraction:0<3}")[..3].parse().ok()?;
-
-    let adjusted_year = if month <= 2 { year - 1 } else { year };
-    let era = adjusted_year.div_euclid(400);
-    let year_of_era = adjusted_year.rem_euclid(400);
-    let month_index = (month + 9) % 12;
-    let day_of_year = (153 * month_index + 2) / 5 + day - 1;
-    let day_of_era = year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year;
-    let days = era * 146_097 + day_of_era - 719_468;
-
-    let total_minutes = (days * 24 + hour) * 60 + minute_of_hour - offset_minutes;
-    Some(Timestamp((total_minutes * 60 + seconds) * 1_000 + millis))
+    crate::claude::time::parse(text)
 }
 
 #[cfg(test)]

@@ -2,30 +2,7 @@ use crate::{AdapterError, digest, writer::invalid};
 use serde_json::Value;
 use std::path::{Component, Path, PathBuf};
 use tkm_core::model::{Call, EditKind, EditVia, FileEdit, HookEvent};
-use tkm_proto::{EventKind, Host, PROTOCOL_VERSION, Request};
-
-pub(super) fn native_event(request: &Request) -> Result<&str, AdapterError> {
-    if request.version != PROTOCOL_VERSION {
-        return Err(invalid("unsupported protocol version"));
-    }
-    if request.host != Host::Claude {
-        return Err(invalid("host does not match Claude"));
-    }
-    if !request.payload.is_object() {
-        return Err(invalid("payload must be an object"));
-    }
-    string(&request.payload, "session_id")?;
-    if let Some(event) = request.payload.get("hook_event_name") {
-        event
-            .as_str()
-            .ok_or_else(|| invalid("hook_event_name must be a string"))
-    } else {
-        request
-            .host_event
-            .as_deref()
-            .ok_or_else(|| invalid("native event is missing"))
-    }
-}
+use tkm_proto::{EventKind, Host, Request};
 
 fn string<'a>(value: &'a Value, field: &str) -> Result<&'a str, AdapterError> {
     value
@@ -43,7 +20,7 @@ fn optional_string<'a>(value: &'a Value, field: &str) -> Result<Option<&'a str>,
 }
 
 pub(super) fn map_event(request: &Request) -> Result<Option<HookEvent>, AdapterError> {
-    let native = native_event(request)?;
+    let native = super::native_event(request)?;
     let kind = match native {
         "SessionStart" => EventKind::SessionStart,
         "UserPromptSubmit" => EventKind::Prompt,

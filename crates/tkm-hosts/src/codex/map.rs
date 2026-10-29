@@ -3,20 +3,15 @@
 use std::path::{Path, PathBuf};
 
 use serde_json::{Map, Value};
-use tkm_core::model::{Call, EditKind, EditVia, FileEdit, HookEvent, StopReason};
+use tkm_core::model::{Call, HookEvent, StopReason};
 use tkm_proto::{EventKind, Host, PROTOCOL_VERSION, Request};
 
-use super::repo_relative;
+use super::patch;
 use crate::AdapterError;
 use crate::digest::{args_digest, output_digest};
 
 const SHELL_TOOL: &str = "Bash";
 const PATCH_TOOL: &str = "apply_patch";
-const PATCH_MARKERS: [(&str, EditKind); 3] = [
-    ("*** Add File: ", EditKind::Create),
-    ("*** Update File: ", EditKind::Modify),
-    ("*** Delete File: ", EditKind::Delete),
-];
 
 fn invalid(message: &str) -> AdapterError {
     AdapterError::InvalidPayload {
@@ -53,11 +48,7 @@ pub(crate) fn map_event(request: &Request) -> Result<Option<HookEvent>, AdapterE
     let session_id = string_field(payload, "session_id")
         .filter(|id| !id.is_empty())
         .ok_or_else(|| invalid("missing session_id"))?;
-    let native = payload
-        .get("hook_event_name")
-        .and_then(Value::as_str)
-        .or(request.host_event.as_deref())
-        .ok_or_else(|| invalid("missing hook_event_name"))?;
+    let native = super::native_event(request)?.ok_or_else(|| invalid("missing hook_event_name"))?;
     let Some(kind) = kind_of(native) else {
         return Ok(None);
     };
@@ -109,38 +100,26 @@ fn build_call(payload: &Map<String, Value>, cwd: Option<&Path>) -> Result<Call, 
         None
     };
     let reported_error = !shell && response.get("isError").and_then(Value::as_bool) == Some(true);
-    let edits = if tool == PATCH_TOOL {
+    let changes = if tool == PATCH_TOOL {
         input
             .get("command")
             .and_then(Value::as_str)
-            .map_or_else(Vec::new, |patch| patch_edits(patch, cwd))
+            .map_or_else(Vec::new, |text| patch::from_text(text, cwd))
     } else {
         Vec::new()
     };
+    let args = if tool == PATCH_TOOL {
+        patch::args_digest(&changes)
+    } else {
+        args_digest(&tool, input)
+    };
     Ok(Call {
-        args_digest: args_digest(&tool, input),
+        args_digest: args,
         output_digest: output_digest(&response),
         exit_code,
         is_error: reported_error || exit_code.is_some_and(|code| code != 0),
         duration_ms: None,
-        edits,
+        edits: changes.iter().map(patch::Change::edit).collect(),
         tool,
     })
-}
-
-/// Edits named by `*** Add/Update/Delete File:` lines; paths outside `cwd` drop.
-fn patch_edits(patch: &str, cwd: Option<&Path>) -> Vec<FileEdit> {
-    patch
-        .lines()
-        .filter_map(|line| {
-            PATCH_MARKERS.iter().find_map(|(marker, kind)| {
-                let relative = repo_relative(line.strip_prefix(*marker)?, cwd)?;
-                Some(FileEdit {
-                    path: relative,
-                    kind: *kind,
-                    via: EditVia::Tool,
-                })
-            })
-        })
-        .collect()
 }

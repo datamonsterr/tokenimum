@@ -3,8 +3,11 @@ use crate::{AdapterError, SessionSource, digest};
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs::File;
-use std::io::{BufRead, BufReader};
+use std::io::{self, BufRead, BufReader, Read};
 use tkm_core::model::{Call, Host, Session, StopReason, Timestamp, ToolDef, ToolKind, Turn, Usage};
+
+const MAX_RECORD_BYTES: usize = 32 * 1024 * 1024;
+const MAX_TRANSCRIPT_BYTES: usize = 256 * 1024 * 1024;
 
 struct Pending {
     turn: usize,
@@ -16,36 +19,50 @@ struct Reader {
     session: Session,
     messages: BTreeSet<String>,
     pending: BTreeMap<String, Pending>,
+    calls_seen: BTreeSet<String>,
     first: Option<Timestamp>,
     last: Option<Timestamp>,
     models: BTreeMap<usize, BTreeSet<String>>,
 }
 
 pub(super) fn read(source: &SessionSource) -> Result<Session, AdapterError> {
-    let mut reader = Reader {
-        session: Session {
-            agent_home: source.agent_home.clone(),
-            session_id: source.session_id.clone(),
-            repo_key: source.repo_key.clone(),
-            cwd: source.cwd.clone(),
-            ..Session::new(Host::Claude)
-        },
-        messages: BTreeSet::new(),
-        pending: BTreeMap::new(),
-        first: None,
-        last: None,
-        models: BTreeMap::new(),
-    };
-    let mut input = BufReader::new(File::open(&source.path)?);
+    read_from(
+        source,
+        File::open(&source.path)?,
+        MAX_RECORD_BYTES,
+        MAX_TRANSCRIPT_BYTES,
+    )
+}
+
+fn read_from(
+    source: &SessionSource,
+    input: impl Read,
+    record_limit: usize,
+    file_limit: usize,
+) -> Result<Session, AdapterError> {
+    let mut reader = Reader::new(source);
+    let cap = u64::try_from(file_limit)
+        .unwrap_or(u64::MAX)
+        .saturating_add(1);
+    let mut input = BufReader::new(input.take(cap));
+    let mut consumed = 0_usize;
     let mut line = Vec::new();
     loop {
-        line.clear();
-        if input.read_until(b'\n', &mut line)? == 0 {
+        let (bytes, oversized) = bounded_line(&mut input, &mut line, record_limit)?;
+        if bytes == 0 {
             break;
         }
+        consumed = consumed.saturating_add(bytes);
+        if consumed > file_limit {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "transcript file exceeds limit",
+            )
+            .into());
+        }
         reader.session.total_records = reader.session.total_records.saturating_add(1);
-        let valid =
-            serde_json::from_slice::<Value>(&line).is_ok_and(|record| reader.record(&record));
+        let valid = !oversized
+            && serde_json::from_slice::<Value>(&line).is_ok_and(|record| reader.record(&record));
         if !valid {
             reader.session.skipped_records = reader.session.skipped_records.saturating_add(1);
         }
@@ -57,7 +74,52 @@ pub(super) fn read(source: &SessionSource) -> Result<Session, AdapterError> {
     Ok(reader.session)
 }
 
+/// Consume a record in buffer-sized chunks, retaining at most `limit` bytes.
+fn bounded_line(
+    input: &mut impl BufRead,
+    line: &mut Vec<u8>,
+    limit: usize,
+) -> io::Result<(usize, bool)> {
+    line.clear();
+    let mut bytes = 0_usize;
+    let mut oversized = false;
+    loop {
+        let buffer = input.fill_buf()?;
+        if buffer.is_empty() {
+            return Ok((bytes, oversized));
+        }
+        let newline = buffer.iter().position(|byte| *byte == b'\n');
+        let length = newline.map_or(buffer.len(), |index| index + 1);
+        let keep = length.min(limit.saturating_sub(line.len()));
+        line.extend_from_slice(&buffer[..keep]);
+        oversized |= keep != length;
+        bytes = bytes.saturating_add(length);
+        input.consume(length);
+        if newline.is_some() {
+            return Ok((bytes, oversized));
+        }
+    }
+}
+
 impl Reader {
+    fn new(source: &SessionSource) -> Self {
+        Self {
+            session: Session {
+                agent_home: source.agent_home.clone(),
+                session_id: source.session_id.clone(),
+                repo_key: source.repo_key.clone(),
+                cwd: source.cwd.clone(),
+                ..Session::new(Host::Claude)
+            },
+            messages: BTreeSet::new(),
+            pending: BTreeMap::new(),
+            calls_seen: BTreeSet::new(),
+            first: None,
+            last: None,
+            models: BTreeMap::new(),
+        }
+    }
+
     fn record(&mut self, record: &Value) -> bool {
         let Some(kind) = record.get("type").and_then(Value::as_str) else {
             return false;
@@ -228,7 +290,7 @@ impl Reader {
             ) else {
                 continue;
             };
-            if self.pending.contains_key(id) {
+            if !self.calls_seen.insert(id.to_owned()) {
                 continue;
             }
             let turn = &mut self.session.turns[turn_index];
@@ -254,7 +316,7 @@ impl Reader {
         let Some(id) = result.get("tool_use_id").and_then(Value::as_str) else {
             return;
         };
-        let Some(pending) = self.pending.get(id) else {
+        let Some(pending) = self.pending.remove(id) else {
             return;
         };
         let Some(call) = self
@@ -270,7 +332,12 @@ impl Reader {
             .and_then(Value::as_bool)
             .unwrap_or(false);
         let content = result.get("content").unwrap_or(&Value::Null);
-        call.output_digest = digest::output_digest(content);
+        let output = if call.is_error {
+            content
+        } else {
+            record.get("toolUseResult").unwrap_or(content)
+        };
+        call.output_digest = digest::output_digest(output);
         let text = digest::output_text(content);
         call.exit_code = map::parse_exit(&text);
         let response = record.get("toolUseResult").unwrap_or(&Value::Null);

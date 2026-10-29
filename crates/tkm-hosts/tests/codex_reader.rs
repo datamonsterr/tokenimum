@@ -311,7 +311,11 @@ fn read_records(name: &str, records: &[Value]) -> Session {
     let path = dir.join("rollout.jsonl");
     fs::write(
         &path,
-        records.iter().map(|v| format!("{v}\n")).collect::<String>(),
+        records
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>()
+            .join("\n"),
     )
     .unwrap();
     let session = read(&path).unwrap();

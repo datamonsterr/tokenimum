@@ -150,7 +150,11 @@ fn reader_ignores_meta_commands_matches_ids_and_marks_interrupts() {
         json!({"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"one","is_error":true,"content":"Exit code 2"}]}}),
         json!({"type":"user","message":{"content":"[Request interrupted by user]"}}),
     ];
-    let text = records.iter().map(|v| format!("{v}\n")).collect::<String>();
+    let text = records
+        .iter()
+        .map(ToString::to_string)
+        .collect::<Vec<_>>()
+        .join("\n");
     let path = temporary_log(&text);
     let s = ClaudeAdapter::new()
         .read_session(&source(path.clone()))
