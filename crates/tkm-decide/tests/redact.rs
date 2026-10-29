@@ -35,7 +35,7 @@ fn secret_corpus_and_paths_are_redacted() {
 }
 
 #[test]
-fn fixture_covers_secret_patterns() {
+fn redaction_corpus_removes_every_secret_kind() {
     let redactor = Redactor::new(RedactContext {
         repo_root: PathBuf::from("/repo"),
         home: PathBuf::from("/home/test"),
@@ -52,6 +52,7 @@ fn fixture_covers_secret_patterns() {
     ] {
         assert!(!result.contains(secret));
     }
+    assert!(!result.contains("/home/test"));
     for marker in [
         "[redacted:aws]",
         "[redacted:aws-secret]",
@@ -67,4 +68,18 @@ fn fixture_covers_secret_patterns() {
     ] {
         assert!(result.contains(marker), "missing {marker}");
     }
+}
+
+#[test]
+fn home_environment_path_does_not_hide_repo_paths() {
+    let redactor = Redactor::new(RedactContext {
+        repo_root: PathBuf::from("/home/test/repo"),
+        home: PathBuf::from("/home/test"),
+        env: vec![("HOME".into(), "/home/test".into())],
+    });
+    assert_eq!(
+        redactor.redact("/home/test/repo/src/main.rs"),
+        "src/main.rs"
+    );
+    assert_eq!(redactor.redact("prefix/home/test/notes"), "prefix~/notes");
 }

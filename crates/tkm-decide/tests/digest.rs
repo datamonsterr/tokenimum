@@ -1,6 +1,6 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 use std::path::PathBuf;
-use tkm_core::model::Call;
+use tkm_core::model::{Call, EditKind, EditVia, FileEdit};
 use tkm_decide::{
     digest::{DigestInput, MAX_DIGEST_BYTES, build_digest},
     redact::{RedactContext, Redactor},
@@ -37,7 +37,7 @@ fn digest_last_calls_and_dotenv_output() {
     assert!(result.contains("errors: 1"));
 }
 #[test]
-fn digest_respects_byte_limit_with_unicode() {
+fn digest_never_exceeds_16kb() {
     for size in [1, 500, 20_000] {
         let text = "🦀".repeat(size);
         let calls = vec![
@@ -60,4 +60,45 @@ fn digest_respects_byte_limit_with_unicode() {
         );
         assert!(digest.len() <= MAX_DIGEST_BYTES);
     }
+    digest_limits_many_calls_and_large_edit_tail();
+}
+
+fn digest_limits_many_calls_and_large_edit_tail() {
+    let calls = vec![
+        Call {
+            args_digest: "a".repeat(10_240),
+            ..Call::default()
+        };
+        5_000
+    ];
+    let digest = build_digest(
+        DigestInput {
+            prompt: "stress",
+            calls: &calls,
+            tests: None,
+        },
+        &redactor(),
+    );
+    assert!(digest.len() <= MAX_DIGEST_BYTES);
+    let edits = (0..3_000)
+        .map(|i| FileEdit {
+            path: PathBuf::from(format!("src/very-long-file-name-{i:04}.rs")),
+            kind: EditKind::Modify,
+            via: EditVia::Tool,
+        })
+        .collect();
+    let calls = [Call {
+        edits,
+        ..Call::default()
+    }];
+    let digest = build_digest(
+        DigestInput {
+            prompt: "stress",
+            calls: &calls,
+            tests: None,
+        },
+        &redactor(),
+    );
+    assert!(digest.len() <= MAX_DIGEST_BYTES);
+    assert_eq!(digest.len(), MAX_DIGEST_BYTES);
 }

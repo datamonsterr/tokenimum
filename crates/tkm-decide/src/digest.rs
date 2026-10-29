@@ -9,7 +9,7 @@ use std::fmt::Write;
 use std::path::Path;
 use tkm_core::model::Call;
 /// Maximum digest length in bytes.
-pub const MAX_DIGEST_BYTES: usize = 16384;
+pub const MAX_DIGEST_BYTES: usize = 16_384;
 /// Test results included in a digest.
 #[derive(Debug, Clone, Default)]
 pub struct TestSummary {
@@ -53,12 +53,10 @@ pub fn build_digest(input: DigestInput<'_>, redactor: &Redactor) -> String {
             String::new()
         };
         calls.push(format!(
-            "{} | {} | {} | {}\n",
+            "{} | {args_short} | {} | {error}\n",
             redactor.redact(&call.tool),
-            args_short,
             call.exit_code
-                .map_or_else(|| "?".to_owned(), |code| code.to_string()),
-            error
+                .map_or_else(|| "?".to_owned(), |code| code.to_string())
         ));
     }
     let mut edits = BTreeMap::new();

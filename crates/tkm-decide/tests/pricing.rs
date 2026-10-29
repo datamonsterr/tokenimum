@@ -7,7 +7,7 @@ fn snapshot_and_toml_preservation() {
         .iter()
         .find(|m| m.slug == "inception/mercury-decide")
         .unwrap();
-    assert!((mercury.prompt_per_token - 0.00000002).abs() < 1e-15);
+    assert!((mercury.prompt_per_token - 2e-8).abs() < 1e-15);
     assert_eq!(mercury.canonical, "inception/mercury-decide-20260930");
     assert!(models.iter().all(|m| !m.slug.starts_with('~')));
     let old = "# keep this\n[vendor.anthropic]\nprice = 3\n[openrouter.\"inception/mercury-decide\"]\nprompt_per_token = 99.0\n";

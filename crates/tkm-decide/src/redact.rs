@@ -79,7 +79,10 @@ impl Redactor {
             let secret_name = ["KEY", "TOKEN", "SECRET", "PASSWORD"]
                 .iter()
                 .any(|part| name.to_ascii_uppercase().contains(part));
-            if value.len() >= 8 || (secret_name && value.len() >= 4) {
+            if !value.starts_with('/')
+                && !value.starts_with('~')
+                && (value.len() >= 8 || (secret_name && value.len() >= 4))
+            {
                 result = result.replace(value, &format!("[env:{name}]"));
             }
         }
@@ -88,21 +91,26 @@ impl Redactor {
                 .replace_all(&result, format!("[redacted:{kind}]").as_str())
                 .into_owned();
         }
-        paths
+        let result = paths
             .replace_all(&result, |caps: &Captures<'_>| {
                 let path = Path::new(&caps[2]);
                 let prefix = &caps[1];
-                if let Ok(relative) = path.strip_prefix(&self.context.repo_root) {
-                    if !relative
+                if let Ok(relative) = path.strip_prefix(&self.context.repo_root)
+                    && !relative
                         .components()
                         .any(|part| matches!(part, std::path::Component::ParentDir))
-                    {
-                        return format!("{prefix}{}", relative.to_string_lossy());
-                    }
+                {
+                    return format!("{prefix}{}", relative.to_string_lossy());
                 }
                 format!("{prefix}[outside-repo]")
             })
-            .into_owned()
+            .into_owned();
+        let home = self.context.home.to_string_lossy();
+        if home.is_empty() {
+            result
+        } else {
+            result.replace(home.as_ref(), "~")
+        }
     }
 }
 /// Whether a path is a dotenv file.
