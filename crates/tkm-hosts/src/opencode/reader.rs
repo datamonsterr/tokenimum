@@ -7,19 +7,6 @@ use std::io;
 use std::path::{Path, PathBuf};
 use tkm_core::model::{Call, Host, Session, StopReason, Timestamp, ToolDef, ToolKind, Turn, Usage};
 
-const KNOWN_PARTS: [&str; 11] = [
-    "text",
-    "reasoning",
-    "tool",
-    "step-start",
-    "step-finish",
-    "patch",
-    "file",
-    "compaction",
-    "agent",
-    "retry",
-    "subtask",
-];
 const BUILTIN_TOOLS: [&str; 22] = [
     "bash",
     "read",
@@ -162,11 +149,9 @@ impl Reader {
         for row in rows {
             let (message_id, data) = row.map_err(sql)?;
             self.session.total_records = self.session.total_records.saturating_add(1);
-            let known = parse(&data).filter(|part| {
-                part.get("type")
-                    .and_then(Value::as_str)
-                    .is_some_and(|kind| KNOWN_PARTS.contains(&kind))
-            });
+            // Any readable object with a string `type` is kept: part types the adapter
+            // does not interpret (snapshot, patch, ...) are valid, not damaged.
+            let known = parse(&data).filter(|part| part.get("type").is_some_and(Value::is_string));
             if let Some(part) = known {
                 parts.entry(message_id).or_default().push(part);
             } else {
@@ -193,7 +178,8 @@ impl Reader {
                 self.assistant(message, parts);
                 true
             }
-            _ => false,
+            Some(_) => true,
+            None => false,
         }
     }
 

@@ -120,6 +120,19 @@ fn refuse(path: &Path, reason: &str) -> AdapterError {
     }
 }
 
+/// The shim must be a regular file: even an in-root symlink would make writes
+/// and removals act on another file.
+fn refuse_symlink(path: &Path) -> Result<(), AdapterError> {
+    match fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.file_type().is_symlink() => {
+            Err(refuse(path, "shim path is a symlink; refusing to touch it"))
+        }
+        Ok(_) => Ok(()),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error.into()),
+    }
+}
+
 fn read_existing(path: &Path) -> Result<Option<Vec<u8>>, AdapterError> {
     match fs::read(path) {
         Ok(bytes) => Ok(Some(bytes)),
@@ -185,6 +198,7 @@ pub(crate) fn install(
 ) -> Result<Vec<PathBuf>, AdapterError> {
     let bytes = render(host, env!("CARGO_PKG_VERSION"))?;
     let target = writer::safe_target(root, path)?;
+    refuse_symlink(path)?;
     if let Some(current) = read_existing(&target)? {
         match status_for(host, &current) {
             ShimStatus::Ok if current == bytes => return Ok(Vec::new()),
@@ -217,6 +231,7 @@ pub(crate) fn uninstall(
     dry_run: bool,
 ) -> Result<Vec<PathBuf>, AdapterError> {
     let target = writer::safe_target(root, path)?;
+    refuse_symlink(path)?;
     let Some(current) = read_existing(&target)? else {
         return Ok(Vec::new());
     };

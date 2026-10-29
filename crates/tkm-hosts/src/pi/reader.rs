@@ -43,6 +43,8 @@ struct Reader {
     session: Session,
     pending: BTreeMap<String, Pending>,
     models: BTreeSet<String>,
+    /// Model of the latest assistant message, for nested tool-result usage.
+    last_model: Option<String>,
 }
 
 /// Entries that carry an `id`, in file order, with the tree links needed to
@@ -51,6 +53,10 @@ struct Reader {
 struct Scanned {
     entries: Vec<Value>,
     index: BTreeMap<String, usize>,
+    /// Last known conversation entry (not a standalone `usage` entry).
+    leaf: Option<usize>,
+    /// Standalone `usage` entries: spend that belongs to the session wherever they sit.
+    usages: Vec<Value>,
     first: Option<Timestamp>,
     last: Option<Timestamp>,
 }
@@ -67,7 +73,7 @@ impl Scanned {
     fn active_path(&self) -> Vec<usize> {
         let mut path = Vec::new();
         let mut seen = BTreeSet::new();
-        let mut cursor = self.entries.len().checked_sub(1);
+        let mut cursor = self.leaf;
         while let Some(position) = cursor {
             if !seen.insert(position) {
                 break;
@@ -94,6 +100,7 @@ pub(super) fn read(source: &SessionSource) -> Result<Session, AdapterError> {
         },
         pending: BTreeMap::new(),
         models: BTreeSet::new(),
+        last_model: None,
     };
     let scanned = reader.scan(File::open(&source.path)?)?;
     reader.session.started = scanned.first.unwrap_or_default();
@@ -101,6 +108,9 @@ pub(super) fn read(source: &SessionSource) -> Result<Session, AdapterError> {
     // Follow the active branch: the path from the last entry back to the root.
     for position in scanned.active_path() {
         reader.entry(&scanned.entries[position]);
+    }
+    for entry in &scanned.usages {
+        reader.usage_entry(entry);
     }
     reader.session.partial =
         reader.session.skipped_records.saturating_mul(5) > reader.session.total_records;
@@ -146,18 +156,27 @@ impl Reader {
                 scanned.stamp(record.as_ref().unwrap_or(&Value::Null));
                 continue;
             }
-            let Some(record) = record.filter(|record| {
-                record
-                    .get("type")
-                    .and_then(Value::as_str)
-                    .is_some_and(|kind| KNOWN_ENTRIES.contains(&kind))
-            }) else {
+            let Some(record) = record.filter(Value::is_object) else {
                 self.session.skipped_records = self.session.skipped_records.saturating_add(1);
                 continue;
             };
+            let kind = record.get("type").and_then(Value::as_str);
+            let known = kind.is_some_and(|kind| KNOWN_ENTRIES.contains(&kind));
+            if !known {
+                self.session.skipped_records = self.session.skipped_records.saturating_add(1);
+            }
             scanned.stamp(&record);
+            // Every record with an id joins the tree so parent links can pass through
+            // entry types this reader does not interpret.
             if let Some(id) = record.get("id").and_then(Value::as_str) {
-                scanned.index.insert(id.to_owned(), scanned.entries.len());
+                let position = scanned.entries.len();
+                scanned.index.insert(id.to_owned(), position);
+                if known && kind != Some("usage") {
+                    scanned.leaf = Some(position);
+                }
+                if kind == Some("usage") {
+                    scanned.usages.push(record.clone());
+                }
                 scanned.entries.push(record);
             }
         }
@@ -254,18 +273,20 @@ impl Reader {
                     self.message(message);
                 }
             }
-            Some("usage") => {
-                if let Some(value) = entry.get("usage") {
-                    let model = entry.get("model").and_then(Value::as_str);
-                    self.add_usage(usage(value), model, false);
-                }
-            }
             Some("compaction" | "branch_summary") => {
                 if let Some(value) = entry.get("usage") {
                     self.add_usage(usage(value), None, false);
                 }
             }
             _ => {}
+        }
+    }
+
+    /// Standalone usage (cache warming and similar) counts for the session on any branch.
+    fn usage_entry(&mut self, entry: &Value) {
+        if let Some(value) = entry.get("usage") {
+            let model = entry.get("model").and_then(Value::as_str);
+            self.add_usage(usage(value), model, false);
         }
     }
 
@@ -302,6 +323,9 @@ impl Reader {
 
     fn assistant(&mut self, message: &Value, content: &Value) {
         let model = message.get("model").and_then(Value::as_str);
+        if let Some(model) = model {
+            self.last_model = Some(model.to_owned());
+        }
         if let Some(value) = message.get("usage").filter(|value| value.is_object()) {
             self.add_usage(usage(value), model, true);
         }
@@ -357,7 +381,9 @@ impl Reader {
 
     fn tool_result(&mut self, message: &Value, content: &Value) {
         if let Some(value) = message.get("usage").filter(|value| value.is_object()) {
-            self.add_usage(usage(value), None, true);
+            // Nested model work is billed to the model that ran the turn.
+            let model = self.last_model.clone();
+            self.add_usage(usage(value), model.as_deref(), true);
         }
         let Some(pending) = message
             .get("toolCallId")
