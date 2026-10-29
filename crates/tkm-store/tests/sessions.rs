@@ -176,3 +176,30 @@ fn ledger_rejects_u64_overflow() {
     }
     assert_eq!(store.get_ledger(id).unwrap(), None);
 }
+
+#[test]
+fn skill_evidence_is_persistent_per_session_and_replaceable() {
+    let (store, session) = setup();
+    let id = store.upsert_session(&session).unwrap();
+    let mut report = tkm_core::prune::skills::SkillReport::default();
+    report.skills.insert(
+        "review".into(),
+        tkm_core::prune::skills::SkillUsage {
+            loaded_sessions: 1,
+            invocations: 2,
+        },
+    );
+    store.replace_skill_evidence(id, &report).unwrap();
+    store.replace_skill_evidence(id, &report).unwrap();
+    assert_eq!(store.skill_evidence(&session.repo_key).unwrap(), report);
+    store
+        .replace_skill_evidence(id, &Default::default())
+        .unwrap();
+    assert!(
+        store
+            .skill_evidence(&session.repo_key)
+            .unwrap()
+            .skills
+            .is_empty()
+    );
+}
