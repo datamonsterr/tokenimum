@@ -29,6 +29,16 @@ class BenchBudgetTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             module.check(OUTPUT, "nope", 1)
 
+    def test_all_tool_done_cases_are_checked(self):
+        output = OUTPUT + "test tool_done_gate_open ... bench: 199,999 ns/iter (+/- 2)\n"
+        results = module.check_prefix(output, "tool_done_", 200_000)
+        self.assertTrue(results["tool_done_claude_posttooluse"][2])
+        self.assertFalse(results["tool_done_gate_open"][2])
+
+    def test_missing_prefix_is_an_error(self):
+        with self.assertRaises(ValueError):
+            module.check_prefix(OUTPUT, "missing_", 200_000)
+
 
 if __name__ == "__main__":
     unittest.main()
