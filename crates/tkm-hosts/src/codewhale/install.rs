@@ -1,5 +1,4 @@
 use std::fs;
-use std::path::Path;
 
 use toml_edit::{ArrayOfTables, DocumentMut, Item, Table};
 

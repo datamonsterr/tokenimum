@@ -100,6 +100,8 @@ fn i_fn(x: u32, y: u32, z: u32) -> u32 {
 /// use tkm_hosts::kimi::md5_hex;
 /// assert_eq!(md5_hex(b"abc"), "900150983cd24fb0d6963f7d28e17f72");
 /// ```
+// Variable names a/b/c/d/m follow RFC 1321 so the code can be checked against the spec.
+#[allow(clippy::many_single_char_names)]
 #[must_use]
 pub fn md5_hex(data: &[u8]) -> String {
     let mut a0 = 0x6745_2301_u32;
@@ -107,7 +109,9 @@ pub fn md5_hex(data: &[u8]) -> String {
     let mut c0 = 0x98ba_dcfe_u32;
     let mut d0 = 0x1032_5476_u32;
 
-    let bit_len = (data.len() as u64).wrapping_mul(8);
+    let bit_len = u64::try_from(data.len())
+        .unwrap_or(u64::MAX)
+        .wrapping_mul(8);
     let mod64 = data.len() % 64;
     let pad_len = if mod64 < 56 { 56 - mod64 } else { 120 - mod64 };
 
@@ -121,10 +125,10 @@ pub fn md5_hex(data: &[u8]) -> String {
         let mut m = [0_u32; 16];
         for (idx, word) in m.iter_mut().enumerate() {
             let start = idx.wrapping_mul(4);
-            if let Some(bytes) = chunk.get(start..start + 4) {
-                if let Ok(b) = bytes.try_into() {
-                    *word = u32::from_le_bytes(b);
-                }
+            if let Some(bytes) = chunk.get(start..start + 4)
+                && let Ok(b) = bytes.try_into()
+            {
+                *word = u32::from_le_bytes(b);
             }
         }
 

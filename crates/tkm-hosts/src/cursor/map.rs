@@ -121,7 +121,7 @@ pub(super) fn map_event(request: &Request) -> Result<Option<HookEvent>, AdapterE
             };
             event.stopped_by = Some(stopped_by);
         }
-        EventKind::SessionStart | EventKind::SessionEnd | EventKind::ToolBefore => {}
+        _ => {}
     }
 
     Ok(Some(event))

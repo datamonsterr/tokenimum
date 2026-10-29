@@ -231,10 +231,8 @@ fn extract_tool_and_args(request: &Request) -> (String, Value) {
 
 fn compute_args_digest(tool: &str, args_val: &Value) -> String {
     if is_shell_tool(tool) {
-        if let Value::String(ref s) = args_val {
+        if let Value::String(s) = args_val {
             crate::digest::truncate(s, 512)
-        } else if args_val.get("command").is_some() || args_val.get("cmd").is_some() {
-            crate::digest::args_digest("bash", args_val)
         } else {
             crate::digest::args_digest("bash", args_val)
         }

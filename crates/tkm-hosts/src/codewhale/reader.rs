@@ -256,20 +256,19 @@ fn process_message(
                         if let Some(code) = content.get("exit_code").and_then(Value::as_i64) {
                             i32::try_from(code).ok()
                         } else if is_error {
-                            crate::claude::map::parse_exit(&crate::digest::output_text(content))
+                            parse_exit(&crate::digest::output_text(content))
                         } else {
                             None
                         };
 
-                    if let Some(&(turn_idx, call_idx)) = pending_calls.get(call_id) {
-                        if let Some(t) = turns.get_mut(turn_idx) {
-                            if let Some(c) = t.calls.get_mut(call_idx) {
-                                c.output_digest = output_digest;
-                                c.is_error = is_error;
-                                if exit_code.is_some() {
-                                    c.exit_code = exit_code;
-                                }
-                            }
+                    if let Some(&(turn_idx, call_idx)) = pending_calls.get(call_id)
+                        && let Some(t) = turns.get_mut(turn_idx)
+                        && let Some(c) = t.calls.get_mut(call_idx)
+                    {
+                        c.output_digest = output_digest;
+                        c.is_error = is_error;
+                        if exit_code.is_some() {
+                            c.exit_code = exit_code;
                         }
                     }
                 }
@@ -347,4 +346,15 @@ fn process_message(
             }
         }
     }
+}
+
+/// Parse a leading `Exit code N` line from tool output text.
+fn parse_exit(text: &str) -> Option<i32> {
+    text.lines()
+        .next()?
+        .strip_prefix("Exit code ")?
+        .split_whitespace()
+        .next()?
+        .parse()
+        .ok()
 }
