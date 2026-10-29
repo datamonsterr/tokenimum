@@ -184,10 +184,12 @@ fn te_envfacts_test_classify_forms_and_intents() {
         Vec::<observe::Observation>::new()
     );
     assert_eq!(
-        observe::classify_command("git remote -v; git tag --contains HEAD | head; git log -3")
-            .iter()
-            .map(|o| (o.intent, o.probe))
-            .collect::<Vec<_>>(),
+        observe::classify_command(
+            "git remote -v; git tag --contains HEAD | head; git log --oneline -3"
+        )
+        .iter()
+        .map(|o| (o.intent, o.probe))
+        .collect::<Vec<_>>(),
         vec![
             (Intent::ProbeVcsRefs, Some(observe::Probe::Remote)),
             (Intent::ProbeVcsRefs, Some(observe::Probe::Tag))

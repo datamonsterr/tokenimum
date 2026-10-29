@@ -132,7 +132,7 @@ fn review_segments_respect_unquoted_escapes_and_shell_quote_rules() {
         r"echo 4 passed\;python -m pytest",
         r"echo 4 passed\|python -m pytest",
         r"echo 4 passed\&\&python -m pytest",
-        r#"echo '4 passed;python -m pytest'"#,
+        r"echo '4 passed;python -m pytest'",
         r#"echo "4 passed\";python -m pytest""#,
     ] {
         assert_eq!(observe::segments(command), vec![command]);
@@ -194,7 +194,7 @@ fn review_assignment_substitutions_and_quoted_prose_cannot_teach_values() {
         r#"APP_SETTINGS="conf.dev"$(printf .prod) python -c 'import app'"#,
         r#"APP_SETTINGS="conf.dev"`printf .prod` python -c 'import app'"#,
         r#"APP_SETTINGS="conf.dev"${SUFFIX} python -c 'import app'"#,
-        r#"APP_SETTINGS=$(printf 'APP_SETTINGS=conf.dev') python -c 'import app'"#,
+        r"APP_SETTINGS=$(printf 'APP_SETTINGS=conf.dev') python -c 'import app'",
         "echo 'APP_SETTINGS=conf.dev'",
         "python -c 'print(\"APP_SETTINGS=conf.dev\")'",
     ] {
@@ -260,6 +260,10 @@ fn review_working_forms_are_validated_and_scoped_before_candidate_filtering() {
 }
 #[test]
 fn review_lint_and_command_validation_reject_file_uris_and_windows_paths() {
+    for label in ["A::test_x", "file::test_x"] {
+        assert!(lint::lint_ok(label));
+    }
+
     for path in [
         "file:///etc/python",
         "FILE:///etc/python",
