@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 use proptest::prelude::*;
 use tkm_core::{
     model::{Call, Host, Session, Timestamp, ToolDef, ToolKind, Turn},
@@ -37,7 +38,14 @@ fn thresholds_and_reset() {
         (0, 4, false),
     ] {
         assert_eq!(
-            eligible(&ToolEvidence { prompts, sessions }, &cfg),
+            eligible(
+                &ToolEvidence {
+                    prompts,
+                    sessions,
+                    ..ToolEvidence::default()
+                },
+                &cfg
+            ),
             expected
         );
     }
@@ -131,4 +139,34 @@ proptest! {
         for name in d.candidates { prop_assert!(!is_protected(&name,Host::Claude,&c)); }
         prop_assert!(is_protected("Bash",Host::Claude,&c));
     }
+}
+
+#[test]
+fn partial_sessions_and_skill_report() {
+    use tkm_core::prune::skills::{SkillReport, fold_skills};
+    let mut s = session("plugin__unused", 10, false);
+    s.tool_catalog.push(ToolDef {
+        name: "test-skill".into(),
+        kind: ToolKind::Skill,
+        ..ToolDef::default()
+    });
+    s.turns[0].calls.push(Call {
+        tool: "Skill".into(),
+        args_digest: "{\"skill\":\"test-skill\"}".into(),
+        ..Call::default()
+    });
+    let mut evidence = PruneEvidence::default();
+    let mut report = SkillReport::default();
+    s.partial = true;
+    fold(&mut evidence, &s);
+    fold_skills(&mut report, &s);
+    assert!(evidence.tools.is_empty());
+    assert!(report.skills.is_empty());
+    s.partial = false;
+    fold(&mut evidence, &s);
+    fold_skills(&mut report, &s);
+    assert!(!evidence.tools.contains_key("test-skill"));
+    assert_eq!(report.skills["test-skill"].loaded_sessions, 1);
+    assert_eq!(report.skills["test-skill"].invocations, 1);
+    assert!(serde_json::to_string(&report).is_ok());
 }
