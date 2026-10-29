@@ -23,6 +23,19 @@ use tkmd::decider::{NullDecider, StoreLedger, build_decider};
 use tkmd::settings::{LoopMode, Settings};
 
 #[tokio::test]
+async fn shutdown_flushes_one_log_line_for_each_malformed_tool_event() {
+    let env = Env::new();
+    let daemon = daemon_with(&env, Settings::default(), Arc::new(NullDecider));
+    let mut malformed = tool_done();
+    malformed.payload["tool_input"] = serde_json::Value::Null;
+    for _ in 0..8 {
+        assert_eq!(daemon.handle_tool_done(&malformed).stdout, "");
+    }
+    daemon.shutdown().await;
+    assert_eq!(env.error_lines().len(), 8);
+}
+
+#[tokio::test]
 async fn database_locked_keeps_replying_and_logs_one_line_then_recovers() {
     let env = Env::new();
     drop(env.store()); // create the schema
