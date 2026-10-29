@@ -7,7 +7,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 use tkm_config::config::{
-    ConfigError, ConfigFile, Layer, LoadInputs, diff_from_preset, explain, is_disabled, load,
+    ConfigError, ConfigFile, Layer, LoadInputs, Value, diff_from_preset, explain, is_disabled, load,
 };
 static NEXT: AtomicU64 = AtomicU64::new(0);
 struct Temp(PathBuf);
@@ -109,19 +109,100 @@ fn repo_preset_filters_apply_and_allows_report() {
 }
 #[test]
 fn preset_tables_match_spec_10_3() {
-    for (preset, key, value) in [
-        ("observe", "loop.mode", "shadow"),
-        ("observe", "prune.mode", "report"),
-        ("balanced", "loop.mode", "redirect"),
-        ("balanced", "prune.mode", "propose"),
-        ("aggressive", "loop.level", "aggressive"),
-        ("aggressive", "prune.mode", "apply"),
-        ("offline", "facts.evidence", "code"),
-    ] {
+    macro_rules! row {
+        ($key:literal, $kind:ident, [$($value:literal),*], [$($layer:ident),*]) => {
+            ($key, [$(row!(@value $kind, $value)),*], [$(Layer::$layer),*])
+        };
+        (@value b, $value:literal) => { Value::Bool($value) };
+        (@value i, $value:literal) => { Value::Int($value) };
+        (@value s, $value:literal) => { Value::String($value.into()) };
+    }
+    let rows = [
+        row!(
+            "inject.enabled",
+            b,
+            [false, true, true, true],
+            [Preset, Default, Default, Default]
+        ),
+        row!(
+            "inject.max_tokens",
+            i,
+            [600, 600, 900, 600],
+            [Default, Default, Preset, Default]
+        ),
+        row!(
+            "inject.memory",
+            b,
+            [true, true, true, false],
+            [Default, Default, Default, Preset]
+        ),
+        row!(
+            "loop.mode",
+            s,
+            ["shadow", "redirect", "redirect", "redirect"],
+            [Preset, Default, Default, Default]
+        ),
+        row!(
+            "loop.level",
+            s,
+            ["default", "default", "aggressive", "default"],
+            [Default, Default, Preset, Default]
+        ),
+        row!(
+            "prune.mode",
+            s,
+            ["report", "propose", "apply", "propose"],
+            [Preset, Default, Preset, Preset]
+        ),
+        row!(
+            "decide.enabled",
+            b,
+            [true, true, true, false],
+            [Default, Default, Default, Preset]
+        ),
+        row!(
+            "decide.shadow",
+            b,
+            [true, false, false, false],
+            [Preset, Default, Default, Default]
+        ),
+        row!(
+            "decide.agreement",
+            b,
+            [false, false, false, false],
+            [Default, Default, Preset, Default]
+        ),
+        row!(
+            "facts.enabled",
+            b,
+            [true, true, true, true],
+            [Default, Default, Default, Default]
+        ),
+        row!(
+            "facts.evidence",
+            s,
+            ["decide", "decide", "decide", "code"],
+            [Default, Default, Default, Preset]
+        ),
+        row!(
+            "facts.promote_confirmations",
+            i,
+            [3, 3, 2, 3],
+            [Default, Default, Preset, Default]
+        ),
+    ];
+    for (index, name) in ["observe", "balanced", "aggressive", "offline"]
+        .iter()
+        .enumerate()
+    {
         let t = Temp::new();
-        let mut i = inputs(&t);
-        i.flags.push(format!("preset={preset}"));
-        assert_eq!(load(&i).unwrap().get_str(key), Some(value));
+        let mut inputs = inputs(&t);
+        inputs.flags.push(format!("preset={name}"));
+        let config = load(&inputs).unwrap();
+        for (key, values, sources) in &rows {
+            assert_eq!(config.get(key), Some(&values[index]), "{name}: {key}");
+            assert_eq!(config.source(key), Some(sources[index]), "{name}: {key}");
+        }
     }
 }
 #[test]
@@ -351,4 +432,56 @@ fn errors_identify_unknown_invalid_restricted_and_io() {
     let mut i = inputs(&t);
     i.global_path = t.0.clone();
     assert!(matches!(load(&i), Err(ConfigError::Io { path, .. }) if path == t.0));
+}
+
+#[test]
+fn save_writes_content_without_temp_files() {
+    let t = Temp::new();
+    let path = t.0.join("nested/config.toml");
+    let mut file = ConfigFile::load(path.clone(), Layer::Global).unwrap();
+    file.set("loop.mode", "shadow").unwrap();
+    file.save().unwrap();
+    assert_eq!(
+        fs::read_to_string(&path).unwrap(),
+        "[loop]\nmode = \"shadow\"\n"
+    );
+    assert_eq!(fs::read_dir(path.parent().unwrap()).unwrap().count(), 1);
+}
+#[test]
+fn edit_handles_inline_tables() {
+    let t = Temp::new();
+    let path = t.0.join("global.toml");
+    fs::write(&path, "loop = { mode = \"shadow\" }\n").unwrap();
+    let mut file = ConfigFile::load(path, Layer::Global).unwrap();
+    assert_eq!(file.get("loop.mode").unwrap().trim(), "\"shadow\"");
+    file.set("loop.mode", "redirect").unwrap();
+    assert_eq!(file.get("loop.mode").unwrap().trim(), "\"redirect\"");
+    file.unset("loop.mode").unwrap();
+    assert_eq!(file.get("loop.mode"), None);
+}
+#[test]
+fn quoted_dotted_key_is_not_a_registered_key() {
+    let t = Temp::new();
+    let inputs = inputs(&t);
+    fs::write(
+        &inputs.global_path,
+        "\"loop.mode\" = \"shadow\"\n[loop]\nmode = \"redirect\"\n",
+    )
+    .unwrap();
+    fs::write(
+        t.0.join(".tokenimum.toml"),
+        "\"decide.budget_daily_usd\" = 9.0\n",
+    )
+    .unwrap();
+    let config = load(&inputs).unwrap();
+    assert_eq!(config.get_str("loop.mode"), Some("redirect"));
+    assert_eq!(config.get_float("decide.budget_daily_usd"), Some(0.5));
+    for key in ["\"loop.mode\"", "\"decide.budget_daily_usd\""] {
+        assert!(
+            config
+                .errors
+                .iter()
+                .any(|error| matches!(error, ConfigError::UnknownKey(name) if name == key))
+        );
+    }
 }

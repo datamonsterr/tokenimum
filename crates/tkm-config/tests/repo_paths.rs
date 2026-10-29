@@ -8,7 +8,10 @@ use std::{
 };
 use tkm_config::{
     paths::{ERRORS_LOG_MAX_BYTES, ErrorLog, Paths, secure_socket},
-    repo::{IdentitySource, find_repo_root, is_git_entry, normalize_remote, repo_identity},
+    repo::{
+        IdentitySource, exclude_local_config, find_repo_root, is_git_entry, normalize_remote,
+        repo_identity,
+    },
 };
 static NEXT: AtomicU64 = AtomicU64::new(0);
 struct Temp(PathBuf);
@@ -168,4 +171,58 @@ fn errors_log_default_limit_is_5_mib() {
             .unwrap()
             .contains("next")
     );
+}
+
+#[test]
+fn exclude_local_config_main_and_linked_worktree() {
+    let t = Temp::new();
+    let main = t.0.join("main");
+    let linked = t.0.join("linked");
+    checkout(&main, None);
+    worktree(&main, &linked, "linked");
+    assert!(exclude_local_config(&linked).unwrap());
+    assert!(!exclude_local_config(&main).unwrap());
+    assert_eq!(
+        fs::read_to_string(main.join(".git/info/exclude")).unwrap(),
+        "/.tokenimum.local.toml\n"
+    );
+    fs::remove_file(main.join(".git/info/exclude")).unwrap();
+    assert!(exclude_local_config(&main).unwrap());
+    assert!(!exclude_local_config(&linked).unwrap());
+}
+#[test]
+fn saving_repo_local_config_adds_exclude() {
+    let t = Temp::new();
+    checkout(&t.0, None);
+    let file = tkm_config::config::ConfigFile::load(
+        t.0.join(".tokenimum.local.toml"),
+        tkm_config::config::Layer::RepoLocal,
+    )
+    .unwrap();
+    file.save().unwrap();
+    assert_eq!(
+        fs::read_to_string(t.0.join(".git/info/exclude")).unwrap(),
+        "/.tokenimum.local.toml\n"
+    );
+}
+#[test]
+fn remote_url_quoted_and_commented_parses() {
+    let t = Temp::new();
+    checkout(&t.0, Some("\"git@github.com:Owner/Repo.git\" # c"));
+    assert_eq!(repo_identity(&t.0, "", None).key.0, "github.com/owner/repo");
+}
+#[test]
+fn errors_log_rotates_twice_keeps_latest() {
+    let t = Temp::new();
+    let path = t.0.join("errors.log");
+    fs::write(&path, "first").unwrap();
+    let log = ErrorLog::new(path.clone(), 1);
+    log.append("second").unwrap();
+    let latest = fs::read_to_string(&path).unwrap();
+    log.append("third").unwrap();
+    assert_eq!(
+        fs::read_to_string(t.0.join("errors.log.1")).unwrap(),
+        latest
+    );
+    assert_eq!(fs::read_dir(&t.0).unwrap().count(), 2);
 }

@@ -205,3 +205,11 @@ pub fn repo_identity(start: &Path, ceilings: &str, home: Option<&Path>) -> RepoI
         how,
     }
 }
+
+/// Add the repository-local configuration file to the shared Git exclude file.
+///
+/// # Errors
+/// Returns an error if the exclude file cannot be read or written.
+pub fn exclude_local_config(_repo_root: &Path) -> std::io::Result<bool> {
+    unimplemented!()
+}
