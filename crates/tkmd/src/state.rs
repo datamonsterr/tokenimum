@@ -133,6 +133,9 @@ pub struct StateMap {
     pub envelopes: HashMap<(RepoKey, Host), EnvelopeEntry>,
     /// Source of [`TurnState::seq`].
     pub turn_seq: u64,
+    /// Next `turn_idx` of sessions that left memory, so a resumed session continues the count
+    /// even before its rows were flushed.
+    pub turn_bases: HashMap<Tag, i64>,
 }
 
 #[cfg(test)]

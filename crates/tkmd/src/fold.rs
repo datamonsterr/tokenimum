@@ -393,10 +393,15 @@ impl Daemon {
             let mut guard = lock(&self.state);
             let mut outbox = lock(&self.outbox);
             self.finish_turn(&mut guard, tag, StopReason::Interrupted, &mut outbox);
-            let StateMap { sessions, .. } = &mut *guard;
+            let StateMap {
+                sessions,
+                turn_bases,
+                ..
+            } = &mut *guard;
             let Some(session) = sessions.remove(tag) else {
                 return;
             };
+            turn_bases.insert(tag.clone(), session.next_turn_idx);
             let now = i64::try_from(self.clock.now_ms()).unwrap_or(i64::MAX);
             let ended_ms = if ended {
                 now
