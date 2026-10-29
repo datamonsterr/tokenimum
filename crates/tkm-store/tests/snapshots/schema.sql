@@ -22,6 +22,16 @@ CREATE TABLE decisions (
     outcome_label TEXT -- optional observed outcome
 , created_at INTEGER, repo_key TEXT, session_id INTEGER, digest TEXT, cost_usd REAL);
 
+-- table delegated_run_history
+CREATE TABLE delegated_run_history (
+    repo_key TEXT NOT NULL REFERENCES repos(repo_key),
+    host TEXT NOT NULL,
+    agent_home TEXT NOT NULL,
+    session_id TEXT NOT NULL,
+    ran_at INTEGER NOT NULL,
+    PRIMARY KEY(repo_key, host, agent_home, session_id)
+);
+
 -- table denylist_applied
 CREATE TABLE denylist_applied (
     checkout_path TEXT NOT NULL, -- checkout path
@@ -179,7 +189,7 @@ CREATE TABLE tool_evidence (
     tool TEXT NOT NULL, -- tool name
     prompts_unused INTEGER NOT NULL, -- consecutive unused prompts
     sessions_unused INTEGER NOT NULL, -- consecutive unused sessions
-    last_used INTEGER, -- last use, Unix milliseconds
+    last_used INTEGER, ready_since INTEGER, -- last use, Unix milliseconds
     PRIMARY KEY(repo_key, host, tool)
 );
 
