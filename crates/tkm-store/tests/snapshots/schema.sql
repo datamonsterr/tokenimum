@@ -20,7 +20,7 @@ CREATE TABLE decisions (
     latency_ms INTEGER NOT NULL, -- decision latency in milliseconds
     shadow INTEGER NOT NULL, -- whether the decision was shadowed
     outcome_label TEXT -- optional observed outcome
-, created_at INTEGER, repo_key TEXT, session_id INTEGER, digest TEXT);
+, created_at INTEGER, repo_key TEXT, session_id INTEGER, digest TEXT, cost_usd REAL);
 
 -- table denylist_applied
 CREATE TABLE denylist_applied (
@@ -88,7 +88,7 @@ CREATE TABLE ledger (
     priced_cost REAL NOT NULL, -- priced session cost
     overhead_tokens INTEGER NOT NULL, -- tokenimum decision tokens
     overhead_cost REAL NOT NULL -- tokenimum decision cost
-);
+, overhead_cost_usd REAL, priced_cost_usd REAL);
 
 -- table repos
 CREATE TABLE repos (
@@ -114,6 +114,24 @@ CREATE TABLE sessions (
     integration_level TEXT NOT NULL, -- integration level
     UNIQUE(host, agent_home, session_id)
 );
+
+-- table skill_evidence
+CREATE TABLE skill_evidence (
+    session_id INTEGER NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    loaded INTEGER NOT NULL,
+    used INTEGER NOT NULL,
+    PRIMARY KEY(session_id, name)
+);
+
+-- table skill_evidence_sessions
+CREATE TABLE skill_evidence_sessions (session_id INTEGER PRIMARY KEY REFERENCES sessions(id) ON DELETE CASCADE);
+
+-- table spend_attempts
+CREATE TABLE spend_attempts (id INTEGER PRIMARY KEY, record TEXT NOT NULL);
+
+-- table spend_migration
+CREATE TABLE spend_migration (legacy_decision_max INTEGER NOT NULL);
 
 -- table tool_evidence
 CREATE TABLE tool_evidence (

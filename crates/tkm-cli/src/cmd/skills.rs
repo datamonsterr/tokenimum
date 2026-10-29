@@ -4,7 +4,7 @@ use std::{
     path::{Component, PathBuf},
     process::ExitCode,
 };
-use tkm_core::prune::skills::{SkillReport, fold_skills};
+use tkm_core::prune::skills::fold_skills;
 use tkm_hosts::{HostAdapter, SessionSource, claude::ClaudeAdapter};
 use tkm_integrations::otherskill::{SkillEvidence, ranking_prior};
 use tkm_store::SessionRecord;
@@ -55,7 +55,7 @@ pub fn run(ctx: &mut Ctx<'_>, args: &SkillsArgs) -> Result<ExitCode, CliError> {
         }
         writeln!(
             ctx.stdout,
-            "Evidence: up to 30 recent sessions in this repository; loaded counts require host skill catalogs."
+            "Evidence: folded sessions plus up to 30 recent legacy sessions; loaded counts require host skill catalogs."
         )?;
     }
     Ok(ExitCode::SUCCESS)
@@ -71,9 +71,17 @@ fn evidence(ctx: &Ctx<'_>) -> Result<(Vec<SkillEvidence>, usize), CliError> {
         .list_sessions_by_repo(&ctx.repo.key, RECENT_SESSIONS)
         .map_err(|error| report::store_error(ctx, error))?;
     let adapter = ClaudeAdapter::new();
-    let mut skills = SkillReport::default();
+    let mut skills = store
+        .skill_evidence(&ctx.repo.key)
+        .map_err(|error| report::store_error(ctx, error))?;
     let mut skipped = 0;
     for record in sessions {
+        if store
+            .has_skill_evidence(record.id)
+            .map_err(|error| report::store_error(ctx, error))?
+        {
+            continue;
+        }
         let session = source(&record).and_then(|source| adapter.read_session(&source).ok());
         if let Some(session) = session.filter(|session| !session.partial) {
             fold_skills(&mut skills, &session);

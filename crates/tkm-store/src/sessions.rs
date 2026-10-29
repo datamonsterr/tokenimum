@@ -120,11 +120,11 @@ pub struct LedgerRecord {
     /// Usage by token class.
     pub usage: Usage,
     /// Priced session cost.
-    pub priced_cost: f64,
+    pub priced_cost: Option<f64>,
     /// Decision overhead tokens.
     pub overhead_tokens: u64,
     /// Decision overhead cost.
-    pub overhead_cost: f64,
+    pub overhead_cost: Option<f64>,
 }
 
 const SESSION_COLUMNS: &str = "id, host, agent_home, session_id, repo_key, cwd, started_at, ended_at, fold_status, shadow, integration_level";
@@ -411,7 +411,7 @@ impl Store {
             i64::try_from(ledger.usage.cache_write).map_err(|_| StoreError::TokenOverflow)?;
         let overhead =
             i64::try_from(ledger.overhead_tokens).map_err(|_| StoreError::TokenOverflow)?;
-        self.conn.execute("INSERT INTO ledger (session_id, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, priced_cost, overhead_tokens, overhead_cost) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8) ON CONFLICT(session_id) DO UPDATE SET input_tokens=excluded.input_tokens, output_tokens=excluded.output_tokens, cache_read_tokens=excluded.cache_read_tokens, cache_write_tokens=excluded.cache_write_tokens, priced_cost=excluded.priced_cost, overhead_tokens=excluded.overhead_tokens, overhead_cost=excluded.overhead_cost", params![ledger.session_id, input, output, read, write, ledger.priced_cost, overhead, ledger.overhead_cost])?;
+        self.conn.execute("INSERT INTO ledger (session_id, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, priced_cost, overhead_tokens, overhead_cost, priced_cost_usd, overhead_cost_usd) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10) ON CONFLICT(session_id) DO UPDATE SET input_tokens=excluded.input_tokens, output_tokens=excluded.output_tokens, cache_read_tokens=excluded.cache_read_tokens, cache_write_tokens=excluded.cache_write_tokens, priced_cost=excluded.priced_cost, overhead_tokens=excluded.overhead_tokens, overhead_cost=excluded.overhead_cost, priced_cost_usd=excluded.priced_cost_usd, overhead_cost_usd=excluded.overhead_cost_usd", params![ledger.session_id, input, output, read, write, ledger.priced_cost.unwrap_or(0.0), overhead, ledger.overhead_cost.unwrap_or(0.0), ledger.priced_cost, ledger.overhead_cost])?;
         Ok(())
     }
     /// Find a session ledger.
@@ -419,6 +419,22 @@ impl Store {
     /// # Errors
     /// Returns an error if querying or decoding fails.
     pub fn get_ledger(&self, session_id: i64) -> Result<Option<LedgerRecord>, StoreError> {
-        Ok(self.conn.query_row("SELECT session_id, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, priced_cost, overhead_tokens, overhead_cost FROM ledger WHERE session_id=?1", [session_id], read_ledger).optional()?)
+        let price = if self.schema_version >= 4 {
+            "priced_cost_usd"
+        } else {
+            "NULLIF(priced_cost, 0)"
+        };
+        let overhead = if self.schema_version >= 4 {
+            "overhead_cost_usd"
+        } else {
+            "overhead_cost"
+        };
+        let sql = format!(
+            "SELECT session_id, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, {price}, overhead_tokens, {overhead} FROM ledger WHERE session_id=?1"
+        );
+        Ok(self
+            .conn
+            .query_row(&sql, [session_id], read_ledger)
+            .optional()?)
     }
 }

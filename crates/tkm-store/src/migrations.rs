@@ -119,9 +119,32 @@ CREATE TABLE installs (
 ";
 
 /// Migrations in schema version order.
-pub(crate) const MIGRATIONS: &[&str] = &[V001, V002];
+pub(crate) const MIGRATIONS: &[&str] = &[V001, V002, V003, V004];
 
 /// Nullable reporting context; historical rows deliberately retain unknown times.
+pub(crate) const V004: &str = r"
+ALTER TABLE decisions ADD COLUMN cost_usd REAL;
+UPDATE decisions SET cost_usd = cost;
+CREATE TABLE spend_attempts (id INTEGER PRIMARY KEY, record TEXT NOT NULL);
+CREATE TABLE spend_migration (legacy_decision_max INTEGER NOT NULL);
+INSERT INTO spend_migration SELECT COALESCE(MAX(id), 0) FROM decisions;
+ALTER TABLE ledger ADD COLUMN overhead_cost_usd REAL;
+UPDATE ledger SET overhead_cost_usd = overhead_cost;
+ALTER TABLE ledger ADD COLUMN priced_cost_usd REAL;
+UPDATE ledger SET priced_cost_usd = priced_cost WHERE priced_cost != 0;
+";
+
+pub(crate) const V003: &str = r"
+CREATE TABLE skill_evidence_sessions (session_id INTEGER PRIMARY KEY REFERENCES sessions(id) ON DELETE CASCADE);
+CREATE TABLE skill_evidence (
+    session_id INTEGER NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    loaded INTEGER NOT NULL,
+    used INTEGER NOT NULL,
+    PRIMARY KEY(session_id, name)
+);
+";
+
 pub(crate) const V002: &str = r"
 ALTER TABLE events ADD COLUMN created_at INTEGER;
 ALTER TABLE decisions ADD COLUMN created_at INTEGER;
@@ -196,7 +219,7 @@ mod report_schema_tests {
         let version: i64 = conn
             .pragma_query_value(None, "user_version", |row| row.get(0))
             .unwrap();
-        assert_eq!(version, 2);
+        assert_eq!(version, 4);
         let legacy = store
             .get_fact(&tkm_core::model::RepoKey("legacy".into()), "f")
             .unwrap()

@@ -51,6 +51,10 @@ pub struct MonitorState {
     pub spend: Option<SpendUpdate>,
     /// Daily ledger totals for the seven most recent days.
     pub spend_days: Vec<(String, f64)>,
+    /// Count of durable decisions with unknown cost.
+    pub unknown_decision_costs: u64,
+    /// Count of sessions whose cost is unknown.
+    pub unknown_session_costs: u64,
     /// Ledger cost samples.
     pub savings: Vec<Savings>,
     /// Facts and their lifecycle states.
@@ -188,7 +192,13 @@ pub fn load_snapshot(conn: &Connection) -> Result<MonitorState, crate::Error> {
             state.session_event_ids.push(event_id);
         }
     }
-    let mut query = conn.prepare("SELECT purpose,model,latency_ms,cost,shadow,answers,id FROM (SELECT * FROM decisions ORDER BY id DESC LIMIT 1000) ORDER BY id")?;
+    let version: i64 = conn.pragma_query_value(None, "user_version", |row| row.get(0))?;
+    let decisions_sql = if version >= 4 {
+        "SELECT purpose,model,latency_ms,cost_usd,shadow,answers,id FROM (SELECT * FROM decisions WHERE cost_usd IS NOT NULL ORDER BY id DESC LIMIT 1000) ORDER BY id"
+    } else {
+        "SELECT purpose,model,latency_ms,cost,shadow,answers,id FROM (SELECT * FROM decisions ORDER BY id DESC LIMIT 1000) ORDER BY id"
+    };
+    let mut query = conn.prepare(decisions_sql)?;
     for row in query.query_map([], |row| {
         Ok((
             row.get::<_, String>(0)?,
@@ -229,7 +239,27 @@ pub fn load_snapshot(conn: &Connection) -> Result<MonitorState, crate::Error> {
             })
         })?
         .collect::<rusqlite::Result<_>>()?;
-    let mut query = conn.prepare("SELECT repo_key,host,priced_cost,shadow FROM (SELECT s.repo_key,s.host,l.priced_cost,s.shadow,s.started_at FROM ledger l JOIN sessions s ON s.id=l.session_id ORDER BY s.started_at DESC LIMIT 1000) ORDER BY started_at")?;
+    if version >= 4 {
+        state.unknown_decision_costs = conn.query_row(
+            "SELECT (SELECT count(*) FROM spend_attempts WHERE json_extract(record, '$.cost_usd') IS NULL) + (SELECT count(*) FROM decisions WHERE cost_usd IS NULL AND (id <= (SELECT legacy_decision_max FROM spend_migration) OR purpose IN ('models_probe','doctor_probe')))",
+            [],
+            |row| row.get(0),
+        )?;
+    }
+    let price = if version >= 4 {
+        "l.priced_cost_usd"
+    } else {
+        "NULLIF(l.priced_cost, 0)"
+    };
+    state.unknown_session_costs = conn.query_row(
+        &format!("SELECT count(*) FROM ledger l WHERE {price} IS NULL"),
+        [],
+        |row| row.get(0),
+    )?;
+    let sql = format!(
+        "SELECT repo_key,host,priced_cost,shadow FROM (SELECT s.repo_key,s.host,{price} AS priced_cost,s.shadow,s.started_at FROM ledger l JOIN sessions s ON s.id=l.session_id WHERE {price} IS NOT NULL ORDER BY s.started_at DESC LIMIT 1000) ORDER BY started_at"
+    );
+    let mut query = conn.prepare(&sql)?;
     state.savings = query
         .query_map([], |row| {
             Ok(Savings {
@@ -240,7 +270,10 @@ pub fn load_snapshot(conn: &Connection) -> Result<MonitorState, crate::Error> {
             })
         })?
         .collect::<rusqlite::Result<_>>()?;
-    let mut query = conn.prepare("SELECT day, cost FROM (SELECT date(s.started_at / 1000, 'unixepoch') AS day, sum(l.priced_cost) AS cost FROM ledger l JOIN sessions s ON s.id=l.session_id GROUP BY day ORDER BY day DESC LIMIT 7) ORDER BY day")?;
+    let sql = format!(
+        "SELECT day, cost FROM (SELECT date(s.started_at / 1000, 'unixepoch') AS day, sum({price}) AS cost FROM ledger l JOIN sessions s ON s.id=l.session_id WHERE {price} IS NOT NULL GROUP BY day ORDER BY day DESC LIMIT 7) ORDER BY day"
+    );
+    let mut query = conn.prepare(&sql)?;
     state.spend_days = query
         .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
         .collect::<rusqlite::Result<_>>()?;

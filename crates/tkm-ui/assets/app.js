@@ -10,7 +10,7 @@ async function api(path, options = {}) {
   if (!response.ok) throw new Error(`Request failed: ${response.status}`);
   return response.json();
 }
-function display(value) { return JSON.stringify(value, null, 2); }
+function display(value) { return JSON.stringify(value, (key, item) => item === null && (key === "priced_cost" || key === "cost") ? "unknown" : item, 2); }
 function render() {
   element('title').textContent = selected[0].toUpperCase() + selected.slice(1);
   const pre = document.createElement('pre');
@@ -29,8 +29,10 @@ async function refresh() {
   try {
     snapshot = await api('/api/state'); render();
     element('status').textContent = 'Connected';
+    if (snapshot.unknown_decision_costs) element('status').textContent += `; decision cost unknown for ${snapshot.unknown_decision_costs} attempts`;
     const history = await api('/api/history');
-    const days = history.days || [];
+    const days = (history.days || []).filter(day => day.cost !== null);
+    if (snapshot.unknown_session_costs) element('status').textContent += `; session cost unknown for ${snapshot.unknown_session_costs} sessions`;
     const peak = Math.max(1, ...days.map(day => day.cost));
     const points = days.map((day, i) => `${days.length > 1 ? i * 590 / (days.length - 1) : 0},${110 - day.cost * 100 / peak}`).join(' ');
     const line = document.createElementNS('http:' + '/' + '/www.w3.org/2000/svg', 'polyline');
