@@ -117,7 +117,7 @@ impl ErrorLog {
     /// Create an error log using the standard path and rotation limit.
     #[must_use]
     pub fn for_paths(paths: &Paths) -> Self {
-        unimplemented!()
+        Self::new(paths.errors_log.clone(), ERRORS_LOG_MAX_BYTES)
     }
     /// Append one timestamped line, rotating an existing full file first.
     ///
