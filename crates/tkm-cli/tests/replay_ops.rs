@@ -192,6 +192,17 @@ fn record_bench_uses_mock_transport_and_marks_recorded_cache() {
     assert!(out.status.success(), "{out:?}");
     server.join().unwrap();
     let cache = std::fs::read_to_string(destination.join("cache.json")).unwrap();
-    assert!(cache.contains("recorded OpenRouter response"));
+    assert!(cache.contains("recorded test endpoint response"));
     assert!(!cache.contains("fixture-key"));
+}
+
+#[test]
+fn bench_reports_fact_filter_question_agreement() {
+    let s = support_ops::Sandbox::new();
+    let fixtures = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/bench");
+    let out = s.run(&["replay", "--bench", fixtures]);
+    assert!(out.status.success(), "{out:?}");
+    let report = String::from_utf8(out.stdout).unwrap();
+    assert!(report.contains("Fact filter"));
+    assert!(report.contains("stable") && report.contains("safe"));
 }
