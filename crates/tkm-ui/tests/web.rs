@@ -37,12 +37,12 @@ fn app(fake: Arc<Fake>, clock: Arc<AtomicU64>) -> axum::Router {
         bind: "127.0.0.1:7878".parse().unwrap(),
         token: "secret".into(),
     };
-    let mut state = WebState::new(
-        config,
-        MonitorState::default(),
-        fake,
-        std::path::PathBuf::new(),
-    );
+    let dir = tempfile::tempdir().unwrap().keep();
+    let db = dir.join("web.db");
+    let _store = tkm_store::Store::open(&db).unwrap();
+    let conn = rusqlite::Connection::open(&db).unwrap();
+    conn.execute("INSERT INTO denylist_applied (checkout_path, host, tool, written_at, restored) VALUES ('/repo', 'claude', 'tool', 0, 0)", []).unwrap();
+    let mut state = WebState::new(config, MonitorState::default(), fake, db);
     state.set_clock(Arc::new(move || clock.load(Ordering::SeqCst)));
     web::router(state)
 }
@@ -297,4 +297,36 @@ async fn restore_rejects_unrecorded_checkout() {
     )
     .await;
     assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn action_body_limit_and_unknown_preset_are_rejected() {
+    let app = app(Arc::new(Fake::default()), Arc::new(AtomicU64::new(0)));
+    let body = serde_json::json!({"repo": "x".repeat(17_000), "fact_id":"id"}).to_string();
+    assert_eq!(
+        request(
+            app.clone(),
+            "POST",
+            "/api/actions/forget_fact",
+            "localhost:7878",
+            Some("secret"),
+            &body
+        )
+        .await
+        .status(),
+        StatusCode::PAYLOAD_TOO_LARGE
+    );
+    assert_eq!(
+        request(
+            app,
+            "POST",
+            "/api/actions/switch_preset",
+            "localhost:7878",
+            Some("secret"),
+            r#"{"repo":"repo","preset":"unknown"}"#
+        )
+        .await
+        .status(),
+        StatusCode::BAD_REQUEST
+    );
 }
