@@ -14,6 +14,7 @@ env:
 jobs:
   installer:
     runs-on: namespace-profile-datamonster01
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
       - run: bash -n install.sh
@@ -36,9 +37,12 @@ jobs:
             cmp install.sh "$RUNNER_TEMP/install-$method.sh"
             bash "$RUNNER_TEMP/install-$method.sh" --method "$method" --version v0.0.0 --bin-dir "$RUNNER_TEMP/tokenimum-$method/bin"
             for binary in tkm tkm-hook tkmd; do
-              "$RUNNER_TEMP/tokenimum-$method/bin/$binary" --version
+              test -x "$RUNNER_TEMP/tokenimum-$method/bin/$binary"
             done
+            "$RUNNER_TEMP/tokenimum-$method/bin/tkm" --version
           done
+          python3 scripts/fresh_install.py --bin-dir "$RUNNER_TEMP/tokenimum-gh/bin"
+          python3 scripts/verify_readme.py --bin-dir "$RUNNER_TEMP/tokenimum-gh/bin"
   fmt:
     runs-on: namespace-profile-datamonster01
     steps:

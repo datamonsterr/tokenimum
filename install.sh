@@ -146,6 +146,7 @@ fetch() {
   local headers=(-H "Accept: $3")
   if [ -n "$token" ]; then headers+=(-H "Authorization: Bearer $token"); fi
   curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' \
+    --connect-timeout 20 --max-time 300 \
     "${headers[@]}" "$1" --output "$2" ||
     die "Download failed. Private repositories need GH_TOKEN with repository read access (and jq), or --method gh. Check the tag; previews require --version v0.0.0."
 }
