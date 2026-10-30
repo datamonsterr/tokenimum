@@ -422,7 +422,7 @@ impl Daemon {
         cap_reply(self.stamp_pending(&request, reply), host)
     }
 
-    pub(crate) fn stamp_pending(&self, request: &Request, mut reply: Reply) -> Reply {
+    pub(crate) fn stamp_pending(&self, request: &Request, reply: Reply) -> Reply {
         if let Ok(Some(event)) = self.adapters.get(request.host).map_event(request) {
             return self.stamp_pending_for(&(event.host, event.session_id), reply);
         }
@@ -448,7 +448,7 @@ impl Daemon {
             return Ok(noop_reply(request.host));
         };
         if event.kind == EventKind::ToolDone {
-            if !self.host_allows_live(event.host, &event.session_id) {
+            if !self.host_allows_live(event.host, &(event.host, event.session_id.clone())) {
                 return Ok(noop_reply(request.host));
             }
             return self.tool_done(request, adapter.as_ref(), event);
@@ -480,15 +480,14 @@ impl Daemon {
         result
     }
 
-    fn host_allows_live(&self, host: Host, session_id: &str) -> bool {
+    fn host_allows_live(&self, host: Host, tag: &Tag) -> bool {
         let state = lock(&self.state);
-        let tag = (host, session_id.to_owned());
-        if state.disabled_sessions.contains(&tag) {
+        if state.disabled_sessions.contains(tag) {
             return false;
         }
         let settings = state
             .sessions
-            .get(&tag)
+            .get(tag)
             .map_or(self.default_settings.as_ref(), |session| {
                 session.settings.as_ref()
             });
@@ -507,11 +506,12 @@ impl Daemon {
         let mut tag: Option<Tag> = None;
         let result = match adapter.map_event(request) {
             Ok(Some(event)) if event.kind == EventKind::ToolDone => {
-                if !self.host_allows_live(event.host, &event.session_id) {
+                // Reuse the mapped event: a second `map_event` would re-parse the payload.
+                let event_tag = (event.host, event.session_id.clone());
+                if !self.host_allows_live(event.host, &event_tag) {
                     return noop_reply(host);
                 }
-                // Reuse the mapped event: a second `map_event` would re-parse the payload.
-                tag = Some((event.host, event.session_id.clone()));
+                tag = Some(event_tag);
                 self.tool_done(request, adapter.as_ref(), event)
             }
             Ok(Some(event)) => {
