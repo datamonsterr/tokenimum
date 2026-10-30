@@ -524,7 +524,7 @@ impl Daemon {
         match result {
             Ok(reply) => cap_reply(
                 match tag {
-                    Some(tag) => self.stamp_pending_for(&tag, reply),
+                    Some(_tag) => reply,
                     None => reply,
                 },
                 host,
