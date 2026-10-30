@@ -171,6 +171,7 @@ fn reconcile(
         .iter()
         .filter(|entry| {
             !entries.contains(entry)
+                && (!matches!(surface, Surface::Pi) || !pi_disabled(&value, &entries, entry))
                 && (!matches!(surface, Surface::Opencode)
                     || value
                         .get("permission")
@@ -212,6 +213,36 @@ fn reconcile(
         new_owned.insert(entry);
     }
     Ok((changed, new_owned))
+}
+
+/// Whether Pi's `defaultTools` already leaves `entry` (`-name`) disabled.
+///
+/// Plain names form an explicit selection, so `[]` or a list without the tool disables it, and
+/// a `-name` entry would turn an empty list into one that inherits the defaults.
+fn pi_disabled(value: &Value, entries: &[String], entry: &str) -> bool {
+    let Some(name) = entry.strip_prefix('-') else {
+        return false;
+    };
+    let Some(list) = value.get("defaultTools").and_then(Value::as_array) else {
+        return false;
+    };
+    let explicit = list.is_empty() || entries.iter().any(|item| !item.starts_with(['+', '-']));
+    if !explicit {
+        return false;
+    }
+    let mut selected: BTreeSet<&str> = entries
+        .iter()
+        .filter(|item| !item.starts_with(['+', '-']))
+        .map(String::as_str)
+        .collect();
+    for item in entries {
+        if let Some(added) = item.strip_prefix('+') {
+            selected.insert(added);
+        } else if let Some(removed) = item.strip_prefix('-') {
+            selected.remove(removed);
+        }
+    }
+    !selected.contains(name)
 }
 
 fn token(host: Host, name: &str) -> String {
