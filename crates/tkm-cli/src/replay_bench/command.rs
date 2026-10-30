@@ -250,14 +250,29 @@ fn save_json(path: &Path, value: &impl Serialize) -> Result<(), BenchError> {
 }
 fn private_write(path: &Path, content: &[u8]) -> Result<(), BenchError> {
     use std::io::Write;
+    // A reused output keeps its old mode, so write a fresh 0600 file beside it and rename.
+    let name = path
+        .file_name()
+        .map_or_else(String::new, |n| n.to_string_lossy().into_owned());
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_nanos());
+    let temp = path.with_file_name(format!(".{name}.{}.{nanos}.tmp", std::process::id()));
     let mut options = fs::OpenOptions::new();
-    options.write(true).create(true).truncate(true);
+    options.write(true).create_new(true);
     #[cfg(unix)]
     {
         use std::os::unix::fs::OpenOptionsExt;
         options.mode(0o600);
     }
-    options.open(path)?.write_all(content)?;
+    let written = options
+        .open(&temp)
+        .and_then(|mut file| file.write_all(content).and_then(|()| file.sync_all()))
+        .and_then(|()| fs::rename(&temp, path));
+    if let Err(error) = written {
+        let _ = fs::remove_file(&temp);
+        return Err(error.into());
+    }
     Ok(())
 }
 
