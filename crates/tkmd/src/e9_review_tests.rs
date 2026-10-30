@@ -273,3 +273,25 @@ async fn pending_signal_tracks_queued_and_cleared_context() {
         Some(false)
     );
 }
+
+#[tokio::test]
+async fn tool_done_reply_pending_matches_state_after_delivery() {
+    let dir = tempfile::tempdir().unwrap();
+    let paths = tkm_config::paths::Paths::from_dirs(dir.path(), None, None, None);
+    let daemon = Daemon::new(crate::daemon::DaemonOptions::new(paths));
+    let start = session_request(dir.path(), tkm_proto::EventKind::SessionStart, "unused");
+    daemon.handle(start).await;
+    let tool = session_request(dir.path(), tkm_proto::EventKind::ToolDone, "unused");
+    daemon.handle_tool_done(&tool);
+    let tag = (Host::Claude, "s".to_owned());
+    crate::daemon::lock(&daemon.state)
+        .sessions
+        .get_mut(&tag)
+        .unwrap()
+        .pending_inject = Some("queued".into());
+    let reply = daemon.handle_tool_done(&tool);
+    assert!(reply.stdout.contains("queued"));
+    assert_eq!(reply.pending, Some(false));
+    let after = daemon.stamp_pending(&tool, crate::daemon::noop_reply(Host::Claude));
+    assert_eq!(after.pending, reply.pending);
+}

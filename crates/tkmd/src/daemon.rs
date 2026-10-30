@@ -524,8 +524,9 @@ impl Daemon {
         match result {
             Ok(reply) => cap_reply(
                 match tag {
-                    Some(_tag) => reply,
-                    None => reply,
+                    // The main path already stamped `pending`; early returns did not.
+                    Some(tag) if reply.pending.is_none() => self.stamp_pending_for(&tag, reply),
+                    _ => reply,
                 },
                 host,
             ),
@@ -1025,7 +1026,10 @@ impl Daemon {
             (None, Some(text)) => ReplyAction::Notice { text },
             (None, None) => ReplyAction::Nothing,
         };
-        let (reply, delivered) = Self::render(request, adapter, action);
+        let (mut reply, delivered) = Self::render(request, adapter, action);
+        // Both queues were taken above, so nothing is pending unless the restore below refills
+        // one. Computing it here saves a second `state` lock that contends with the judge worker.
+        reply.pending = Some(false);
         // The host cannot show it on this event: keep it for the next injectable one.
         if !delivered && let Some(session) = lock(&self.state).sessions.get_mut(&tag) {
             session.pending_inject = join_text(inject_text, session.pending_inject.take());
@@ -1034,6 +1038,13 @@ impl Daemon {
             {
                 turn.pending_redirect = join_text(redirect_text, turn.pending_redirect.take());
             }
+            reply.pending = Some(
+                session.pending_inject.is_some()
+                    || session
+                        .turn
+                        .as_ref()
+                        .is_some_and(|turn| turn.pending_redirect.is_some()),
+            );
         }
         Ok(reply)
     }
