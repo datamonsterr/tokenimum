@@ -259,3 +259,85 @@ fn restoring_a_new_settings_file_returns_to_absence() {
         );
     }
 }
+
+fn pi_repo(original: &str) -> (tempfile::TempDir, std::path::PathBuf) {
+    let repo = tempfile::tempdir().unwrap();
+    assert!(
+        Command::new("git")
+            .args(["init", "--quiet"])
+            .arg(repo.path())
+            .status()
+            .unwrap()
+            .success()
+    );
+    let path = repo.path().join(".pi/settings.json");
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    fs::write(&path, original).unwrap();
+    (repo, path)
+}
+
+#[test]
+fn pi_empty_default_tools_stay_disabled_and_restore_exactly() {
+    let original = r#"{"defaultTools": [], "untouched": 1}"#;
+    let (repo, path) = pi_repo(original);
+    let desired = set(&["ls", "bash"]);
+    let report =
+        update_host_deny(repo.path(), Host::Pi, &BTreeSet::new(), &desired, false).unwrap();
+    // `[]` already disables every built-in tool; "-ls" would turn it into an inheriting list.
+    assert_eq!(fs::read_to_string(&path).unwrap(), original);
+    assert!(report.owned.is_empty());
+    update_host_deny(
+        repo.path(),
+        Host::Pi,
+        &report.owned,
+        &BTreeSet::new(),
+        false,
+    )
+    .unwrap();
+    assert_eq!(fs::read_to_string(&path).unwrap(), original);
+}
+
+#[test]
+fn pi_explicit_selection_skips_disabled_tools_and_excludes_enabled_ones() {
+    let original = r#"{"defaultTools": ["read", "bash"]}"#;
+    let (repo, path) = pi_repo(original);
+    let desired = set(&["bash", "ls"]);
+    let report =
+        update_host_deny(repo.path(), Host::Pi, &BTreeSet::new(), &desired, false).unwrap();
+    let edited: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+    // `ls` is not selected, so it needs no entry. `bash` is selected and is excluded after it.
+    assert_eq!(
+        edited["defaultTools"],
+        serde_json::json!(["read", "bash", "-bash"])
+    );
+    assert_eq!(report.owned, set(&["bash"]));
+    update_host_deny(
+        repo.path(),
+        Host::Pi,
+        &report.owned,
+        &BTreeSet::new(),
+        false,
+    )
+    .unwrap();
+    assert_eq!(fs::read_to_string(&path).unwrap(), original);
+}
+
+#[test]
+fn pi_absent_default_tools_use_exclusions_and_restore_exactly() {
+    let original = r#"{"untouched": 1}"#;
+    let (repo, path) = pi_repo(original);
+    let desired = set(&["ls"]);
+    let report =
+        update_host_deny(repo.path(), Host::Pi, &BTreeSet::new(), &desired, false).unwrap();
+    assert!(fs::read_to_string(&path).unwrap().contains(r#""-ls""#));
+    update_host_deny(
+        repo.path(),
+        Host::Pi,
+        &report.owned,
+        &BTreeSet::new(),
+        false,
+    )
+    .unwrap();
+    assert_eq!(fs::read_to_string(&path).unwrap(), original);
+}
