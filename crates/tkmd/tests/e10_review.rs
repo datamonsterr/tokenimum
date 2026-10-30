@@ -9,8 +9,10 @@ use std::sync::Arc;
 use common::*;
 use tkm_core::model::RepoKey;
 use tkm_proto::{Host, ReplyAction};
+use tkmd::clock::ManualClock;
+use tkmd::daemon::{Daemon, DaemonOptions};
 use tkmd::decider::NullDecider;
-use tkmd::settings::{HostLevel, HostSettings, Settings};
+use tkmd::settings::{FileSettings, HostLevel, HostSettings, Settings};
 
 fn host_settings(enabled: bool, level: HostLevel) -> Settings {
     let mut settings = Settings::default();
@@ -63,24 +65,78 @@ async fn disabled_host_still_drops_its_sessions() {
 }
 
 #[tokio::test]
-async fn repository_host_config_does_not_leak_into_the_shared_doctor_cache() {
-    for config in [
-        "[hosts.claude]\nlevel = \"fold-only\"\n",
-        "[hosts.claude]\nenabled = false\n",
-    ] {
-        let env = Env::new();
-        let repo_a = env.dir.path().join("repo-a");
-        std::fs::create_dir_all(&repo_a).unwrap();
-        std::fs::write(repo_a.join(".tokenimum.toml"), config).unwrap();
-        let daemon = daemon_with(&env, Settings::default(), Arc::new(NullDecider));
-        daemon
-            .refresh_host_health(&env.store(), Host::Claude)
-            .unwrap();
-        assert!(
-            !daemon.host_is_fold_only(Host::Claude),
-            "repo A config must not gate repo B sessions: {config}"
-        );
+async fn repository_host_config_is_evaluated_per_session_across_repositories() {
+    let env = Env::new();
+    let repo_a = env.dir.path().join("repo-a");
+    let repo_b = env.dir.path().join("repo-b");
+    for repo in [&repo_a, &repo_b] {
+        std::fs::create_dir_all(repo).unwrap();
     }
+    std::fs::write(
+        repo_a.join(".tokenimum.toml"),
+        "[hosts.claude]\nlevel = \"fold-only\"\n",
+    )
+    .unwrap();
+    let mut options = DaemonOptions::new(env.paths.clone());
+    options.decider = Arc::new(NullDecider);
+    options.settings = Arc::new(FileSettings::new(env.paths.clone(), Vec::new()));
+    options.clock = Arc::new(ManualClock::new(1_800_000_000_000));
+    let daemon = Daemon::new(options);
+    daemon.start_workers();
+    for (repo, id) in [(&repo_a, "session-a"), (&repo_b, "session-b")] {
+        let mut start = session_start();
+        start.payload["cwd"] = repo.to_str().unwrap().into();
+        start.payload["session_id"] = id.into();
+        daemon.handle(start).await;
+    }
+    daemon.flush_now().await;
+    let level = |repo: &std::path::Path| {
+        let key = tkm_config::repo::repo_identity(repo, "", None).key;
+        let rows = env.store().list_sessions_by_repo(&key, 10).unwrap();
+        assert_eq!(rows.len(), 1, "{}", repo.display());
+        rows[0].integration_level.clone()
+    };
+    assert_eq!(level(&repo_a), "fold-only");
+    assert_eq!(level(&repo_b), "hooks");
+    assert!(!daemon.host_is_fold_only(Host::Claude));
+    daemon.shutdown().await;
+}
+
+#[tokio::test]
+async fn unsupported_host_level_degrades_to_fold_only() {
+    let env = Env::new();
+    seed_fact(&env, "example.invalid");
+    // Claude has no shim: `shim` is not a supported combination.
+    let daemon = daemon_with(
+        &env,
+        host_settings(true, HostLevel::Shim),
+        Arc::new(NullDecider),
+    );
+    daemon.start_workers();
+    daemon.handle(session_start()).await;
+    assert_eq!(daemon.handle(prompt()).await.action, ReplyAction::Nothing);
+    daemon.flush_now().await;
+    assert_eq!(sessions(&env)[0].integration_level, "fold-only");
+    daemon.shutdown().await;
+}
+
+#[tokio::test]
+async fn folding_preserves_a_fold_only_sessions_integration_level() {
+    let env = Env::new();
+    let daemon = daemon_with(
+        &env,
+        host_settings(true, HostLevel::FoldOnly),
+        Arc::new(NullDecider),
+    );
+    daemon.start_workers();
+    daemon.handle(session_start()).await;
+    daemon.handle(session_end()).await;
+    daemon.settle().await;
+    daemon.flush_now().await;
+    let rows = sessions(&env);
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].integration_level, "fold-only");
+    daemon.shutdown().await;
 }
 
 #[tokio::test]
