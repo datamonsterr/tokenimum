@@ -876,7 +876,7 @@ impl Daemon {
         };
         let outcome = (|| -> Result<(), tkm_store::StoreError> {
             let store = self.backing.open()?;
-            self.refresh_host_health(&store, seed.host, &resolved.root)?;
+            self.refresh_host_health(&store, seed.host)?;
             resolved.envelope = store.envelope_samples(&repo, seed.host)?;
             resolved.calibration = store.list_calibration()?;
             let key = SessionKey {

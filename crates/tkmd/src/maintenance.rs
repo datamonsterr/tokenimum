@@ -120,22 +120,17 @@ impl Daemon {
             // state locks and never on the tool hot path.
             let daemon = self.clone();
             match tokio::task::spawn_blocking(move || {
-                let sessions: Vec<_> = lock(&daemon.state)
+                let hosts: std::collections::HashSet<_> = lock(&daemon.state)
                     .sessions
                     .values()
-                    .map(|session| {
-                        (
-                            session.host,
-                            session.root.clone().unwrap_or_else(|| session.cwd.clone()),
-                        )
-                    })
+                    .map(|session| session.host)
                     .collect();
-                if sessions.is_empty() {
+                if hosts.is_empty() {
                     return Ok(());
                 }
                 let store = daemon.backing.open()?;
-                for (host, root) in sessions {
-                    daemon.refresh_host_health(&store, host, &root)?;
+                for host in hosts {
+                    daemon.refresh_host_health(&store, host)?;
                 }
                 Ok::<_, StoreError>(())
             })

@@ -74,7 +74,7 @@ async fn repository_host_config_does_not_leak_into_the_shared_doctor_cache() {
         std::fs::write(repo_a.join(".tokenimum.toml"), config).unwrap();
         let daemon = daemon_with(&env, Settings::default(), Arc::new(NullDecider));
         daemon
-            .refresh_host_health(&env.store(), Host::Claude, &repo_a)
+            .refresh_host_health(&env.store(), Host::Claude)
             .unwrap();
         assert!(
             !daemon.host_is_fold_only(Host::Claude),
@@ -94,7 +94,7 @@ async fn doctor_fallback_keeps_configured_settings_and_recovery_restores_injecti
     assert_eq!(daemon.handle(prompt()).await.action, ReplyAction::Nothing);
     env.store().record_host_health(Host::Claude, true).unwrap();
     daemon
-        .refresh_host_health(&env.store(), Host::Claude, env.dir.path())
+        .refresh_host_health(&env.store(), Host::Claude)
         .unwrap();
     let reply = daemon.handle(prompt()).await;
     assert_ne!(
@@ -114,7 +114,7 @@ async fn doctor_downgrade_stops_injection_for_an_existing_session() {
     daemon.handle(session_start()).await;
     env.store().record_host_health(Host::Claude, false).unwrap();
     daemon
-        .refresh_host_health(&env.store(), Host::Claude, env.dir.path())
+        .refresh_host_health(&env.store(), Host::Claude)
         .unwrap();
     let reply = daemon.handle(prompt()).await;
     assert_eq!(reply.action, ReplyAction::Nothing);

@@ -24,23 +24,11 @@ pub fn effective_level(
 }
 
 impl crate::daemon::Daemon {
-    /// Recomputes the cached doctor state for `host` and its missing-event routing.
-    pub fn refresh_host_health(
-        &self,
-        store: &Store,
-        host: Host,
-        root: &std::path::Path,
-    ) -> Result<(), StoreError> {
-        let config = tkm_config::config::load(&tkm_config::config::LoadInputs {
-            repo_root: Some(root.to_path_buf()),
-            global_path: self.paths.global_config.clone(),
-            env: self.env.clone(),
-            ..Default::default()
-        });
-        let folded = match config {
-            Ok(config) => effective_level(&config, store, host)? == IntegrationMode::FoldOnly,
-            Err(_) => store.host_fold_only(host)?,
-        };
+    /// Recomputes the cached doctor health for `host` and its missing-event routing.
+    ///
+    /// Only doctor health is cached per host. Repository configuration is evaluated per session.
+    pub fn refresh_host_health(&self, store: &Store, host: Host) -> Result<(), StoreError> {
+        let folded = store.host_fold_only(host)?;
         crate::daemon::lock(&self.host_fallback).insert(host, folded);
         let events = store
             .host_event_probes(host)?
@@ -52,7 +40,7 @@ impl crate::daemon::Daemon {
         Ok(())
     }
 
-    /// Whether the cached doctor state forces `host` to fold-only.
+    /// Whether the cached doctor health forces `host` to fold-only. Says nothing of configuration.
     pub fn host_is_fold_only(&self, host: Host) -> bool {
         crate::daemon::lock(&self.host_fallback)
             .get(&host)

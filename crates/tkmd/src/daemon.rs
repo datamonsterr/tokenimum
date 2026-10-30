@@ -480,6 +480,14 @@ impl Daemon {
         result
     }
 
+    /// Whether live actions (injection, loop guard) may run for a session with `settings`.
+    /// Configured settings stay untouched; doctor health is applied at each event.
+    pub(crate) fn live_allowed(&self, settings: &crate::settings::Settings, host: Host) -> bool {
+        settings.host(host).enabled
+            && settings.effective_host_level(host) != crate::settings::HostLevel::FoldOnly
+            && !self.host_is_fold_only(host)
+    }
+
     fn host_allows_live(&self, host: Host, tag: &Tag) -> bool {
         let state = lock(&self.state);
         if state.disabled_sessions.contains(tag) {
@@ -720,7 +728,7 @@ impl Daemon {
 
     pub(crate) fn begin_turn(&self, session: &mut SessionState, seq: u64, prompt: String) {
         session.loop_evidence = None;
-        let guard = (!self.host_is_fold_only(session.host)
+        let guard = (self.live_allowed(&session.settings, session.host)
             && session.settings.loop_mode != LoopMode::Off)
             .then(|| TurnGuard::new(self.escalation_mode(session)));
         session.turn = Some(TurnState {
@@ -1056,15 +1064,15 @@ impl Daemon {
         adapter: &dyn HostAdapter,
         event: &HookEvent,
     ) -> Reply {
-        if self.host_is_fold_only(event.host) {
-            return noop_reply(request.host);
-        }
         let tag: Tag = (event.host, event.session_id.clone());
         let (pending, redirect, seq) = {
             let mut state = lock(&self.state);
             let Some(session) = state.sessions.get_mut(&tag) else {
                 return noop_reply(request.host);
             };
+            if !self.live_allowed(&session.settings, event.host) {
+                return noop_reply(request.host);
+            }
             let seq = session.turn.as_ref().map(|turn| turn.seq);
             let redirect = session
                 .turn
@@ -1248,10 +1256,8 @@ impl Daemon {
         }
         let now = self.clock.now_ms();
         let tag: Tag = (seed.host, seed.session_id.clone());
-        if !resolved.settings.host(seed.host).enabled
-            || resolved.settings.effective_host_level(seed.host)
-                == crate::settings::HostLevel::FoldOnly
-        {
+        // Fold-only hosts keep their sessions for idle folds; only disabled hosts are dropped.
+        if !resolved.settings.host(seed.host).enabled {
             let mut state = lock(&self.state);
             state.sessions.remove(&tag);
             state.disabled_sessions.insert(tag);
@@ -1278,10 +1284,6 @@ impl Daemon {
             let mut settings = (*resolved.settings).clone();
             settings.prune.superorchestrator_adapter_enabled =
                 self.escalator.superorchestrator_enabled();
-            if self.host_is_fold_only(seed.host) {
-                settings.inject_enabled = false;
-                settings.loop_mode = LoopMode::Off;
-            }
             session.settings = Arc::new(settings);
             session.resolved = true;
             let remembered = turn_bases.get(&tag).copied().unwrap_or(0);
@@ -1320,10 +1322,10 @@ impl Daemon {
                 ended: None,
                 fold_status: "open".into(),
                 shadow: false,
-                integration_level: if self.host_is_fold_only(seed.host) {
-                    "fold-only"
-                } else {
+                integration_level: if self.live_allowed(&session.settings, seed.host) {
                     "hooks"
+                } else {
+                    "fold-only"
                 }
                 .into(),
             });

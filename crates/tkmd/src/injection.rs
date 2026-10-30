@@ -134,7 +134,9 @@ impl Daemon {
             }
         };
 
-        let built = if context.settings.inject_enabled {
+        let built = if context.settings.inject_enabled
+            && self.live_allowed(&context.settings, context.host)
+        {
             self.build_block(&context).await?
         } else {
             None
