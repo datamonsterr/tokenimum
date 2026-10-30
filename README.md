@@ -156,7 +156,8 @@ tkm --version
 ```
 
 If you also copied `install.sh`, you can replace those steps with
-`bash install.sh --archive "$PWD/$archive"`; it verifies and installs without downloading.
+`bash install.sh --archive "$PWD/tokenimum-x86_64-unknown-linux-musl.tar.gz"`
+(use the ARM64 filename on ARM64); it verifies and installs without downloading.
 For updates, stop the daemon first as described below. For build provenance and publication
 details, see the [release guide](docs/release.md).
 

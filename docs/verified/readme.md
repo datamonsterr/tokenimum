@@ -49,6 +49,9 @@ executables, and runs `tkm --version`. Only the CLI implements a version flag; `
 starts a daemon and must not be used as a version probe. The existing isolated fresh-install
 and README scripts then exercise init, doctor, a hook round trip, and the documented CLI examples
 against the installed preview. Tests and smoke checks run in Actions, without local Cargo builds.
+The README smoke check forces service-manager calls to fail in its temporary PATH, exercising
+the documented detached-daemon fallback without touching the runner's user services. This also
+avoids a partially available `systemctl` registering a service without a usable user bus.
 
 The README documents stopping the daemon before replacement, refreshing integrations with the
 existing preset and initialization options, and checking daemon health afterward. The installer
