@@ -100,6 +100,8 @@ pub struct SessionState {
     pub loop_evidence: Option<Arc<std::sync::atomic::AtomicI64>>,
     /// Native hook names already queued for doctor/status coverage in this session.
     pub observed_hooks: BTreeSet<String>,
+    /// Integration level recorded for this session (`hooks` or `fold-only`).
+    pub integration_level: &'static str,
 }
 
 /// Envelope tracker with its cached value, so `tool_done` never sorts samples.

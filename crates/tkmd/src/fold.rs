@@ -940,7 +940,7 @@ impl Daemon {
                 ended: Some(Timestamp(ended_ms)),
                 fold_status: "pending".into(),
                 shadow: session.shadow,
-                integration_level: "hooks".into(),
+                integration_level: session.integration_level.into(),
             });
             self.publish(|| {
                 MonitorMessage::Session(Self::session_update(

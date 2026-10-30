@@ -14,6 +14,7 @@ use tkm_config::paths::{ErrorLog, Paths};
 use tkm_core::inject;
 use tkm_core::loopguard::{EscalationMode, LoopAction, TurnGuard, stop_key};
 use tkm_core::model::{HookEvent, RepoKey, StopReason, Timestamp, Turn};
+use tkm_hosts::fold_only::IntegrationMode;
 use tkm_hosts::{AdapterError, HostAdapter};
 use tkm_integrations::{Escalator, NoEscalator, NoSkills, SkillSource};
 use tkm_proto::monitor::{MonitorMessage, RedirectNotice, SessionUpdate};
@@ -483,9 +484,7 @@ impl Daemon {
     /// Whether live actions (injection, loop guard) may run for a session with `settings`.
     /// Configured settings stay untouched; doctor health is applied at each event.
     pub(crate) fn live_allowed(&self, settings: &crate::settings::Settings, host: Host) -> bool {
-        settings.host(host).enabled
-            && settings.effective_host_level(host) != crate::settings::HostLevel::FoldOnly
-            && !self.host_is_fold_only(host)
+        settings.configured_mode(host) != IntegrationMode::FoldOnly && !self.host_is_fold_only(host)
     }
 
     fn host_allows_live(&self, host: Host, tag: &Tag) -> bool {
@@ -499,8 +498,7 @@ impl Daemon {
             .map_or(self.default_settings.as_ref(), |session| {
                 session.settings.as_ref()
             });
-        settings.host(host).enabled
-            && settings.effective_host_level(host) != crate::settings::HostLevel::FoldOnly
+        settings.configured_mode(host) != IntegrationMode::FoldOnly
     }
 
     /// Synchronous `tool_done` entry point: the hot path. Mutates memory and pushes to queues
@@ -709,6 +707,7 @@ impl Daemon {
             loop_state: "watching",
             loop_evidence: None,
             observed_hooks: std::collections::BTreeSet::new(),
+            integration_level: "hooks",
         }
     }
 
@@ -1285,6 +1284,11 @@ impl Daemon {
             settings.prune.superorchestrator_adapter_enabled =
                 self.escalator.superorchestrator_enabled();
             session.settings = Arc::new(settings);
+            session.integration_level = if self.live_allowed(&session.settings, seed.host) {
+                "hooks"
+            } else {
+                "fold-only"
+            };
             session.resolved = true;
             let remembered = turn_bases.get(&tag).copied().unwrap_or(0);
             session.next_turn_idx = session
@@ -1322,12 +1326,7 @@ impl Daemon {
                 ended: None,
                 fold_status: "open".into(),
                 shadow: false,
-                integration_level: if self.live_allowed(&session.settings, seed.host) {
-                    "hooks"
-                } else {
-                    "fold-only"
-                }
-                .into(),
+                integration_level: session.integration_level.into(),
             });
             if session.delegated {
                 outbox.push_delegated(crate::persist::DelegatedRun {

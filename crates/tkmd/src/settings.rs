@@ -318,6 +318,22 @@ impl Settings {
         self.host(host).level
     }
 
+    /// Integration mode the configuration resolves to, before doctor health. Disabled hosts and
+    /// unsupported host and level combinations degrade to fold-only.
+    #[must_use]
+    pub fn configured_mode(&self, host: tkm_proto::Host) -> tkm_hosts::fold_only::IntegrationMode {
+        use tkm_hosts::fold_only::{IntegrationMode, mode_for};
+        let settings = self.host(host);
+        let native = mode_for(host, true);
+        match settings.level {
+            _ if !settings.enabled => IntegrationMode::FoldOnly,
+            HostLevel::Auto => native,
+            HostLevel::Hooks if native == IntegrationMode::Hooks => native,
+            HostLevel::Shim if native == IntegrationMode::Shim => native,
+            _ => IntegrationMode::FoldOnly,
+        }
+    }
+
     /// Returns the settings for a host.
     #[must_use]
     pub fn host(&self, host: tkm_proto::Host) -> HostSettings {
