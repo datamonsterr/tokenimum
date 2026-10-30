@@ -2,7 +2,13 @@
 
 **Help coding agents remember your project and waste fewer tokens.**
 
-tokenimum learns from coding sessions in a repository. It saves useful facts, brings them into
+[Install](#installation) · [Use it in a project](#use-it-in-a-project) ·
+[Benchmarks](#benchmarks) · [Contributing](CONTRIBUTING.md)
+
+## What is tokenimum?
+
+tokenimum is a local tool that helps coding agents reuse what they learn about your project.
+It learns from coding sessions in a repository, saves useful facts, and brings them into
 later sessions, detects repeated failure loops, and proposes removing tools the project does
 not use. For example, an agent can learn that this repository needs `python -m pytest` instead
 of `pytest`, rather than rediscovering the same fix each session.
@@ -11,10 +17,7 @@ This is an early preview. The CLI, daemon, eight host adapters, and offline test
 real-world token savings and live decision-model quality have not yet been established.
 See the [implementation status and known gaps](docs/spec-conformance.md).
 
-[Install](#installation) · [Use it in a project](#use-it-in-a-project) ·
-[Benchmarks](#benchmarks) · [Contributing](CONTRIBUTING.md)
-
-## How it works
+## How does it work?
 
 ![A coding session sends events through hooks and shims to a local daemon, which learns repository facts and helps the next session. OpenRouter judgments are optional.](docs/images/how-tokenimum-works.png)
 
