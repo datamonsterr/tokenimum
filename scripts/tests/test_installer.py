@@ -3,6 +3,7 @@
 
 import hashlib
 import io
+import json
 import os
 from pathlib import Path
 import shutil
@@ -50,6 +51,9 @@ output=
 while [ "$#" -gt 0 ]; do
   case "$1" in -o|--output) output=$2; shift 2;; *) url=$1; shift;; esac
 done
+if [[ "$url" == */releases/assets/* ]]; then
+  url="$(cat "$TEST_ASSETS/${url##*/}.name")"
+fi
 cp "$TEST_ASSETS/${url##*/}" "$output"
 ''')
         self.command('gh', '''#!/bin/bash
@@ -140,6 +144,34 @@ cp "$TEST_ASSETS/"* "$directory/"
         self.make_archive(corrupt_binary=True)
         result = self.run_installer('--method', 'curl')
         self.assertNotEqual(result.returncode, 0)
+        self.assertFalse((self.destination / 'tkm').exists())
+
+    def test_authenticated_curl_resolves_private_assets_via_api(self):
+        assets = []
+        for number, asset in enumerate(sorted(self.assets.iterdir())):
+            url = f'https://api.github.com/repos/datamonsterr/tokenimum/releases/assets/{number}'
+            assets.append({'name': asset.name, 'url': url})
+            (self.assets / f'{number}.name').write_text(asset.name)
+        (self.assets / 'v0.0.0').write_text(json.dumps({'assets': assets}))
+        self.env['GH_TOKEN'] = 'test-token'
+        self.assert_installed(self.run_installer('--method', 'curl', '--version', 'v0.0.0'))
+        self.assertIn('/releases/tags/v0.0.0', self.log.read_text())
+        self.assertIn('/releases/assets/', self.log.read_text())
+
+    def test_missing_binary_checksum_prevents_install(self):
+        archive = next(self.assets.glob('*.tar.gz'))
+        with tarfile.open(archive) as package:
+            contents = {entry.name: package.extractfile(entry).read() for entry in package}
+        contents['SHA256SUMS'] = contents['SHA256SUMS'].splitlines(keepends=True)[0]
+        with tarfile.open(archive, 'w:gz') as package:
+            for name, data in contents.items():
+                info = tarfile.TarInfo(name)
+                info.size = len(data)
+                info.mode = 0o755
+                package.addfile(info, io.BytesIO(data))
+        archive.with_suffix('.gz.sha256').write_text(
+            f'{hashlib.sha256(archive.read_bytes()).hexdigest()}  {archive.name}\n')
+        self.assertNotEqual(self.run_installer('--method', 'curl').returncode, 0)
         self.assertFalse((self.destination / 'tkm').exists())
 
     def test_download_failure_never_installs(self):

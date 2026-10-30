@@ -13,11 +13,22 @@ env:
   CARGO_TERM_COLOR: always
 jobs:
   installer:
-    runs-on: namespace-profile-datamonster01
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
       - run: bash -n install.sh
       - run: python3 scripts/tests/test_installer.py
+      - name: Install the published preview using gh and authenticated curl
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for method in gh curl; do
+            bash install.sh --method "$method" --version v0.0.0 --bin-dir "$RUNNER_TEMP/tokenimum-$method/bin"
+            for binary in tkm tkm-hook tkmd; do
+              "$RUNNER_TEMP/tokenimum-$method/bin/$binary" --version
+            done
+          done
   fmt:
     runs-on: namespace-profile-datamonster01
     steps:
