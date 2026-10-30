@@ -260,3 +260,27 @@ fn private_write(path: &Path, content: &[u8]) -> Result<(), BenchError> {
     options.open(path)?.write_all(content)?;
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+    use super::private_write;
+    use std::fs;
+    use std::os::unix::fs::PermissionsExt;
+
+    #[test]
+    fn private_write_replaces_a_world_readable_file_with_a_private_one() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("plan.json");
+        fs::write(&path, b"old").unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
+        private_write(&path, b"raw prompt").unwrap();
+        assert_eq!(fs::read(&path).unwrap(), b"raw prompt");
+        assert_eq!(
+            fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        let leftovers = fs::read_dir(dir.path()).unwrap().count();
+        assert_eq!(leftovers, 1, "temp file must not remain");
+    }
+}
