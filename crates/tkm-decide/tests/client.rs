@@ -636,3 +636,39 @@ async fn failed_free_probe_deactivates_the_slot() {
     assert!(matches!(client.decide(request(Purpose::LoopGuard)).await,
         Outcome::Decision(ref d) if d.requested_model == "probe-two:free"));
 }
+
+#[tokio::test(start_paused = true)]
+async fn agreement_prefers_jev_over_the_fallback_and_charges_both_costs() {
+    let fake = Arc::new(Fake::default());
+    let ledger = Arc::new(InMemoryLedger::default());
+    let config = DecideConfig {
+        session_cap_usd: 0.000_000_001,
+        ..DecideConfig::default()
+    };
+    let client = DecisionClient::new(
+        config,
+        Some(key()),
+        FakeTransport(fake.clone()),
+        ManualClock::default(),
+        ledger.clone(),
+    );
+    let _ = client.decide_agreement(request(Purpose::LoopGuard)).await;
+    assert_eq!(
+        fake.models(),
+        [
+            "inception/mercury-decide-20260930",
+            "typesafe/jev-1.14-20261014"
+        ]
+    );
+    assert_eq!(ledger.rows().len(), 2);
+    let total: f64 = ledger.rows().iter().filter_map(|row| row.cost_usd).sum();
+    assert!(total > 0.0);
+    assert_eq!(
+        client.decide_agreement(request(Purpose::LoopGuard)).await,
+        (
+            Outcome::CodeOnly(CodeOnlyReason::OverSession),
+            Outcome::CodeOnly(CodeOnlyReason::OverSession)
+        )
+    );
+    assert_eq!(fake.calls(), 2);
+}

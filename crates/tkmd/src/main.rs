@@ -112,7 +112,24 @@ async fn main() -> ExitCode {
     ));
     integrations.redetect_if_due(&cwd);
     write_integration_status(&paths, &integrations);
+    let pricing_path = paths.config_dir.join("pricing.toml");
+    tokio::spawn(async move {
+        loop {
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .ok()
+                .and_then(|d| i64::try_from(d.as_millis()).ok())
+                .unwrap_or(0);
+            if let Err(error) = tkm_decide::pricing::refresh_file(&pricing_path, now).await {
+                tracing::warn!(%error, "pricing refresh failed; retaining previous table");
+            }
+            tokio::time::sleep(std::time::Duration::from_hours(24)).await;
+        }
+    });
     let mut options = DaemonOptions::new(paths.clone());
+    if let Err(error) = options.ledger.enable_persistence(paths.db.clone()) {
+        eprintln!("tkmd: could not restore decision spend: {error}");
+    }
     options.skills = integrations.clone();
     options.escalator = integrations.clone();
     options.ledger.set_spend_sink(

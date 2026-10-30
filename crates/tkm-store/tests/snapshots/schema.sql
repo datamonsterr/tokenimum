@@ -20,7 +20,17 @@ CREATE TABLE decisions (
     latency_ms INTEGER NOT NULL, -- decision latency in milliseconds
     shadow INTEGER NOT NULL, -- whether the decision was shadowed
     outcome_label TEXT -- optional observed outcome
-, created_at INTEGER, repo_key TEXT, session_id INTEGER, digest TEXT);
+, created_at INTEGER, repo_key TEXT, session_id INTEGER, digest TEXT, cost_usd REAL);
+
+-- table delegated_run_history
+CREATE TABLE delegated_run_history (
+    repo_key TEXT NOT NULL REFERENCES repos(repo_key),
+    host TEXT NOT NULL,
+    agent_home TEXT NOT NULL,
+    session_id TEXT NOT NULL,
+    ran_at INTEGER NOT NULL,
+    PRIMARY KEY(repo_key, host, agent_home, session_id)
+);
 
 -- table denylist_applied
 CREATE TABLE denylist_applied (
@@ -67,6 +77,35 @@ CREATE TABLE facts (
     PRIMARY KEY(repo_key, fact_id)
 );
 
+-- table free_model_probe_schedule
+CREATE TABLE free_model_probe_schedule (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    last_probed INTEGER NOT NULL
+);
+
+-- table free_model_probes
+CREATE TABLE free_model_probes (
+    model TEXT PRIMARY KEY,
+    succeeded INTEGER NOT NULL,
+    probed_at INTEGER NOT NULL
+);
+
+-- table host_event_probes
+CREATE TABLE host_event_probes (
+    host TEXT NOT NULL,
+    native TEXT NOT NULL,
+    event TEXT NOT NULL,
+    arrived INTEGER NOT NULL,
+    probed_at INTEGER NOT NULL,
+    PRIMARY KEY(host, native)
+);
+
+-- table host_health
+CREATE TABLE host_health (
+    host TEXT PRIMARY KEY,
+    fold_only INTEGER NOT NULL CHECK (fold_only = 1)
+);
+
 -- table installs
 CREATE TABLE installs (
     host TEXT NOT NULL, -- harness identity
@@ -88,7 +127,7 @@ CREATE TABLE ledger (
     priced_cost REAL NOT NULL, -- priced session cost
     overhead_tokens INTEGER NOT NULL, -- tokenimum decision tokens
     overhead_cost REAL NOT NULL -- tokenimum decision cost
-);
+, overhead_cost_usd REAL, priced_cost_usd REAL);
 
 -- table repos
 CREATE TABLE repos (
@@ -115,6 +154,34 @@ CREATE TABLE sessions (
     UNIQUE(host, agent_home, session_id)
 );
 
+-- table shadow_judgments
+CREATE TABLE shadow_judgments (
+    host TEXT NOT NULL,
+    agent_home TEXT NOT NULL,
+    session_id TEXT NOT NULL,
+    turn_idx INTEGER NOT NULL,
+    judged_at INTEGER NOT NULL,
+    PRIMARY KEY(host, agent_home, session_id, turn_idx)
+);
+
+-- table skill_evidence
+CREATE TABLE skill_evidence (
+    session_id INTEGER NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    loaded INTEGER NOT NULL,
+    used INTEGER NOT NULL,
+    PRIMARY KEY(session_id, name)
+);
+
+-- table skill_evidence_sessions
+CREATE TABLE skill_evidence_sessions (session_id INTEGER PRIMARY KEY REFERENCES sessions(id) ON DELETE CASCADE);
+
+-- table spend_attempts
+CREATE TABLE spend_attempts (id INTEGER PRIMARY KEY, record TEXT NOT NULL);
+
+-- table spend_migration
+CREATE TABLE spend_migration (legacy_decision_max INTEGER NOT NULL);
+
 -- table tool_evidence
 CREATE TABLE tool_evidence (
     repo_key TEXT NOT NULL REFERENCES repos(repo_key), -- repository identity
@@ -122,7 +189,7 @@ CREATE TABLE tool_evidence (
     tool TEXT NOT NULL, -- tool name
     prompts_unused INTEGER NOT NULL, -- consecutive unused prompts
     sessions_unused INTEGER NOT NULL, -- consecutive unused sessions
-    last_used INTEGER, -- last use, Unix milliseconds
+    last_used INTEGER, ready_since INTEGER, -- last use, Unix milliseconds
     PRIMARY KEY(repo_key, host, tool)
 );
 

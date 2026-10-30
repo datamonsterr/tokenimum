@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use tkm_hosts::codewhale::CodewhaleAdapter;
-use tkm_hosts::{AdapterError, HostAdapter, InstallContext};
+use tkm_hosts::{HostAdapter, InstallContext};
 
 const FIXTURES: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
@@ -216,22 +216,32 @@ default_timeout_secs = 20
 }
 
 #[test]
-fn project_scope_is_unsupported() {
+fn project_scope_preserves_foreign_hooks_and_uses_project_shape() {
     let temp = Scratch::new();
-    let adapter = CodewhaleAdapter::new();
+    let path = temp.0.join(".codewhale/hooks.toml");
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    let original = "# user hooks\n[[hooks]]\nevent = \"turn_end\"\ncommand = \"echo foreign\"\n";
+    fs::write(&path, original).unwrap();
     let mut ctx = temp.context();
-    ctx.repo_root = Some(PathBuf::from("/home/user/project"));
-
-    let err = adapter.install(&ctx).unwrap_err();
-    match err {
-        AdapterError::Unsupported { operation } => {
-            assert!(
-                operation.contains("codewhale project hooks need /hooks approve; use user scope"),
-                "unexpected operation message: {operation}"
-            );
-        }
-        other => panic!("expected Unsupported, got {other:?}"),
-    }
+    ctx.repo_root = Some(temp.0.clone());
+    let adapter = CodewhaleAdapter::new();
+    let report = adapter.install(&ctx).unwrap();
+    assert!(
+        report
+            .instructions
+            .iter()
+            .any(|text| text.contains("/hooks approve"))
+    );
+    let text = fs::read_to_string(&path).unwrap();
+    assert_foreign_bytes_preserved(original.as_bytes(), text.as_bytes());
+    let doc: toml_edit::DocumentMut = text.parse().unwrap();
+    assert_eq!(doc["hooks"].as_array_of_tables().unwrap().len(), 8);
+    assert_eq!(
+        adapter.install(&ctx).unwrap().changed_files,
+        Vec::<std::path::PathBuf>::new()
+    );
+    adapter.uninstall(&ctx).unwrap();
+    assert_eq!(fs::read_to_string(path).unwrap(), original);
 }
 
 #[test]
@@ -302,4 +312,22 @@ fn comment_added_after_install_survives_uninstall() {
     assert!(after.contains("# added later"));
     assert!(after.contains("security-auditor --strict"));
     assert!(!after.contains("tkm-hook"));
+}
+
+#[test]
+fn install_registers_session_idle_with_its_native_event() {
+    let temp = Scratch::new();
+    CodewhaleAdapter::new().install(&temp.context()).unwrap();
+    let text = fs::read_to_string(temp.config_path()).unwrap();
+    let doc: toml_edit::DocumentMut = text.parse().unwrap();
+    let hooks = doc["hooks"]["hooks"].as_array_of_tables().unwrap();
+    let idle = hooks
+        .iter()
+        .find(|hook| hook["event"].as_str() == Some("session_idle"))
+        .unwrap();
+    assert_eq!(
+        idle["command"].as_str(),
+        Some("tkm-hook --host deepseek --event turn_end --host-event session_idle")
+    );
+    assert_eq!(idle["continue_on_error"].as_bool(), Some(true));
 }

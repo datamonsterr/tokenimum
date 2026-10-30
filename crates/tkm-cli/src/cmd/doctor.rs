@@ -1,6 +1,9 @@
-//! Read-only installation diagnostics with bounded harness version checks.
+//! Installation diagnostics and durable health recovery with bounded harness version checks.
 
 mod models;
+mod probe;
+
+pub use probe::record_probe_hook;
 
 use std::process::ExitCode;
 
@@ -21,8 +24,19 @@ use crate::{cli::DoctorArgs, ctx::Ctx, error::CliError};
 /// Returns output errors. Failed checks produce report lines and exit 1;
 /// checks never start a daemon. With a key, explicit model probes record their
 /// attempts in the database; other checks use read-only database access.
+#[allow(clippy::too_many_lines)] // Independent diagnostics continue after each failed check.
 pub fn run(ctx: &mut Ctx<'_>, args: &DoctorArgs) -> Result<ExitCode, CliError> {
     let mut failed = false;
+    // Validate host before diagnostics mutate any health state.
+    let probe_host = args
+        .probe
+        .as_deref()
+        .filter(|host| *host != "models")
+        .map(|host| {
+            host.parse::<tkm_proto::Host>()
+                .map_err(|_| CliError::Usage(format!("unknown probe host: {host}")))
+        })
+        .transpose()?;
     match daemon::probe(&ctx.paths) {
         DaemonState::Running { version, .. } => line(
             ctx,
@@ -67,9 +81,20 @@ pub fn run(ctx: &mut Ctx<'_>, args: &DoctorArgs) -> Result<ExitCode, CliError> {
         match state::records(connection) {
             Ok(records) => {
                 let registry = AdapterRegistry::standard();
+                let store = daemon::open_db_for_write(&ctx.paths)?;
+                let mut health = std::collections::HashMap::new();
                 for record in &records {
                     match installed(ctx, &registry, connection, record) {
-                        Ok(healthy) => failed |= !healthy,
+                        Ok(healthy) => {
+                            failed |= !healthy;
+                            if state::metadata(record)?.mode == "fold-only" {
+                                continue;
+                            }
+                            health
+                                .entry(record.host)
+                                .and_modify(|ok| *ok &= healthy)
+                                .or_insert(healthy);
+                        }
                         Err(error) => {
                             line(
                                 ctx,
@@ -78,8 +103,14 @@ pub fn run(ctx: &mut Ctx<'_>, args: &DoctorArgs) -> Result<ExitCode, CliError> {
                                 &error.to_string(),
                             )?;
                             failed = true;
+                            health.insert(record.host, false);
                         }
                     }
+                }
+                for (host, healthy) in health {
+                    store
+                        .record_host_health(host, healthy)
+                        .map_err(state::failure)?;
                 }
             }
             Err(error) => {
@@ -98,7 +129,10 @@ pub fn run(ctx: &mut Ctx<'_>, args: &DoctorArgs) -> Result<ExitCode, CliError> {
                     &adapter.reason,
                 )?;
             }
-            failed |= !check_key(ctx, &config, args.probe)?;
+            if let Some(host) = probe_host {
+                failed |= !probe::run(ctx, host)?;
+            }
+            failed |= !check_key(ctx, &config, args.probe.as_deref() == Some("models"))?;
         }
         Err(error) => {
             line(ctx, "fail", "configuration", &error.to_string())?;

@@ -27,7 +27,7 @@ fn kimi_host_adapter_identity() {
     let adapter = KimiAdapter::new();
     assert_eq!(adapter.host(), Host::Kimi);
     assert_eq!(adapter.prune_target(), PruneTarget::ReportOnly);
-    assert_eq!(ENV_MARKERS.len(), 0);
+    assert_eq!(ENV_MARKERS, ["KIMI_SHARE_DIR"]);
 
     assert_eq!(EXPECTED_EVENTS.len(), 6);
     let events = EXPECTED_EVENTS;

@@ -43,6 +43,8 @@ pub struct TurnState {
     pub escalated: bool,
     /// Whether a judge request is in flight.
     pub judging: bool,
+    /// Decision IDs and their call positions, used to label completed turns.
+    pub decision_evidence: Vec<(Arc<std::sync::atomic::AtomicI64>, u32)>,
     /// Redirect waiting for an injectable event in this turn.
     pub pending_redirect: Option<String>,
 }
@@ -98,6 +100,8 @@ pub struct SessionState {
     pub loop_evidence: Option<Arc<std::sync::atomic::AtomicI64>>,
     /// Native hook names already queued for doctor/status coverage in this session.
     pub observed_hooks: BTreeSet<String>,
+    /// Integration level recorded for this session (`hooks` or `fold-only`).
+    pub integration_level: &'static str,
 }
 
 /// Envelope tracker with its cached value, so `tool_done` never sorts samples.
@@ -141,6 +145,8 @@ impl EnvelopeEntry {
 pub struct StateMap {
     /// Source of session incarnation identifiers.
     pub session_generation: u64,
+    /// Sessions disabled by their resolved host configuration.
+    pub disabled_sessions: std::collections::HashSet<Tag>,
     /// Live sessions.
     pub sessions: HashMap<Tag, SessionState>,
     /// Envelopes per (repository, host).

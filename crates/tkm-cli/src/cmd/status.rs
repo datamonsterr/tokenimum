@@ -90,6 +90,8 @@ struct SpendReport {
     decisions_today_usd: f64,
     daily_cap_usd: f64,
     scope: &'static str,
+    unknown_session_costs: usize,
+    unknown_decision_costs_today: usize,
 }
 #[derive(Serialize)]
 struct HostSavings {
@@ -173,18 +175,60 @@ pub fn run_at(ctx: &mut Ctx<'_>, args: &StatusArgs, now_ms: i64) -> Result<ExitC
         .list_recent_events(-1)
         .map_err(|e| report::store_error(ctx, e))?;
     let day_start = now_ms.saturating_sub(now_ms.rem_euclid(86_400_000));
-    let today = store
+    let legacy_max = store
+        .legacy_spend_max_id()
+        .map_err(|e| report::store_error(ctx, e))?;
+    let legacy = store
         .list_recent_decisions(-1)
-        .map_err(|e| report::store_error(ctx, e))?
+        .map_err(|e| report::store_error(ctx, e))?;
+    let attempts = store
+        .list_spend_attempts()
+        .map_err(|e| report::store_error(ctx, e))?;
+    let is_today = |time: i64| time >= day_start && time <= now_ms;
+    let legacy_max = if attempts.is_empty() {
+        i64::MAX
+    } else {
+        legacy_max
+    };
+    let legacy_cost: f64 = legacy
         .iter()
         .filter(|d| {
-            d.created_at
-                .is_some_and(|t| t.0 >= day_start && t.0 <= now_ms)
+            (d.id <= legacy_max || matches!(d.purpose.as_str(), "models_probe" | "doctor_probe"))
+                && d.created_at.is_some_and(|t| is_today(t.0))
         })
-        .map(|d| d.cost_usd)
-        .sum::<f64>()
-        // An empty f64 sum is -0.0, which would print as "-0"; adding +0.0 normalizes it.
+        .filter_map(|d| d.cost_usd)
+        .sum();
+    let today_attempts: Vec<_> = attempts
+        .iter()
+        .filter(|row| {
+            row.get("ts_ms")
+                .and_then(serde_json::Value::as_i64)
+                .is_some_and(is_today)
+        })
+        .collect();
+    let today = legacy_cost
+        + today_attempts
+            .iter()
+            .filter_map(|row| row.get("cost_usd").and_then(serde_json::Value::as_f64))
+            .filter(|cost| cost.is_finite() && *cost >= 0.0)
+            .sum::<f64>()
         + 0.0;
+    let unknown_decision_costs_today = legacy
+        .iter()
+        .filter(|d| {
+            (d.id <= legacy_max || matches!(d.purpose.as_str(), "models_probe" | "doctor_probe"))
+                && d.created_at.is_some_and(|t| is_today(t.0))
+                && d.cost_usd.is_none()
+        })
+        .count()
+        + today_attempts
+            .iter()
+            .filter(|row| {
+                row.get("cost_usd")
+                    .and_then(serde_json::Value::as_f64)
+                    .is_none()
+            })
+            .count();
     let mut repositories = Vec::new();
     let redactor = report::redactor(ctx);
     for repo in &keys {
@@ -206,6 +250,7 @@ pub fn run_at(ctx: &mut Ctx<'_>, args: &StatusArgs, now_ms: i64) -> Result<ExitC
             &events,
             now_ms,
             today,
+            unknown_decision_costs_today,
             &redactor,
         )
         .map_err(|e| report::store_error(ctx, e))?;
@@ -254,6 +299,10 @@ fn checkout(
     Ok(None)
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "report requires the resolved context"
+)]
 fn repo_report(
     store: &Store,
     repo: &RepoKey,
@@ -261,6 +310,7 @@ fn repo_report(
     events: &[EventRecord],
     now: i64,
     today: f64,
+    unknown_decision_costs_today: usize,
     redactor: &tkm_decide::redact::Redactor,
 ) -> Result<RepoReport, StoreError> {
     let sessions = store.list_sessions_by_repo(repo, -1)?;
@@ -283,6 +333,7 @@ fn repo_report(
     let mut envelopes = Vec::new();
     let mut savings = Vec::new();
     let mut samples = Vec::new();
+    let mut unknown_session_costs = 0;
     let mut pending_tools = 0;
     let prune_config = tkm_core::prune::PruneConfig {
         evidence_prompts: u64::try_from(config.get_int("prune.evidence_prompts").unwrap_or(10))
@@ -298,13 +349,19 @@ fn repo_report(
 
     for session in &sessions {
         if let Some(ledger) = store.get_ledger(session.id)? {
-            samples.push(SavingsSession {
-                repo: repo.clone(),
-                host: session.key.host,
-                started: session.started,
-                shadow: session.shadow,
-                cost: ledger.priced_cost + ledger.overhead_cost,
-            });
+            if let (Some(priced_cost), Some(overhead_cost)) =
+                (ledger.priced_cost, ledger.overhead_cost)
+            {
+                samples.push(SavingsSession {
+                    repo: repo.clone(),
+                    host: session.key.host,
+                    started: session.started,
+                    shadow: session.shadow,
+                    cost: priced_cost + overhead_cost,
+                });
+            } else {
+                unknown_session_costs += 1;
+            }
         }
     }
     let first_action = events
@@ -461,6 +518,8 @@ fn repo_report(
             decisions_today_usd: today,
             daily_cap_usd: config.get_float("decide.budget_daily_usd").unwrap_or(0.0),
             scope: "global",
+            unknown_session_costs,
+            unknown_decision_costs_today,
         },
         savings,
         last_actions: actions,
@@ -574,6 +633,20 @@ fn render(report: &StatusReport) -> String {
             "  Spend: ${:.6} decisions today / ${:.6} daily cap ({})",
             repo.spend.decisions_today_usd, repo.spend.daily_cap_usd, repo.spend.scope
         );
+        if repo.spend.unknown_decision_costs_today > 0 {
+            let _ = writeln!(
+                text,
+                "  Decision cost: unknown for {} attempts today",
+                repo.spend.unknown_decision_costs_today
+            );
+        }
+        if repo.spend.unknown_session_costs > 0 {
+            let _ = writeln!(
+                text,
+                "  Session cost: unknown for {} sessions",
+                repo.spend.unknown_session_costs
+            );
+        }
         if repo.savings.is_empty() {
             text.push_str("  Savings: no priced sessions (baseline 0, treatment 0)\n");
         }

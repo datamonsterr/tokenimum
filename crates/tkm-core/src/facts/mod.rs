@@ -204,6 +204,31 @@ pub enum FactEventKind {
     Retired,
 }
 
+/// Returns active facts that this session exercised, without mutating lifecycle state.
+#[must_use]
+pub fn exercised_ids(
+    session: &Session,
+    state: &FactsState,
+    injected: &BTreeSet<String>,
+) -> BTreeSet<String> {
+    let observations = observe::observe(session);
+    state
+        .facts
+        .iter()
+        .filter_map(|(id, fact)| {
+            if fact.life.status != lifecycle::Status::Active
+                || matches!(fact.candidate.scope, Scope::Host(host) if host != session.host)
+            {
+                return None;
+            }
+            let mut fact = fact.clone();
+            extract::exercise(&mut fact, &observations, injected.contains(id), false)
+                .exercised
+                .then(|| id.clone())
+        })
+        .collect()
+}
+
 /// Folds a finished session without I/O. Partial and replayed sessions do not train facts.
 ///
 /// SPEC 7.1: optional scores filter new candidates at `t_low`/`t_high`;

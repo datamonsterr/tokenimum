@@ -14,6 +14,7 @@ use tkm_config::paths::{ErrorLog, Paths};
 use tkm_core::inject;
 use tkm_core::loopguard::{EscalationMode, LoopAction, TurnGuard, stop_key};
 use tkm_core::model::{HookEvent, RepoKey, StopReason, Timestamp, Turn};
+use tkm_hosts::fold_only::IntegrationMode;
 use tkm_hosts::{AdapterError, HostAdapter};
 use tkm_integrations::{Escalator, NoEscalator, NoSkills, SkillSource};
 use tkm_proto::monitor::{MonitorMessage, RedirectNotice, SessionUpdate};
@@ -161,6 +162,11 @@ pub struct Daemon {
     pub(crate) scan_interval: Duration,
     pub(crate) stale_after: Duration,
     pub(crate) env: Vec<(String, String)>,
+    pub(crate) model_probe_revision: Mutex<Option<i64>>,
+    pub(crate) maintenance_lock: tokio::sync::Mutex<()>,
+    pub(crate) idle_events:
+        Mutex<std::collections::HashMap<Host, std::collections::BTreeSet<String>>>,
+    pub(crate) host_fallback: Mutex<std::collections::HashMap<Host, bool>>,
     tasks: Mutex<Vec<JoinHandle<()>>>,
 }
 
@@ -176,6 +182,7 @@ pub(crate) fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 pub(crate) fn noop_reply(host: Host) -> Reply {
     Reply {
         version: PROTOCOL_VERSION,
+        pending: None,
         action: ReplyAction::Nothing,
         stdout: host.noop_reply().to_owned(),
     }
@@ -233,6 +240,10 @@ impl Daemon {
         });
         let default_settings = options.settings.settings_for(None);
         Arc::new(Self {
+            model_probe_revision: Mutex::new(None),
+            maintenance_lock: tokio::sync::Mutex::new(()),
+            idle_events: Mutex::new(std::collections::HashMap::new()),
+            host_fallback: Mutex::new(std::collections::HashMap::new()),
             errors_tx,
             dropped_errors: AtomicUsize::new(0),
             paths: options.paths,
@@ -343,6 +354,7 @@ impl Daemon {
         tasks.push(tokio::spawn(self.clone().flush_loop()));
         tasks.push(tokio::spawn(self.clone().idle_loop()));
         tasks.push(crate::fold::spawn_log_watcher(self.clone()));
+        tasks.push(tokio::spawn(self.clone().maintenance_loop()));
     }
 
     /// Refreshes integration-dependent settings on all live sessions after detection.
@@ -408,7 +420,27 @@ impl Daemon {
                 noop_reply(host)
             }
         };
-        cap_reply(reply, host)
+        cap_reply(self.stamp_pending(&request, reply), host)
+    }
+
+    pub(crate) fn stamp_pending(&self, request: &Request, reply: Reply) -> Reply {
+        if let Ok(Some(event)) = self.adapters.get(request.host).map_event(request) {
+            return self.stamp_pending_for(&(event.host, event.session_id), reply);
+        }
+        reply
+    }
+
+    /// Sets `reply.pending` from the live session under `tag`; `None` when the session is unknown.
+    pub(crate) fn stamp_pending_for(&self, tag: &Tag, mut reply: Reply) -> Reply {
+        let state = lock(&self.state);
+        reply.pending = state.sessions.get(tag).map(|session| {
+            session.pending_inject.is_some()
+                || session
+                    .turn
+                    .as_ref()
+                    .is_some_and(|turn| turn.pending_redirect.is_some())
+        });
+        reply
     }
 
     async fn dispatch(self: &Arc<Self>, request: &Request) -> HResult<Reply> {
@@ -417,11 +449,24 @@ impl Daemon {
             return Ok(noop_reply(request.host));
         };
         if event.kind == EventKind::ToolDone {
+            if !self.host_allows_live(event.host, &(event.host, event.session_id.clone())) {
+                return Ok(noop_reply(request.host));
+            }
             return self.tool_done(request, adapter.as_ref(), event);
         }
         let tag = (event.host, event.session_id.clone());
+        if event.kind == EventKind::SessionStart {
+            lock(&self.state).disabled_sessions.remove(&tag);
+        } else if lock(&self.state).disabled_sessions.contains(&tag) {
+            return Ok(noop_reply(request.host));
+        }
         let kind = event.kind;
         let recorded = self.observe_hook(&tag, kind, request.host_event.as_deref());
+        if matches!(kind, EventKind::TurnEnd | EventKind::SessionEnd)
+            && self.event_uses_idle(request.host, request.host_event.as_deref(), kind)
+        {
+            return Ok(noop_reply(request.host));
+        }
         let result = match event.kind {
             EventKind::ToolBefore => Ok(self.deliver_pending(request, adapter.as_ref(), &event)),
             EventKind::SessionStart => self.session_start(request, adapter.as_ref(), event).await,
@@ -436,6 +481,26 @@ impl Daemon {
         result
     }
 
+    /// Whether live actions (injection, loop guard) may run for a session with `settings`.
+    /// Configured settings stay untouched; doctor health is applied at each event.
+    pub(crate) fn live_allowed(&self, settings: &crate::settings::Settings, host: Host) -> bool {
+        settings.configured_mode(host) != IntegrationMode::FoldOnly && !self.host_is_fold_only(host)
+    }
+
+    fn host_allows_live(&self, host: Host, tag: &Tag) -> bool {
+        let state = lock(&self.state);
+        if state.disabled_sessions.contains(tag) {
+            return false;
+        }
+        let settings = state
+            .sessions
+            .get(tag)
+            .map_or(self.default_settings.as_ref(), |session| {
+                session.settings.as_ref()
+            });
+        settings.configured_mode(host) != IntegrationMode::FoldOnly
+    }
+
     /// Synchronous `tool_done` entry point: the hot path. Mutates memory and pushes to queues
     /// only; no network, no disk, no `.await`.
     pub fn handle_tool_done(&self, request: &Request) -> Reply {
@@ -444,15 +509,33 @@ impl Daemon {
             return noop_reply(host);
         }
         let adapter = self.adapters.get(host);
+        let mut tag: Option<Tag> = None;
         let result = match adapter.map_event(request) {
             Ok(Some(event)) if event.kind == EventKind::ToolDone => {
+                // Reuse the mapped event: a second `map_event` would re-parse the payload.
+                let event_tag = (event.host, event.session_id.clone());
+                if !self.host_allows_live(event.host, &event_tag) {
+                    return noop_reply(host);
+                }
+                tag = Some(event_tag);
                 self.tool_done(request, adapter.as_ref(), event)
             }
-            Ok(_) => Ok(noop_reply(host)),
+            Ok(Some(event)) => {
+                tag = Some((event.host, event.session_id));
+                Ok(noop_reply(host))
+            }
+            Ok(None) => Ok(noop_reply(host)),
             Err(error) => Err(error.into()),
         };
         match result {
-            Ok(reply) => cap_reply(reply, host),
+            Ok(reply) => cap_reply(
+                match tag {
+                    // The main path already stamped `pending`; early returns did not.
+                    Some(tag) if reply.pending.is_none() => self.stamp_pending_for(&tag, reply),
+                    _ => reply,
+                },
+                host,
+            ),
             Err(error) => {
                 self.log_error(&format!("{} tool_done: {error}", host.as_str()));
                 noop_reply(host)
@@ -481,6 +564,7 @@ impl Daemon {
         (
             Reply {
                 version: PROTOCOL_VERSION,
+                pending: None,
                 action,
                 stdout,
             },
@@ -506,7 +590,17 @@ impl Daemon {
                 var("CLAUDE_CONFIG_DIR").map_or_else(|| home.join(".claude"), PathBuf::from)
             }
             Host::Codex => var("CODEX_HOME").map_or_else(|| home.join(".codex"), PathBuf::from),
-            other => home.join(format!(".{}", other.as_str())),
+            Host::Agy => home.join(".gemini"),
+            Host::Cursor => home.join(".cursor"),
+            Host::Kimi => var("KIMI_SHARE_DIR").map_or_else(|| home.join(".kimi"), PathBuf::from),
+            Host::Deepseek => {
+                var("CODEWHALE_HOME").map_or_else(|| home.join(".codewhale"), PathBuf::from)
+            }
+            Host::Opencode => home.join(".config/opencode"),
+            Host::Pi => {
+                var("PI_CODING_AGENT_DIR").map_or_else(|| home.join(".pi/agent"), PathBuf::from)
+            }
+            _ => home.join(".tokenimum-unknown"),
         }
     }
 
@@ -525,15 +619,44 @@ impl Daemon {
             .clone()
             .or_else(|| request.cwd.as_ref().map(PathBuf::from))
             .unwrap_or_default();
-        let log_path = ["transcript_path", "rollout_path", "session_path"]
-            .iter()
-            .find_map(|field| {
-                request
-                    .payload
-                    .get(field)
-                    .and_then(serde_json::Value::as_str)
+        let log_path = [
+            "transcript_path",
+            "transcriptPath",
+            "rollout_path",
+            "session_path",
+        ]
+        .iter()
+        .find_map(|field| {
+            request
+                .payload
+                .get(field)
+                .and_then(serde_json::Value::as_str)
+        })
+        .map(|text| self.expand_home(text))
+        .or_else(|| {
+            request
+                .env
+                .get("CURSOR_TRANSCRIPT_PATH")
+                .filter(|_| event.host == Host::Cursor)
+                .map(|text| self.expand_home(text))
+        })
+        .or_else(|| {
+            if event.host != Host::Opencode {
+                return None;
+            }
+            let var = |key: &str| {
+                request.env.get(key).cloned().or_else(|| {
+                    self.env
+                        .iter()
+                        .rev()
+                        .find(|(name, _)| name == key)
+                        .map(|(_, value)| value.clone())
+                })
+            };
+            var("OPENCODE_DB").map(PathBuf::from).or_else(|| {
+                var("XDG_DATA_HOME").map(|path| PathBuf::from(path).join("opencode/opencode.db"))
             })
-            .map(|text| self.expand_home(text));
+        });
         SessionSeed {
             host: event.host,
             session_id: event.session_id.clone(),
@@ -584,6 +707,7 @@ impl Daemon {
             loop_state: "watching",
             loop_evidence: None,
             observed_hooks: std::collections::BTreeSet::new(),
+            integration_level: "hooks",
         }
     }
 
@@ -603,7 +727,8 @@ impl Daemon {
 
     pub(crate) fn begin_turn(&self, session: &mut SessionState, seq: u64, prompt: String) {
         session.loop_evidence = None;
-        let guard = (session.settings.loop_mode != LoopMode::Off)
+        let guard = (self.live_allowed(&session.settings, session.host)
+            && session.settings.loop_mode != LoopMode::Off)
             .then(|| TurnGuard::new(self.escalation_mode(session)));
         session.turn = Some(TurnState {
             seq,
@@ -617,6 +742,7 @@ impl Daemon {
             judge_scores: None,
             escalated: false,
             judging: false,
+            decision_evidence: Vec::new(),
             pending_redirect: None,
         });
         session.loop_state = if session.settings.loop_mode == LoopMode::Off {
@@ -648,6 +774,10 @@ impl Daemon {
             return;
         };
         let escalated = turn.escalated;
+        let backstop = turn
+            .guard
+            .as_ref()
+            .is_some_and(|guard| guard.backstop_triggered);
         let model_turn = Turn {
             prompt: turn.prompt,
             calls: turn.calls,
@@ -670,6 +800,22 @@ impl Daemon {
                     repo: session.repo.clone(),
                     host: session.host,
                     calls: turn.total_calls,
+                });
+            }
+        }
+        let good_outcome = tkm_core::loopguard::is_good_turn(&model_turn, escalated);
+        for (decision_id, call_index) in &turn.decision_evidence {
+            let label = if backstop || stopped_by == StopReason::Interrupted {
+                Some("stuck")
+            } else if good_outcome && turn.total_calls > *call_index {
+                Some("progress")
+            } else {
+                None
+            };
+            if let Some(label) = label {
+                outbox.outcomes.push_back(crate::persist::DecisionOutcome {
+                    decision_id: decision_id.clone(),
+                    label,
                 });
             }
         }
@@ -733,6 +879,11 @@ impl Daemon {
                 request.host_event.as_deref(),
                 Some(now),
             );
+            if self.host_is_fold_only(host)
+                || self.event_uses_idle(host, request.host_event.as_deref(), event.kind)
+            {
+                return Ok(noop_reply(host));
+            }
             if session.turn.is_none() {
                 *turn_seq += 1;
                 self.begin_turn(session, *turn_seq, String::new());
@@ -762,6 +913,7 @@ impl Daemon {
                                 repo: session.repo.clone(),
                                 key: session.key.clone(),
                                 seq: turn_seq_now,
+                                turn_idx: turn.idx,
                                 request: judge,
                                 prompt: turn.prompt.clone(),
                                 calls: turn.calls.clone(),
@@ -881,7 +1033,10 @@ impl Daemon {
             (None, Some(text)) => ReplyAction::Notice { text },
             (None, None) => ReplyAction::Nothing,
         };
-        let (reply, delivered) = Self::render(request, adapter, action);
+        let (mut reply, delivered) = Self::render(request, adapter, action);
+        // Both queues were taken above, so nothing is pending unless the restore below refills
+        // one. Computing it here saves a second `state` lock that contends with the judge worker.
+        reply.pending = Some(false);
         // The host cannot show it on this event: keep it for the next injectable one.
         if !delivered && let Some(session) = lock(&self.state).sessions.get_mut(&tag) {
             session.pending_inject = join_text(inject_text, session.pending_inject.take());
@@ -890,6 +1045,13 @@ impl Daemon {
             {
                 turn.pending_redirect = join_text(redirect_text, turn.pending_redirect.take());
             }
+            reply.pending = Some(
+                session.pending_inject.is_some()
+                    || session
+                        .turn
+                        .as_ref()
+                        .is_some_and(|turn| turn.pending_redirect.is_some()),
+            );
         }
         Ok(reply)
     }
@@ -907,6 +1069,9 @@ impl Daemon {
             let Some(session) = state.sessions.get_mut(&tag) else {
                 return noop_reply(request.host);
             };
+            if !self.live_allowed(&session.settings, event.host) {
+                return noop_reply(request.host);
+            }
             let seq = session.turn.as_ref().map(|turn| turn.seq);
             let redirect = session
                 .turn
@@ -919,7 +1084,11 @@ impl Daemon {
         };
         let (reply, delivered) =
             Self::render(request, adapter, ReplyAction::Inject { text: text.clone() });
-        if !delivered && let Some(session) = lock(&self.state).sessions.get_mut(&tag) {
+        if delivered && request.host == Host::Cursor && event.kind == EventKind::SessionStart {
+            if let Some(session) = lock(&self.state).sessions.get_mut(&tag) {
+                session.pending_inject = join_text(Some(text), session.pending_inject.take());
+            }
+        } else if !delivered && let Some(session) = lock(&self.state).sessions.get_mut(&tag) {
             session.pending_inject = join_text(pending, session.pending_inject.take());
             if let Some(turn) = session.turn.as_mut()
                 && Some(turn.seq) == seq
@@ -945,6 +1114,10 @@ impl Daemon {
         SessionUpdate {
             host: session.host,
             session_id: session.session_id.clone(),
+            turn_id: session
+                .turn
+                .as_ref()
+                .and_then(|turn| u64::try_from(turn.idx).ok()),
             repo: (!session.repo.0.is_empty()).then(|| session.repo.0.clone()),
             phase: phase.to_owned(),
             turn_calls: session.turn.as_ref().map_or(0, |turn| turn.total_calls),
@@ -1004,7 +1177,7 @@ impl Daemon {
         lock(&self.outbox).events.push_back(EventInsert {
             key: session.key.clone(),
             kind: kind.to_owned(),
-            inputs: serde_json::json!({"redirect": detail, "shadow": shadow}),
+            inputs: serde_json::json!({"redirect": detail, "shadow": shadow, "triggering_calls": session.turn.as_ref().map(|turn| turn.calls.iter().map(|call| call.tool.clone()).collect::<Vec<_>>()).unwrap_or_default()}),
             template: template.to_owned(),
             created_at: timestamp(self.clock.now_ms()),
             evidence_ids: Vec::new(),
@@ -1022,6 +1195,11 @@ impl Daemon {
             MonitorMessage::Redirect(RedirectNotice {
                 host: session.host,
                 session_id: session.session_id.clone(),
+                triggering_calls: session
+                    .turn
+                    .as_ref()
+                    .map(|turn| turn.calls.iter().map(|call| call.tool.clone()).collect())
+                    .unwrap_or_default(),
                 kind: if kind == "loop.escalation" {
                     "escalation"
                 } else {
@@ -1077,6 +1255,13 @@ impl Daemon {
         }
         let now = self.clock.now_ms();
         let tag: Tag = (seed.host, seed.session_id.clone());
+        // Fold-only hosts keep their sessions for idle folds; only disabled hosts are dropped.
+        if !resolved.settings.host(seed.host).enabled {
+            let mut state = lock(&self.state);
+            state.sessions.remove(&tag);
+            state.disabled_sessions.insert(tag);
+            return;
+        }
         let mut stale_tags: Vec<Tag> = Vec::new();
         {
             let mut guard = lock(&self.state);
@@ -1099,6 +1284,11 @@ impl Daemon {
             settings.prune.superorchestrator_adapter_enabled =
                 self.escalator.superorchestrator_enabled();
             session.settings = Arc::new(settings);
+            session.integration_level = if self.live_allowed(&session.settings, seed.host) {
+                "hooks"
+            } else {
+                "fold-only"
+            };
             session.resolved = true;
             let remembered = turn_bases.get(&tag).copied().unwrap_or(0);
             session.next_turn_idx = session
@@ -1136,8 +1326,15 @@ impl Daemon {
                 ended: None,
                 fold_status: "open".into(),
                 shadow: false,
-                integration_level: "hooks".into(),
+                integration_level: session.integration_level.into(),
             });
+            if session.delegated {
+                outbox.push_delegated(crate::persist::DelegatedRun {
+                    repo: session.repo.clone(),
+                    key: session.key.clone(),
+                    at: session.started,
+                });
+            }
             drop(outbox);
             if want_stale {
                 stale_tags = sessions

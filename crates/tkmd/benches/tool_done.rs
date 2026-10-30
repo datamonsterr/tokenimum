@@ -12,10 +12,9 @@ use criterion::{BatchSize, Criterion, criterion_group, criterion_main};
 use tkm_config::paths::Paths;
 use tkm_core::model::{RepoKey, Timestamp};
 use tkm_decide::api::{Answer, Usage};
-use tkm_decide::calibrate::{CalibrationKey, CalibrationStore, Thresholds};
 use tkm_decide::client::{DecideRequest, Decision, Outcome};
 use tkm_proto::{EventKind, Host, PROTOCOL_VERSION, Request};
-use tkm_store::{Repo, Store};
+use tkm_store::{CalibrationRecord, Repo, Store};
 use tkmd::daemon::{Daemon, DaemonOptions};
 use tkmd::decider::{BoxFuture, Decider};
 use tkmd::settings::{FixedSettings, Settings};
@@ -194,9 +193,26 @@ fn tool_done(c: &mut Criterion) {
     for _ in 0..5 {
         store.push_envelope_sample(&repo, Host::Claude, 5).unwrap();
     }
+    // Session resolution reloads thresholds from the database, so calibration must be persisted.
+    store
+        .upsert_calibration(&CalibrationRecord {
+            model_version: MODEL.into(),
+            purpose: "loop_guard".into(),
+            thresholds: serde_json::json!({"t_stuck": 0.85, "t_progress": 0.3, "t_low": 0.3, "t_high": 0.8}),
+            sample_count: 200,
+            precision: 0.9,
+            recall: 0.6,
+        })
+        .unwrap();
     drop(store);
     let mut options = DaemonOptions::new(paths);
-    options.settings = Arc::new(FixedSettings::new(Settings::default()));
+    // Steady state: the initial shadow window has elapsed, so a stuck verdict acts.
+    let settings = Settings {
+        shadow_days: 0,
+        shadow_turns: 0,
+        ..Settings::default()
+    };
+    options.settings = Arc::new(FixedSettings::new(settings));
     options.decider = Arc::new(StuckDecider);
     let daemon: Arc<Daemon> = Daemon::new(options);
     let blind = Arc::new(AtomicBool::new(false));
@@ -204,13 +220,6 @@ fn tool_done(c: &mut Criterion) {
         inner: tkm_hosts::claude::ClaudeAdapter::new(),
         blind: blind.clone(),
     }));
-    daemon.calibration().put(
-        CalibrationKey {
-            model_version: MODEL.into(),
-            purpose: "loop_guard".into(),
-        },
-        Thresholds::default(),
-    );
     runtime.block_on(async {
         daemon.start_workers();
         daemon
@@ -243,10 +252,11 @@ fn tool_done(c: &mut Criterion) {
     blind.store(true, Ordering::Relaxed);
     assert_eq!(daemon.handle_tool_done(&failing).stdout, "");
     blind.store(false, Ordering::Relaxed);
-    assert!(matches!(
-        daemon.handle_tool_done(&failing).action,
-        tkm_proto::ReplyAction::Inject { .. }
-    ));
+    let delivered = daemon.handle_tool_done(&failing);
+    assert!(
+        matches!(delivered.action, tkm_proto::ReplyAction::Inject { .. }),
+        "redirect must be delivered once the host can show it: {delivered:?}"
+    );
     bench_gate_open(c, &runtime, &daemon, &failing);
     bench_pending_redirect(c, &runtime, &daemon, &failing, &blind);
 }

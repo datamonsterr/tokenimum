@@ -119,9 +119,45 @@ CREATE TABLE installs (
 ";
 
 /// Migrations in schema version order.
-pub(crate) const MIGRATIONS: &[&str] = &[V001, V002];
+pub(crate) const MIGRATIONS: &[&str] =
+    &[V001, V002, V003, V004, V005, V006, V007, V008, V009, V010];
+
+/// Distinct judged turns and the first decision timestamp survive daemon restarts.
+pub(crate) const V005: &str = r"
+CREATE TABLE shadow_judgments (
+    host TEXT NOT NULL,
+    agent_home TEXT NOT NULL,
+    session_id TEXT NOT NULL,
+    turn_idx INTEGER NOT NULL,
+    judged_at INTEGER NOT NULL,
+    PRIMARY KEY(host, agent_home, session_id, turn_idx)
+);
+";
 
 /// Nullable reporting context; historical rows deliberately retain unknown times.
+pub(crate) const V004: &str = r"
+ALTER TABLE decisions ADD COLUMN cost_usd REAL;
+UPDATE decisions SET cost_usd = cost;
+CREATE TABLE spend_attempts (id INTEGER PRIMARY KEY, record TEXT NOT NULL);
+CREATE TABLE spend_migration (legacy_decision_max INTEGER NOT NULL);
+INSERT INTO spend_migration SELECT COALESCE(MAX(id), 0) FROM decisions;
+ALTER TABLE ledger ADD COLUMN overhead_cost_usd REAL;
+UPDATE ledger SET overhead_cost_usd = overhead_cost;
+ALTER TABLE ledger ADD COLUMN priced_cost_usd REAL;
+UPDATE ledger SET priced_cost_usd = priced_cost WHERE priced_cost != 0;
+";
+
+pub(crate) const V003: &str = r"
+CREATE TABLE skill_evidence_sessions (session_id INTEGER PRIMARY KEY REFERENCES sessions(id) ON DELETE CASCADE);
+CREATE TABLE skill_evidence (
+    session_id INTEGER NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    loaded INTEGER NOT NULL,
+    used INTEGER NOT NULL,
+    PRIMARY KEY(session_id, name)
+);
+";
+
 pub(crate) const V002: &str = r"
 ALTER TABLE events ADD COLUMN created_at INTEGER;
 ALTER TABLE decisions ADD COLUMN created_at INTEGER;
@@ -129,6 +165,39 @@ ALTER TABLE decisions ADD COLUMN repo_key TEXT;
 ALTER TABLE decisions ADD COLUMN session_id INTEGER;
 ALTER TABLE decisions ADD COLUMN digest TEXT;
 ALTER TABLE facts ADD COLUMN state_changed_at INTEGER;
+";
+
+/// Doctor fallback overrides; absence means use configured integration level.
+pub(crate) const V006: &str = r"
+CREATE TABLE host_health (
+    host TEXT PRIMARY KEY,
+    fold_only INTEGER NOT NULL CHECK (fold_only = 1)
+);
+";
+
+/// Per-native-event capability observations from doctor.
+pub(crate) const V007: &str = r"
+CREATE TABLE host_event_probes (
+    host TEXT NOT NULL,
+    native TEXT NOT NULL,
+    event TEXT NOT NULL,
+    arrived INTEGER NOT NULL,
+    probed_at INTEGER NOT NULL,
+    PRIMARY KEY(host, native)
+);
+";
+
+/// Durable daily free-model cadence and results, independent of daemon lifetimes.
+pub(crate) const V008: &str = r"
+CREATE TABLE free_model_probe_schedule (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    last_probed INTEGER NOT NULL
+);
+CREATE TABLE free_model_probes (
+    model TEXT PRIMARY KEY,
+    succeeded INTEGER NOT NULL,
+    probed_at INTEGER NOT NULL
+);
 ";
 
 #[cfg(test)]
@@ -196,7 +265,7 @@ mod report_schema_tests {
         let version: i64 = conn
             .pragma_query_value(None, "user_version", |row| row.get(0))
             .unwrap();
-        assert_eq!(version, 2);
+        assert_eq!(version, 10);
         let legacy = store
             .get_fact(&tkm_core::model::RepoKey("legacy".into()), "f")
             .unwrap()
@@ -230,3 +299,54 @@ mod report_schema_tests {
         }
     }
 }
+
+/// First eligible observation; unknown historical readiness is initialized on observation.
+pub(crate) const V009: &str = r"
+ALTER TABLE tool_evidence ADD COLUMN ready_since INTEGER;
+";
+
+#[cfg(test)]
+mod prune_migration_tests {
+    use crate::Store;
+    use tkm_core::model::{Host, RepoKey};
+
+    #[test]
+    fn v008_upgrade_preserves_evidence_with_unknown_ready_time() {
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        for migration in &super::MIGRATIONS[..8] {
+            conn.execute_batch(migration).unwrap();
+        }
+        conn.pragma_update(None, "user_version", 8).unwrap();
+        conn.execute_batch("INSERT INTO repos VALUES ('legacy','legacy',1,2,4); INSERT INTO tool_evidence VALUES ('legacy','cursor','unused',10,2,NULL);").unwrap();
+        let store = Store::initialize(conn, std::time::Duration::from_millis(100)).unwrap();
+        let repo = RepoKey("legacy".into());
+        assert_eq!(
+            store
+                .get_tool_evidence(&repo, Host::Cursor, "unused")
+                .unwrap()
+                .unwrap()
+                .prompts_unused,
+            10
+        );
+        assert_eq!(
+            store
+                .prune_ready_since(&repo, Host::Cursor, "unused")
+                .unwrap(),
+            None
+        );
+        assert_eq!(store.get_repo(&repo).unwrap().unwrap().delegated_runs, 4);
+    }
+}
+
+/// Timestamped observations; lifetime counters are not backdated into fabricated history.
+pub(crate) const V010: &str = r"
+CREATE TABLE delegated_run_history (
+    repo_key TEXT NOT NULL REFERENCES repos(repo_key),
+    host TEXT NOT NULL,
+    agent_home TEXT NOT NULL,
+    session_id TEXT NOT NULL,
+    ran_at INTEGER NOT NULL,
+    PRIMARY KEY(repo_key, host, agent_home, session_id)
+);
+CREATE INDEX delegated_run_history_window ON delegated_run_history(repo_key, ran_at);
+";

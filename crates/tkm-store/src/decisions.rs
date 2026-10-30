@@ -18,7 +18,7 @@ pub struct NewDecision {
     /// Decision answers.
     pub answers: serde_json::Value,
     /// Decision cost in US dollars.
-    pub cost_usd: f64,
+    pub cost_usd: Option<f64>,
     /// Latency in milliseconds.
     pub latency_ms: u32,
     /// Whether the decision was shadowed.
@@ -39,7 +39,7 @@ pub struct DecisionRecord {
     /// Decision answers.
     pub answers: serde_json::Value,
     /// Decision cost in US dollars.
-    pub cost_usd: f64,
+    pub cost_usd: Option<f64>,
     /// Latency in milliseconds.
     pub latency_ms: u32,
     /// Whether the decision was shadowed.
@@ -92,6 +92,35 @@ pub struct InstallRecord {
     pub backup_paths: Vec<PathBuf>,
     /// Hashes of generated shims.
     pub shim_hashes: BTreeMap<String, String>,
+}
+
+impl Store {
+    /// Records one distinct judged turn, preserving the first judgment time.
+    ///
+    /// # Errors
+    /// Returns an error if the database cannot be written.
+    pub fn record_judged_turn(
+        &self,
+        key: &crate::SessionKey,
+        turn_idx: i64,
+        at: Timestamp,
+    ) -> Result<(), StoreError> {
+        self.conn.execute("INSERT OR IGNORE INTO shadow_judgments (host, agent_home, session_id, turn_idx, judged_at) VALUES (?1, ?2, ?3, ?4, MIN(?5, COALESCE((SELECT MIN(created_at) FROM decisions), ?5)))", params![key.host.as_str(), key.agent_home, key.session_id, turn_idx, at.0])?;
+        Ok(())
+    }
+
+    /// Returns the first judgment time and the number of distinct judged turns.
+    ///
+    /// # Errors
+    /// Returns an error if the database cannot be read.
+    pub fn shadow_window(&self) -> Result<Option<(i64, u64)>, StoreError> {
+        let (started, count): (Option<i64>, i64) = self.conn.query_row(
+            "SELECT MIN(judged_at), COUNT(*) FROM shadow_judgments",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )?;
+        Ok(started.map(|at| (at, u64::try_from(count).unwrap_or(u64::MAX))))
+    }
 }
 
 const DECISION_COLUMNS: &str = "id, model, purpose, questions, answers, cost, latency_ms, shadow, outcome_label, created_at, repo_key, session_id, digest";
@@ -160,9 +189,53 @@ fn path_text(path: &Path) -> Result<&str, StoreError> {
 }
 
 impl Store {
+    /// Persist one serialized decision attempt, including unknown cost.
+    ///
+    /// # Errors
+    /// Returns an error if storage or serialization fails.
+    pub fn insert_spend_attempt(&self, record: &serde_json::Value) -> Result<(), StoreError> {
+        self.conn.execute(
+            "INSERT INTO spend_attempts (record) VALUES (?1)",
+            [serde_json::to_string(record)?],
+        )?;
+        Ok(())
+    }
+
+    /// Read all durable decision attempts in insertion order.
+    ///
+    /// # Errors
+    /// Returns an error if storage or decoding fails.
+    pub fn list_spend_attempts(&self) -> Result<Vec<serde_json::Value>, StoreError> {
+        if self.schema_version < 4 {
+            return Ok(Vec::new());
+        }
+        let mut query = self
+            .conn
+            .prepare("SELECT record FROM spend_attempts ORDER BY id")?;
+        let rows = query.query_map([], |row| read_json(row, 0))?;
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+    }
+
+    /// Last decision id already present when attempt persistence was introduced.
+    ///
+    /// # Errors
+    /// Returns an error if the migration marker cannot be read.
+    pub fn legacy_spend_max_id(&self) -> Result<i64, StoreError> {
+        if self.schema_version < 4 {
+            return Ok(i64::MAX);
+        }
+        Ok(self.conn.query_row(
+            "SELECT legacy_decision_max FROM spend_migration",
+            [],
+            |row| row.get(0),
+        )?)
+    }
+
     fn decision_columns(&self) -> &'static str {
         if self.schema_version < 2 {
             "id, model, purpose, questions, answers, cost, latency_ms, shadow, outcome_label, NULL AS created_at, NULL AS repo_key, NULL AS session_id, NULL AS digest"
+        } else if self.schema_version >= 4 {
+            "id, model, purpose, questions, answers, cost_usd, latency_ms, shadow, outcome_label, created_at, repo_key, session_id, digest"
         } else {
             DECISION_COLUMNS
         }
@@ -190,7 +263,7 @@ impl Store {
     ) -> Result<i64, StoreError> {
         let questions = serde_json::to_string(&decision.questions)?;
         let answers = serde_json::to_string(&decision.answers)?;
-        Ok(self.conn.query_row("INSERT INTO decisions (model, purpose, questions, answers, cost, latency_ms, shadow, created_at, repo_key, session_id, digest) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11) RETURNING id", params![decision.model, decision.purpose, questions, answers, decision.cost_usd, i64::from(decision.latency_ms), decision.shadow, created_at.map(|t| t.0), repo.map(|r| &r.0), session_id, digest], |row| row.get(0))?)
+        Ok(self.conn.query_row("INSERT INTO decisions (model, purpose, questions, answers, cost, latency_ms, shadow, created_at, repo_key, session_id, digest, cost_usd) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12) RETURNING id", params![decision.model, decision.purpose, questions, answers, decision.cost_usd.unwrap_or(0.0), i64::from(decision.latency_ms), decision.shadow, created_at.map(|t| t.0), repo.map(|r| &r.0), session_id, digest, decision.cost_usd], |row| row.get(0))?)
     }
     /// Set an observed outcome label.
     ///

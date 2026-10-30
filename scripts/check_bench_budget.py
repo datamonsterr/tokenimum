@@ -3,7 +3,7 @@
 
 Usage: check_bench_budget.py <bencher-output> <benchmark-prefix> <limit-ns>
 
-The compared value is the upper estimate: mean ns/iter plus the reported deviation.
+The compared value is the upper estimate: median ns/iter plus the reported standard deviation.
 """
 import re
 import sys
@@ -29,12 +29,12 @@ def check(text, name, limit_ns):
         raise ValueError(f"benchmark {name!r} not found in output (found: {sorted(results)})")
     mean, deviation = results[name]
     upper = mean + deviation
-    return mean, upper, upper <= limit_ns
+    return mean, upper, upper < limit_ns
 
 
 def check_prefix(text, prefix, limit_ns):
     results = parse(text)
-    matches = {name: (mean, mean + deviation, mean + deviation <= limit_ns)
+    matches = {name: (mean, mean + deviation, mean + deviation < limit_ns)
                for name, (mean, deviation) in results.items() if name.startswith(prefix)}
     if not matches:
         raise ValueError(f"benchmark prefix {prefix!r} not found in output (found: {sorted(results)})")
@@ -48,7 +48,7 @@ def main(argv):
     with open(argv[1], encoding="utf-8") as source:
         results = check_prefix(source.read(), argv[2], int(argv[3]))
     for name, (mean, upper, _) in results.items():
-        print(f"{name}: mean {mean} ns, upper {upper} ns, limit {argv[3]} ns")
+        print(f"{name}: median {mean} ns, upper {upper} ns, limit {argv[3]} ns")
     if not all(ok for _, _, ok in results.values()):
         print("FAIL: over budget", file=sys.stderr)
         return 1

@@ -346,7 +346,7 @@ impl LiveDaemon {
         assert_eq!(decision.purpose, "loop_guard");
         assert!(decision.shadow);
         assert!(decision.created_at.is_some());
-        assert!(decision.cost_usd > 0.0);
+        assert!(decision.cost_usd.is_some_and(|cost| cost > 0.0));
         assert!(
             decision
                 .digest

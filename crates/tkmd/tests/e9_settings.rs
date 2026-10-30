@@ -21,3 +21,15 @@ fn repository_integration_modes_and_decisions_are_resolved() {
     assert_eq!(settings.superorchestrator_mode, Mode::Off);
     assert!(!settings.decide.enabled);
 }
+
+#[test]
+fn prune_protect_reaches_effective_settings() {
+    let config = tkm_config::config::load(&tkm_config::config::LoadInputs {
+        flags: vec![r#"prune.protect=["custom", "private_*"]"#.into()],
+        ..Default::default()
+    })
+    .unwrap();
+    assert!(config.errors.is_empty());
+    let settings = Settings::from_config(&config);
+    assert_eq!(settings.prune.protect, ["custom", "private_*"]);
+}

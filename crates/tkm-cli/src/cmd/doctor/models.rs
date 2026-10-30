@@ -1,14 +1,11 @@
 //! Explicit probes use the decision client's privacy, deadlines, and budget gates.
 
-use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use tkm_config::config::EffectiveConfig;
-use tkm_decide::api::Question;
 use tkm_decide::budget::InMemoryLedger;
-use tkm_decide::cache::Purpose;
 use tkm_decide::chain::SystemClock;
-use tkm_decide::client::{DecideRequest, DecisionClient, HttpTransport, Outcome};
+use tkm_decide::client::{DecisionClient, HttpTransport, Outcome};
 use tkm_decide::key::ApiKey;
 
 use super::{line, state};
@@ -22,19 +19,8 @@ pub(super) fn probe(
 ) -> Result<bool, CliError> {
     let decide = tkmd::settings::Settings::from_config(config).decide;
     let endpoint = state::env(ctx, "TKM_DECIDE_ENDPOINT").map(str::to_owned);
-    let questions = BTreeMap::from([(
-        "available".to_owned(),
-        Question::Noul {
-            instructions: "Is the probe marker equal to tokenimum?".into(),
-            criteria: None,
-        },
-    )]);
-    let request = DecideRequest {
-        purpose: Purpose::Relevance,
-        session_id: "tkm-doctor-probe".into(),
-        state: "{\"probe_marker\":\"tokenimum\"}".into(),
-        questions: questions.clone(),
-    };
+    let request = tkm_decide::probe::availability_request("tkm-doctor-probe");
+    let questions = request.questions.clone();
     let worker = std::thread::Builder::new()
         .name("tkm-model-probe".into())
         .spawn(move || {
@@ -97,7 +83,7 @@ pub(super) fn probe(
                     purpose: "doctor_probe".into(),
                     questions: questions.clone(),
                     answers,
-                    cost_usd: attempt.cost_usd.unwrap_or(0.0),
+                    cost_usd: attempt.cost_usd,
                     latency_ms: u32::try_from(attempt.latency_ms).unwrap_or(u32::MAX),
                     shadow: true,
                 },
@@ -114,6 +100,12 @@ pub(super) fn probe(
     for (model, outcome) in outcomes {
         let ok = matches!(outcome, Some(Outcome::Decision(_)));
         healthy &= ok;
+        if model.ends_with(":free") {
+            let now = tkmd::clock::Clock::now_ms(&SystemClock);
+            store
+                .record_free_model_probe(&model, ok, i64::try_from(now).unwrap_or(i64::MAX))
+                .map_err(state::failure)?;
+        }
         line(
             ctx,
             if ok { "ok" } else { "fail" },

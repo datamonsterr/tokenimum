@@ -1,6 +1,11 @@
 # ADR 0032: CLI pruning evidence gaps
 
-Date: 2026-10-29. Status: accepted.
+Date: 2026-10-29. Status: pruning decisions superseded 2026-10-30.
+
+The pruning gaps below are closed by the SPEC 7.3 changes recorded in
+[ADR 0050](0050-conformance-gaps.md) and [tool-pruning verification](../verified/tool-pruning.md).
+The original decision is retained as historical context. Calibration is tracked separately in
+ADR 0050.
 
 ## Context
 

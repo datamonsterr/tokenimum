@@ -1,0 +1,117 @@
+name: Private history replay benchmark
+on:
+  workflow_dispatch:
+    inputs:
+      subset:
+        description: Recorded sessions to replay (pilot=5, sample=20; all include 10 controls)
+        type: choice
+        options: [pilot, sample, full]
+        default: pilot
+        required: true
+      confirm_full:
+        description: Confirm the full-history live-model cost
+        type: boolean
+        default: false
+        required: true
+permissions:
+  contents: read
+concurrency:
+  group: private-history-replay
+  cancel-in-progress: false
+jobs:
+  replay:
+    runs-on: namespace-profile-linux-xl
+    timeout-minutes: 4320
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Require explicit full-run confirmation
+        env:
+          SUBSET: ${{ inputs.subset }}
+          CONFIRM_FULL: ${{ inputs.confirm_full }}
+        run: |
+          if [[ "$SUBSET" == full && "$CONFIRM_FULL" != true ]]; then
+            echo 'full requires confirm_full=true' >&2
+            exit 1
+          fi
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Clone A - latest recorded reference, never replayed
+        uses: actions/checkout@v7
+        with:
+          repository: datamonsterr/taphoa-mini
+          ref: main
+          fetch-depth: 0
+          path: taphoa-baseline
+          token: ${{ secrets.REPLAY_REPO_TOKEN }}
+          persist-credentials: false
+      - name: Build benchmark binary and tokenimum hooks (CI only)
+        run: cargo build --release --locked -p tkm-cli -p tkm-hook -p tkmd
+      - name: Fetch and decrypt private transcript bundle
+        env:
+          REPLAY_BUNDLE_URL: ${{ secrets.REPLAY_BUNDLE_URL }}
+          REPLAY_BUNDLE_KEY: ${{ secrets.REPLAY_BUNDLE_KEY }}
+        run: |
+          umask 077
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          import subprocess
+          import urllib.request
+          url = os.environ['REPLAY_BUNDLE_URL']
+          key = os.environ['REPLAY_BUNDLE_KEY']
+          if not url.startswith('https://') or not key or '\n' in key:
+              raise SystemExit('Missing HTTPS bundle URL or passphrase')
+          root = Path(os.environ['RUNNER_TEMP']) / 'replay-private'
+          root.mkdir(mode=0o700)
+          try:
+              with urllib.request.urlopen(url, timeout=120) as response:
+                  encrypted = root / 'bundle.gpg'
+                  with encrypted.open('wb') as output:
+                      import shutil
+                      shutil.copyfileobj(response, output)
+              subprocess.run(['gpg', '--batch', '--pinentry-mode', 'loopback', '--passphrase-fd', '0', '--output', str(root / 'bundle.tar.gz'), '--decrypt', str(encrypted)], input=(key + '\n').encode(), stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, check=True)
+          except Exception:
+              raise SystemExit('Private bundle download/decryption failed; details suppressed') from None
+          PY
+          python3 scripts/replay_bundle.py unpack \
+            --archive "$RUNNER_TEMP/replay-private/bundle.tar.gz" \
+            --destination "$RUNNER_TEMP/replay-private"
+      - name: Install the bundle-pinned Claude Code version in a throwaway HOME
+        run: |
+          umask 077
+          version=$(python3 -c 'import json, os; from pathlib import Path; print(json.loads((Path(os.environ["RUNNER_TEMP"]) / "replay-private/bundle/manifest.json").read_text())["claude_version"])')
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          mkdir -p "$RUNNER_TEMP/replay-installer"
+          curl -fsSL https://claude.ai/install.sh -o "$RUNNER_TEMP/replay-installer/install.sh"
+          HOME="$RUNNER_TEMP/replay-installer" bash "$RUNNER_TEMP/replay-installer/install.sh" "$version" > "$RUNNER_TEMP/replay-installer/install.log" 2>&1
+          echo "$RUNNER_TEMP/replay-installer/.local/bin" >> "$GITHUB_PATH"
+      - name: Print baseline estimate and replay B plus ten no-tokenimum controls
+        env:
+          SUBSET: ${{ inputs.subset }}
+          CONFIRM_FULL: ${{ inputs.confirm_full }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: |
+          extra=()
+          if [[ "$CONFIRM_FULL" == true ]]; then extra+=(--confirm-full); fi
+          python3 scripts/replay_benchmark.py \
+            --bundle "$RUNNER_TEMP/replay-private/bundle" \
+            --reference "$GITHUB_WORKSPACE/taphoa-baseline" \
+            --work "$RUNNER_TEMP/replay-private/run" \
+            --tkm "$GITHUB_WORKSPACE/target/release/tkm" \
+            --report "$GITHUB_WORKSPACE/docs/reports/replay-benchmark.md" \
+            --subset "$SUBSET" "${extra[@]}"
+      - name: Upload aggregate report only
+        uses: actions/upload-artifact@v7
+        with:
+          name: replay-benchmark-${{ inputs.subset }}
+          path: docs/reports/replay-benchmark.md
+          if-no-files-found: error
+          retention-days: 14
+      - name: Remove private bundle, HOME templates and replay output
+        if: always()
+        run: rm -rf -- "$RUNNER_TEMP/replay-private" "$RUNNER_TEMP/replay-installer" "$GITHUB_WORKSPACE/taphoa-baseline"

@@ -199,6 +199,8 @@ impl WebServer {
                             && let Ok(snapshot) = feed_state.reload_snapshot().await
                             && let Ok(mut state) = feed_state.monitor.write()
                         {
+                            state.unknown_session_costs = snapshot.unknown_session_costs;
+                            state.unknown_decision_costs = snapshot.unknown_decision_costs;
                             state.savings = snapshot.savings;
                             state.spend_days = snapshot.spend_days;
                         }
@@ -288,6 +290,11 @@ mod tests {
         std::fs::create_dir_all(dir.path().join(".claude"))?;
         let file = dir.path().join(".claude/settings.local.json");
         std::fs::write(&file, r#"{"permissions":{"deny":["A"]}}"#)?;
+        // Restoring the last owned rule needs the pre-tokenimum baseline.
+        std::fs::write(
+            dir.path().join(".claude/settings.local.json.tkm-bak"),
+            r#"{"permissions":{"deny":[]}}"#,
+        )?;
         let actions = DaemonActions {
             db: paths.db.clone(),
             daemon: Daemon::new(crate::daemon::DaemonOptions::new(paths)),
@@ -331,6 +338,11 @@ mod tests {
         std::fs::create_dir_all(dir.path().join(".claude"))?;
         let file = dir.path().join(".claude/settings.local.json");
         std::fs::write(&file, r#"{"permissions":{"deny":["A","B"]}}"#)?;
+        // Restoring the last owned rule needs the pre-tokenimum baseline.
+        std::fs::write(
+            dir.path().join(".claude/settings.local.json.tkm-bak"),
+            r#"{"permissions":{"deny":[]}}"#,
+        )?;
         let actions = DaemonActions {
             db: paths.db.clone(),
             daemon: Daemon::new(crate::daemon::DaemonOptions::new(paths)),

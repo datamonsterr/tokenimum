@@ -21,6 +21,13 @@ struct Export {
     denylist: Vec<DenylistEntry>,
     installs: Vec<InstallRecord>,
     ledger: Vec<LedgerRecord>,
+    activity: Activity,
+}
+
+#[derive(Serialize)]
+struct Activity {
+    redirects: usize,
+    folds: usize,
 }
 
 /// Export current repository state; digest fields require `--show-digests`.
@@ -74,6 +81,17 @@ pub fn run(ctx: &mut Ctx<'_>, args: &ExportArgs) -> Result<ExitCode, CliError> {
                 evidence.extend(store.list_tool_evidence(&ctx.repo.key, host)?);
             }
         }
+        let activity = Activity {
+            redirects: store
+                .list_recent_events(-1)?
+                .iter()
+                .filter(|e| ids.contains(&e.session_id) && e.kind == "loop.redirect")
+                .count(),
+            folds: sessions
+                .iter()
+                .filter(|s| s.fold_status == "folded")
+                .count(),
+        };
         Ok(Export {
             repo: store.get_repo(&ctx.repo.key)?,
             repo_key: ctx.repo.key.0.clone(),
@@ -84,6 +102,7 @@ pub fn run(ctx: &mut Ctx<'_>, args: &ExportArgs) -> Result<ExitCode, CliError> {
             denylist,
             installs,
             ledger,
+            activity,
         })
     };
     let export = load().map_err(|e| report::store_error(ctx, e))?;

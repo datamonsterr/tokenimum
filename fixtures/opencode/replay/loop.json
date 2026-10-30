@@ -1,0 +1,16 @@
+{
+  "hook": "tool.execute.after",
+  "input": {
+    "tool": "bash",
+    "sessionID": "golden-loop",
+    "args": {
+      "command": "python -m pytest -q"
+    }
+  },
+  "output": {
+    "output": "ImportError: missing module",
+    "metadata": {
+      "exit": 1
+    }
+  }
+}

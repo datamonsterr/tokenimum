@@ -331,7 +331,7 @@ impl Store {
         tool: &str,
         at: Timestamp,
     ) -> Result<(), StoreError> {
-        self.conn.execute("INSERT INTO tool_evidence (repo_key, host, tool, prompts_unused, sessions_unused, last_used) VALUES (?1, ?2, ?3, 0, 0, ?4) ON CONFLICT(repo_key, host, tool) DO UPDATE SET prompts_unused = 0, sessions_unused = 0, last_used = excluded.last_used", params![repo.0, host.as_str(), tool, at.0])?;
+        self.conn.execute("INSERT INTO tool_evidence (repo_key, host, tool, prompts_unused, sessions_unused, last_used) VALUES (?1, ?2, ?3, 0, 0, ?4) ON CONFLICT(repo_key, host, tool) DO UPDATE SET prompts_unused = 0, sessions_unused = 0, last_used = excluded.last_used, ready_since = NULL", params![repo.0, host.as_str(), tool, at.0])?;
         Ok(())
     }
     /// Record tool unused prompt.

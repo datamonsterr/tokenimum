@@ -96,6 +96,15 @@ pub struct DecisionInsert {
     pub digest: Option<String>,
 }
 
+/// Outcome waiting for its decision ID to be persisted.
+#[derive(Debug, Clone)]
+pub struct DecisionOutcome {
+    /// Decision identifier populated by the flusher.
+    pub decision_id: Arc<AtomicI64>,
+    /// Outcome classification.
+    pub label: &'static str,
+}
+
 /// One good-turn length for the envelope ring.
 #[derive(Debug, Clone)]
 pub struct EnvelopeSample {
@@ -107,6 +116,17 @@ pub struct EnvelopeSample {
     pub calls: u32,
 }
 
+/// A delegated session observed by the daemon, persisted through the retrying outbox.
+#[derive(Debug, Clone)]
+pub struct DelegatedRun {
+    /// Repository identity shared across its worktrees.
+    pub repo: RepoKey,
+    /// Natural session key used for deduplication.
+    pub key: SessionKey,
+    /// First observed start time.
+    pub at: Timestamp,
+}
+
 /// Everything waiting to be written.
 #[derive(Debug, Default)]
 pub struct FlushBatch {
@@ -114,12 +134,16 @@ pub struct FlushBatch {
     pub repos: VecDeque<Repo>,
     /// Session rows.
     pub sessions: VecDeque<SessionUpsert>,
+    /// Timestamped delegated sessions.
+    pub delegated: VecDeque<DelegatedRun>,
     /// Turn rows.
     pub turns: VecDeque<TurnUpsert>,
     /// Event rows.
     pub events: VecDeque<EventInsert>,
     /// Decision rows.
     pub decisions: VecDeque<DecisionInsert>,
+    /// Observed decision outcomes.
+    pub outcomes: VecDeque<DecisionOutcome>,
     /// Envelope samples.
     pub envelope: VecDeque<EnvelopeSample>,
     /// Calibration rows.
@@ -131,9 +155,11 @@ impl FlushBatch {
     pub fn is_empty(&self) -> bool {
         self.repos.is_empty()
             && self.sessions.is_empty()
+            && self.delegated.is_empty()
             && self.turns.is_empty()
             && self.events.is_empty()
             && self.decisions.is_empty()
+            && self.outcomes.is_empty()
             && self.envelope.is_empty()
             && self.calibration.is_empty()
     }
@@ -153,12 +179,25 @@ impl FlushBatch {
         }
         merge!(repos);
         merge!(sessions);
+        merge!(delegated);
         merge!(turns);
         merge!(events);
         merge!(decisions);
+        merge!(outcomes);
         merge!(envelope);
         merge!(calibration);
         dropped
+    }
+
+    /// Queues a delegated observation once per repository and session.
+    pub fn push_delegated(&mut self, run: DelegatedRun) {
+        if !self
+            .delegated
+            .iter()
+            .any(|queued| queued.repo == run.repo && queued.key == run.key)
+        {
+            self.delegated.push_back(run);
+        }
     }
 
     /// Queues a session upsert, replacing an older queued upsert of the same session.
@@ -228,6 +267,10 @@ pub fn apply(store: &Store, batch: &mut FlushBatch) -> Result<(), StoreError> {
         );
         batch.sessions.pop_front();
     }
+    while let Some(run) = batch.delegated.front() {
+        store.record_delegated_run(&run.repo, &run.key, run.at)?;
+        batch.delegated.pop_front();
+    }
     for _ in 0..batch.turns.len() {
         let Some(turn) = batch.turns.front() else {
             break;
@@ -269,6 +312,20 @@ pub fn apply(store: &Store, batch: &mut FlushBatch) -> Result<(), StoreError> {
         )?;
         item.evidence_id.store(id, Ordering::Release);
         batch.decisions.pop_front();
+    }
+    for _ in 0..batch.outcomes.len() {
+        let Some(outcome) = batch.outcomes.front() else {
+            break;
+        };
+        let id = outcome.decision_id.load(Ordering::Acquire);
+        if id == 0 {
+            if let Some(outcome) = batch.outcomes.pop_front() {
+                batch.outcomes.push_back(outcome);
+            }
+            continue;
+        }
+        store.set_decision_outcome(id, outcome.label)?;
+        batch.outcomes.pop_front();
     }
     for _ in 0..batch.events.len() {
         let Some(event) = batch.events.front() else {
@@ -406,7 +463,7 @@ mod tests {
                 purpose: "loop_guard".into(),
                 questions: serde_json::json!({}),
                 answers: serde_json::json!({}),
-                cost_usd: 0.0,
+                cost_usd: Some(0.0),
                 latency_ms: 1,
                 shadow: false,
             },
@@ -608,5 +665,53 @@ mod tests {
         current.requeue(rest);
         let calls: Vec<u32> = current.envelope.iter().map(|s| s.calls).collect();
         assert_eq!(calls, vec![1, 2]);
+    }
+}
+
+#[cfg(test)]
+mod delegated_prune_tests {
+    use super::*;
+
+    #[test]
+    fn delegated_outbox_retries_without_double_counting() {
+        let store = Store::open_in_memory().unwrap();
+        let repo = RepoKey("delegation".into());
+        let key = SessionKey {
+            host: Host::Claude,
+            agent_home: "test".into(),
+            session_id: "run".into(),
+        };
+        let mut batch = FlushBatch::default();
+        batch.push_delegated(DelegatedRun {
+            repo: repo.clone(),
+            key: key.clone(),
+            at: Timestamp(500),
+        });
+        assert!(apply(&store, &mut batch).is_err());
+        assert!(!batch.is_empty());
+        let mut queued = FlushBatch::default();
+        queued.requeue(batch);
+        queued.push_repo(Repo {
+            repo_key: repo.clone(),
+            display_name: "test".into(),
+            first_seen: Timestamp(0),
+            last_seen: Timestamp(0),
+            delegated_runs: 0,
+        });
+        apply(&store, &mut queued).unwrap();
+        assert!(queued.is_empty());
+        queued.push_delegated(DelegatedRun {
+            repo: repo.clone(),
+            key,
+            at: Timestamp(600),
+        });
+        apply(&store, &mut queued).unwrap();
+        assert_eq!(store.get_repo(&repo).unwrap().unwrap().delegated_runs, 1);
+        assert_eq!(
+            store
+                .last_delegated_run_within(&repo, Timestamp(700))
+                .unwrap(),
+            Some(Timestamp(500))
+        );
     }
 }

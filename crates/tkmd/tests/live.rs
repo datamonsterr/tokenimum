@@ -7,24 +7,28 @@ mod common;
 use std::sync::Arc;
 
 use common::*;
-use tkm_decide::calibrate::{CalibrationKey, CalibrationStore as _, Thresholds};
 use tkm_decide::client::{NoDecisionReason, Outcome};
 use tkm_proto::Host;
 use tkmd::settings::{LoopMode, Settings};
 
-fn calibrate(daemon: &tkmd::daemon::Daemon) {
-    daemon.calibration().put(
-        CalibrationKey {
-            model_version: MODEL.into(),
-            purpose: "loop_guard".into(),
-        },
-        Thresholds::default(),
-    );
+fn calibrate(env: &Env, daemon: &tkmd::daemon::Daemon) {
+    let row = tkm_store::CalibrationRecord {
+        model_version: MODEL.into(),
+        purpose: "loop_guard".into(),
+        thresholds: serde_json::json!({"t_stuck": 0.85, "t_progress": 0.3, "t_low": 0.3, "t_high": 0.8}),
+        sample_count: 200,
+        precision: 0.9,
+        recall: 0.6,
+    };
+    env.store().upsert_calibration(&row).unwrap();
+    daemon.calibration().refresh(&[row]);
 }
 
 fn redirect_settings() -> Settings {
     Settings {
         loop_mode: LoopMode::Redirect,
+        shadow_days: 0,
+        shadow_turns: 0,
         ..Settings::default()
     }
 }
@@ -46,7 +50,7 @@ async fn undelivered_redirect_does_not_leak_into_next_turn() {
         .adapters()
         .register(Box::new(ToolBlind(tkm_hosts::claude::ClaudeAdapter::new())));
     daemon.start_workers();
-    calibrate(&daemon);
+    calibrate(&env, &daemon);
     daemon.handle(session_start()).await;
     daemon.handle(prompt()).await;
     run_calls(&daemon, 18);
@@ -63,7 +67,7 @@ async fn stuck_sequence_opens_gate_judges_once_and_redirects_on_a_later_call() {
     let decider = ScriptedDecider::new(stuck_decision());
     let daemon = daemon_with(&env, redirect_settings(), decider.clone());
     daemon.start_workers();
-    calibrate(&daemon);
+    calibrate(&env, &daemon);
     daemon.handle(session_start()).await;
     daemon.handle(prompt()).await;
 
@@ -138,7 +142,7 @@ async fn verdict_is_dropped_when_the_turn_ends_first() {
     let (decider, gate) = ScriptedDecider::gated(stuck_decision());
     let daemon = daemon_with(&env, redirect_settings(), decider.clone());
     daemon.start_workers();
-    calibrate(&daemon);
+    calibrate(&env, &daemon);
     daemon.handle(session_start()).await;
     daemon.handle(prompt()).await;
     run_calls(&daemon, 18);
@@ -163,6 +167,34 @@ async fn verdict_is_dropped_when_the_turn_ends_first() {
 }
 
 #[tokio::test]
+async fn calibrated_redirect_stays_shadowed_during_initial_window() {
+    let env = Env::new();
+    env.seed_envelope(FIXTURE_REPO, Host::Claude, &[5; 5]);
+    let daemon = daemon_with(
+        &env,
+        Settings::default(),
+        ScriptedDecider::new(stuck_decision()),
+    );
+    daemon.start_workers();
+    calibrate(&env, &daemon);
+    daemon.handle(session_start()).await;
+    daemon.handle(prompt()).await;
+    run_calls(&daemon, 18);
+    daemon.settle().await;
+    assert!(additional_context(&daemon.handle_tool_done(&failing_tool_done())).is_none());
+    daemon.flush_now().await;
+    let store = tkm_store::open_read_only(&env.paths.db).unwrap();
+    let shadow: i64 = store
+        .query_row(
+            "SELECT COUNT(*) FROM decisions WHERE purpose='loop_guard' AND shadow=1",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(shadow, 1);
+}
+
+#[tokio::test]
 async fn shadow_mode_records_decision_and_event_and_injects_nothing() {
     let env = Env::new();
     env.seed_envelope(FIXTURE_REPO, Host::Claude, &[5; 5]);
@@ -173,7 +205,7 @@ async fn shadow_mode_records_decision_and_event_and_injects_nothing() {
     };
     let daemon = daemon_with(&env, settings, decider.clone());
     daemon.start_workers();
-    calibrate(&daemon); // calibrated, but the configured mode is shadow
+    calibrate(&env, &daemon); // calibrated, but the configured mode is shadow
     daemon.handle(session_start()).await;
     daemon.handle(prompt()).await;
     let first = run_calls(&daemon, 18);
@@ -295,7 +327,7 @@ async fn second_stuck_segment_after_the_redirect_budget_escalates_with_a_notice(
     let decider = ScriptedDecider::new(stuck_decision());
     let daemon = daemon_with(&env, redirect_settings(), decider.clone());
     daemon.start_workers();
-    calibrate(&daemon);
+    calibrate(&env, &daemon);
     daemon.handle(session_start()).await;
     daemon.handle(prompt()).await;
     let mut all = String::new();
@@ -323,4 +355,78 @@ async fn second_stuck_segment_after_the_redirect_budget_escalates_with_a_notice(
         .unwrap();
     assert_eq!(escalations, 1);
     let _ = Arc::strong_count(&decider);
+}
+
+#[tokio::test]
+async fn judged_turn_outcomes_label_decisions_for_calibration() {
+    for (interrupted, expected) in [(true, "stuck"), (false, "progress")] {
+        let env = Env::new();
+        env.seed_envelope(FIXTURE_REPO, Host::Claude, &[5; 5]);
+        let daemon = daemon_with(
+            &env,
+            Settings {
+                loop_mode: LoopMode::Shadow,
+                ..Settings::default()
+            },
+            ScriptedDecider::new(stuck_decision()),
+        );
+        daemon.start_workers();
+        daemon.handle(session_start()).await;
+        daemon.handle(prompt()).await;
+        run_calls(&daemon, 18);
+        daemon.settle().await;
+        if interrupted {
+            daemon.handle(prompt()).await;
+        } else {
+            daemon.handle_tool_done(&tool_done());
+            daemon.handle(stop()).await;
+        }
+        daemon.flush_now().await;
+        let db = tkm_store::open_read_only(&env.paths.db).unwrap();
+        let actual: Option<String> = db
+            .query_row(
+                "SELECT outcome_label FROM decisions WHERE purpose = 'loop_guard'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(actual.as_deref(), Some(expected));
+    }
+}
+
+#[tokio::test]
+async fn below_target_precision_keeps_loop_decisions_in_shadow() {
+    let env = Env::new();
+    env.seed_envelope(FIXTURE_REPO, Host::Claude, &[5; 5]);
+    env.store().upsert_calibration(&tkm_store::CalibrationRecord {
+        model_version: MODEL.into(), purpose: "loop_guard".into(),
+        thresholds: serde_json::json!({"t_stuck":0.85,"t_progress":0.3,"t_low":0.3,"t_high":0.8}),
+        sample_count: 200, precision: 0.899, recall: 0.8,
+    }).unwrap();
+    let daemon = daemon_with(
+        &env,
+        redirect_settings(),
+        ScriptedDecider::new(stuck_decision()),
+    );
+    daemon.start_workers();
+    daemon.handle(session_start()).await;
+    daemon.handle(prompt()).await;
+    run_calls(&daemon, 18);
+    daemon.settle().await;
+    assert!(
+        daemon
+            .handle_tool_done(&failing_tool_done())
+            .stdout
+            .is_empty()
+    );
+    daemon.flush_now().await;
+    let db = tkm_store::open_read_only(&env.paths.db).unwrap();
+    let shadow: i64 = db
+        .query_row(
+            "SELECT shadow FROM decisions WHERE purpose = 'loop_guard'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(shadow, 1);
 }

@@ -51,6 +51,10 @@ pub struct MonitorState {
     pub spend: Option<SpendUpdate>,
     /// Daily ledger totals for the seven most recent days.
     pub spend_days: Vec<(String, f64)>,
+    /// Count of durable decisions with unknown cost.
+    pub unknown_decision_costs: u64,
+    /// Count of sessions whose cost is unknown.
+    pub unknown_session_costs: u64,
     /// Ledger cost samples.
     pub savings: Vec<Savings>,
     /// Facts and their lifecycle states.
@@ -163,7 +167,7 @@ impl MonitorState {
 /// Returns an error if SQLite or a stored JSON value cannot be read.
 pub fn load_snapshot(conn: &Connection) -> Result<MonitorState, crate::Error> {
     let mut state = MonitorState::default();
-    let mut query = conn.prepare("SELECT s.host,s.session_id,s.repo_key,s.fold_status,COALESCE((SELECT calls FROM turns WHERE session_id=s.id ORDER BY turn_idx DESC LIMIT 1),0),(SELECT id FROM events WHERE session_id=s.id ORDER BY id DESC LIMIT 1) FROM sessions s WHERE s.ended_at IS NULL ORDER BY s.id")?;
+    let mut query = conn.prepare("SELECT s.host,s.session_id,s.repo_key,s.fold_status,COALESCE((SELECT calls FROM turns WHERE session_id=s.id ORDER BY turn_idx DESC LIMIT 1),0),(SELECT id FROM events WHERE session_id=s.id ORDER BY id DESC LIMIT 1),(SELECT turn_idx FROM turns WHERE session_id=s.id ORDER BY turn_idx DESC LIMIT 1) FROM sessions s WHERE s.ended_at IS NULL ORDER BY s.id")?;
     for row in query.query_map([], |row| {
         Ok((
             row.get::<_, String>(0)?,
@@ -172,13 +176,15 @@ pub fn load_snapshot(conn: &Connection) -> Result<MonitorState, crate::Error> {
             row.get::<_, String>(3)?,
             row.get::<_, u32>(4)?,
             row.get::<_, Option<i64>>(5)?,
+            row.get::<_, Option<i64>>(6)?,
         ))
     })? {
-        let (host, session_id, repo, phase, turn_calls, event_id) = row?;
+        let (host, session_id, repo, phase, turn_calls, event_id, turn_id) = row?;
         if let Ok(host) = host.parse() {
             state.sessions.push(SessionUpdate {
                 host,
                 session_id,
+                turn_id: turn_id.and_then(|turn| u64::try_from(turn).ok()),
                 repo: Some(repo),
                 phase,
                 turn_calls,
@@ -188,7 +194,13 @@ pub fn load_snapshot(conn: &Connection) -> Result<MonitorState, crate::Error> {
             state.session_event_ids.push(event_id);
         }
     }
-    let mut query = conn.prepare("SELECT purpose,model,latency_ms,cost,shadow,answers,id FROM (SELECT * FROM decisions ORDER BY id DESC LIMIT 1000) ORDER BY id")?;
+    let version: i64 = conn.pragma_query_value(None, "user_version", |row| row.get(0))?;
+    let decisions_sql = if version >= 4 {
+        "SELECT purpose,model,latency_ms,cost_usd,shadow,answers,id FROM (SELECT * FROM decisions WHERE cost_usd IS NOT NULL ORDER BY id DESC LIMIT 1000) ORDER BY id"
+    } else {
+        "SELECT purpose,model,latency_ms,cost,shadow,answers,id FROM (SELECT * FROM decisions ORDER BY id DESC LIMIT 1000) ORDER BY id"
+    };
+    let mut query = conn.prepare(decisions_sql)?;
     for row in query.query_map([], |row| {
         Ok((
             row.get::<_, String>(0)?,
@@ -215,21 +227,24 @@ pub fn load_snapshot(conn: &Connection) -> Result<MonitorState, crate::Error> {
         });
         state.decision_ids.push_back(Some(id));
     }
-    let mut query = conn.prepare(
-        "SELECT repo_key,fact_id,state,score,confirmations FROM facts WHERE state IN ('active','candidate') OR rowid IN (SELECT rowid FROM facts WHERE state='retired' ORDER BY rowid DESC LIMIT 100) ORDER BY repo_key,fact_id",
-    )?;
-    state.facts = query
-        .query_map([], |row| {
-            Ok(Fact {
-                repo: row.get(0)?,
-                fact_id: row.get(1)?,
-                state: row.get(2)?,
-                score: Some(row.get(3)?),
-                confirmations: Some(row.get(4)?),
-            })
-        })?
-        .collect::<rusqlite::Result<_>>()?;
-    let mut query = conn.prepare("SELECT repo_key,host,priced_cost,shadow FROM (SELECT s.repo_key,s.host,l.priced_cost,s.shadow,s.started_at FROM ledger l JOIN sessions s ON s.id=l.session_id ORDER BY s.started_at DESC LIMIT 1000) ORDER BY started_at")?;
+    state.facts = load_facts(conn)?;
+    if version >= 4 {
+        state.unknown_decision_costs = unknown_decision_costs(conn)?;
+    }
+    let price = if version >= 4 {
+        "l.priced_cost_usd"
+    } else {
+        "NULLIF(l.priced_cost, 0)"
+    };
+    state.unknown_session_costs = count(conn.query_row(
+        &format!("SELECT count(*) FROM ledger l WHERE {price} IS NULL"),
+        [],
+        |row| row.get::<_, i64>(0),
+    )?)?;
+    let sql = format!(
+        "SELECT repo_key,host,priced_cost,shadow FROM (SELECT s.repo_key,s.host,{price} AS priced_cost,s.shadow,s.started_at FROM ledger l JOIN sessions s ON s.id=l.session_id WHERE {price} IS NOT NULL ORDER BY s.started_at DESC LIMIT 1000) ORDER BY started_at"
+    );
+    let mut query = conn.prepare(&sql)?;
     state.savings = query
         .query_map([], |row| {
             Ok(Savings {
@@ -240,7 +255,10 @@ pub fn load_snapshot(conn: &Connection) -> Result<MonitorState, crate::Error> {
             })
         })?
         .collect::<rusqlite::Result<_>>()?;
-    let mut query = conn.prepare("SELECT day, cost FROM (SELECT date(s.started_at / 1000, 'unixepoch') AS day, sum(l.priced_cost) AS cost FROM ledger l JOIN sessions s ON s.id=l.session_id GROUP BY day ORDER BY day DESC LIMIT 7) ORDER BY day")?;
+    let sql = format!(
+        "SELECT day, cost FROM (SELECT date(s.started_at / 1000, 'unixepoch') AS day, sum({price}) AS cost FROM ledger l JOIN sessions s ON s.id=l.session_id WHERE {price} IS NOT NULL GROUP BY day ORDER BY day DESC LIMIT 7) ORDER BY day"
+    );
+    let mut query = conn.prepare(&sql)?;
     state.spend_days = query
         .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
         .collect::<rusqlite::Result<_>>()?;
@@ -267,6 +285,16 @@ fn load_redirects(conn: &Connection, state: &mut MonitorState) -> Result<(), cra
             state.redirects.push_back(RedirectNotice {
                 host,
                 session_id,
+                triggering_calls: inputs["triggering_calls"]
+                    .as_array()
+                    .map(|calls| {
+                        calls
+                            .iter()
+                            .filter_map(serde_json::Value::as_str)
+                            .map(str::to_owned)
+                            .collect()
+                    })
+                    .unwrap_or_default(),
                 kind,
                 text: params["detail"].as_str().unwrap_or_default().to_owned(),
                 shadow: inputs["shadow"].as_bool().unwrap_or(false),
@@ -275,4 +303,35 @@ fn load_redirects(conn: &Connection, state: &mut MonitorState) -> Result<(), cra
         }
     }
     Ok(())
+}
+
+fn count(value: i64) -> rusqlite::Result<u64> {
+    u64::try_from(value).map_err(|_| rusqlite::Error::IntegralValueOutOfRange(0, value))
+}
+
+fn load_facts(conn: &Connection) -> Result<Vec<Fact>, crate::Error> {
+    let mut query = conn.prepare(
+        "SELECT repo_key,fact_id,state,score,confirmations FROM facts WHERE state IN ('active','candidate') OR rowid IN (SELECT rowid FROM facts WHERE state='retired' ORDER BY rowid DESC LIMIT 100) ORDER BY repo_key,fact_id",
+    )?;
+    let facts = query
+        .query_map([], |row| {
+            Ok(Fact {
+                repo: row.get(0)?,
+                fact_id: row.get(1)?,
+                state: row.get(2)?,
+                score: Some(row.get(3)?),
+                confirmations: Some(row.get(4)?),
+            })
+        })?
+        .collect::<rusqlite::Result<_>>()?;
+    Ok(facts)
+}
+
+fn unknown_decision_costs(conn: &Connection) -> Result<u64, crate::Error> {
+    let unknown = conn.query_row(
+        "SELECT (SELECT count(*) FROM spend_attempts WHERE json_extract(record, '$.cost_usd') IS NULL) + (SELECT count(*) FROM decisions WHERE cost_usd IS NULL AND (id <= (SELECT legacy_decision_max FROM spend_migration) OR purpose IN ('models_probe','doctor_probe')))",
+        [],
+        |row| row.get::<_, i64>(0),
+    )?;
+    Ok(count(unknown)?)
 }

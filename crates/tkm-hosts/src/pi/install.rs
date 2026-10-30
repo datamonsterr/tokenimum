@@ -32,3 +32,6 @@ pub(super) fn uninstall(context: &InstallContext) -> Result<InstallReport, Adapt
         dry_run: context.dry_run,
     })
 }
+
+/// Verified project-local pruning settings path.
+pub(crate) const DENY_PATH: &str = ".pi/settings.json";

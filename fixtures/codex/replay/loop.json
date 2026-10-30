@@ -1,0 +1,14 @@
+{
+  "session_id": "golden-loop",
+  "cwd": "/synthetic/repo",
+  "hook_event_name": "PostToolUse",
+  "tool_name": "Bash",
+  "tool_input": {
+    "command": "python -m pytest -q"
+  },
+  "error": "ImportError: missing module",
+  "tool_response": {
+    "exit_code": 1,
+    "output": "ImportError: missing module"
+  }
+}

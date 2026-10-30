@@ -525,3 +525,50 @@ fn quoted_dotted_key_is_not_a_registered_key() {
         );
     }
 }
+
+#[test]
+fn process_environment_variables_are_not_unknown_config_keys() {
+    let t = Temp::new();
+    let mut i = inputs(&t);
+    for name in [
+        "TKM_TKMD_BIN",
+        "TKM_PROBE_EVENTS",
+        "TKM_HOST",
+        "TKM_SESSION_ID",
+        "TKM_DELEGATED",
+    ] {
+        i.env.push((name.into(), "x".into()));
+    }
+    let config = load(&i).unwrap();
+    assert!(config.errors.is_empty(), "{:?}", config.errors);
+}
+
+#[test]
+fn prune_protect_is_a_layered_string_list_and_rejects_wrong_types() {
+    let t = Temp::new();
+    let i = inputs(&t);
+    assert_eq!(
+        load(&i).unwrap().get_list("prune.protect"),
+        Some([].as_slice())
+    );
+    fs::write(
+        t.0.join(".tokenimum.toml"),
+        "[prune]\nprotect = ['my_tool', 'mcp__private__*']\n",
+    )
+    .unwrap();
+    let config = load(&i).unwrap();
+    assert!(config.errors.is_empty());
+    assert_eq!(
+        config.get_list("prune.protect").unwrap(),
+        ["my_tool", "mcp__private__*"]
+    );
+    let mut file = ConfigFile::load(t.0.join(".tokenimum.local.toml"), Layer::RepoLocal).unwrap();
+    file.set("prune.protect", r#"["local_tool"]"#).unwrap();
+    file.save().unwrap();
+    assert_eq!(
+        load(&i).unwrap().get_list("prune.protect").unwrap(),
+        ["local_tool"]
+    );
+    assert!(file.set("prune.protect", "true").is_err());
+    assert!(file.set("prune.protect", "[1]").is_err());
+}

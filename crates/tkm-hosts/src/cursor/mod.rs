@@ -1,6 +1,7 @@
 //! Cursor adapter: hook mapping, replies, transcript reading, and installation.
 
 mod install;
+pub(crate) use install::DENY_PATH;
 mod map;
 mod reader;
 mod reply;

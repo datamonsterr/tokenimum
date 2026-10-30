@@ -12,7 +12,7 @@ fn decision() -> NewDecision {
         purpose: "stuck".into(),
         questions: json!([{"id":"q"}]),
         answers: json!({"q":0.9}),
-        cost_usd: 0.001,
+        cost_usd: Some(0.001),
         latency_ms: 123,
         shadow: true,
     }
@@ -37,7 +37,7 @@ fn roundtrip_decisions() {
     assert_eq!(first.purpose, item.purpose);
     assert_eq!(first.questions, item.questions);
     assert_eq!(first.answers, item.answers);
-    assert_eq!(first.cost_usd.to_bits(), item.cost_usd.to_bits());
+    assert_eq!(first.cost_usd, item.cost_usd);
     assert_eq!(first.latency_ms, item.latency_ms);
     assert_eq!(first.shadow, item.shadow);
     assert_eq!(first.outcome_label, None);
@@ -148,4 +148,42 @@ fn delete_install_removes_row() {
         store.get_install(item.host, &item.agent_home).unwrap(),
         None
     );
+}
+
+#[test]
+fn unknown_decision_cost_round_trips_as_null() {
+    let store = Store::open_in_memory().unwrap();
+    let mut item = decision();
+    item.cost_usd = None;
+    let id = store.insert_decision(&item).unwrap();
+    let stored = store.get_decision(id).unwrap().unwrap();
+    assert_eq!(stored.cost_usd, None);
+    assert!(serde_json::to_value(stored).unwrap()["cost_usd"].is_null());
+}
+
+#[test]
+fn shadow_window_persists_first_decision_and_distinct_judged_turns() {
+    let path = std::env::temp_dir().join(format!("tkm-shadow-{}.sqlite", std::process::id()));
+    let _ = std::fs::remove_file(&path);
+    let key = tkm_store::SessionKey {
+        host: tkm_core::model::Host::Claude,
+        agent_home: "/home/test".into(),
+        session_id: "session".into(),
+    };
+    let store = tkm_store::Store::open(&path).unwrap();
+    store
+        .record_judged_turn(&key, 0, tkm_core::model::Timestamp(1_000))
+        .unwrap();
+    store
+        .record_judged_turn(&key, 0, tkm_core::model::Timestamp(2_000))
+        .unwrap();
+    drop(store);
+    let store = tkm_store::Store::open(&path).unwrap();
+    assert_eq!(store.shadow_window().unwrap(), Some((1_000, 1)));
+    store
+        .record_judged_turn(&key, 1, tkm_core::model::Timestamp(3_000))
+        .unwrap();
+    assert_eq!(store.shadow_window().unwrap(), Some((1_000, 2)));
+    drop(store);
+    let _ = std::fs::remove_file(path);
 }

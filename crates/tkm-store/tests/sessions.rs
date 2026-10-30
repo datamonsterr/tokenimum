@@ -140,9 +140,9 @@ fn roundtrip_ledger() {
             cache_read: 30,
             cache_write: 40,
         },
-        priced_cost: 1.5,
+        priced_cost: Some(1.5),
         overhead_tokens: 7,
-        overhead_cost: 0.25,
+        overhead_cost: Some(0.25),
     };
     store.upsert_ledger(&ledger).unwrap();
     assert_eq!(store.get_ledger(id).unwrap(), Some(ledger.clone()));
@@ -158,9 +158,9 @@ fn ledger_rejects_u64_overflow() {
     let mut ledger = LedgerRecord {
         session_id: id,
         usage: Usage::default(),
-        priced_cost: 0.0,
+        priced_cost: Some(0.0),
         overhead_tokens: 0,
-        overhead_cost: 0.0,
+        overhead_cost: Some(0.0),
     };
     for field in 0..5 {
         ledger.usage = Usage::default();
@@ -175,4 +175,48 @@ fn ledger_rejects_u64_overflow() {
         assert!(store.upsert_ledger(&ledger).is_err());
     }
     assert_eq!(store.get_ledger(id).unwrap(), None);
+}
+
+#[test]
+fn skill_evidence_is_persistent_per_session_and_replaceable() {
+    let (store, session) = setup();
+    let id = store.upsert_session(&session).unwrap();
+    let mut report = tkm_core::prune::skills::SkillReport::default();
+    report.skills.insert(
+        "review".into(),
+        tkm_core::prune::skills::SkillUsage {
+            loaded_sessions: 1,
+            invocations: 2,
+        },
+    );
+    store.replace_skill_evidence(id, &report).unwrap();
+    store.replace_skill_evidence(id, &report).unwrap();
+    assert_eq!(store.skill_evidence(&session.repo_key).unwrap(), report);
+    store
+        .replace_skill_evidence(id, &tkm_core::prune::skills::SkillReport::default())
+        .unwrap();
+    assert!(
+        store
+            .skill_evidence(&session.repo_key)
+            .unwrap()
+            .skills
+            .is_empty()
+    );
+}
+
+#[test]
+fn unknown_session_cost_round_trips_as_null() {
+    let (store, session) = setup();
+    let id = store.upsert_session(&session).unwrap();
+    let ledger = LedgerRecord {
+        session_id: id,
+        usage: Usage::default(),
+        priced_cost: None,
+        overhead_tokens: 0,
+        overhead_cost: Some(0.0),
+    };
+    store.upsert_ledger(&ledger).unwrap();
+    let stored = store.get_ledger(id).unwrap().unwrap();
+    assert_eq!(stored.priced_cost, None);
+    assert!(serde_json::to_value(stored).unwrap()["priced_cost"].is_null());
 }

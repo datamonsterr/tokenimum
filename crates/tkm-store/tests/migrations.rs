@@ -80,7 +80,7 @@ fn read_only_refuses_writes_and_missing_files() {
 }
 
 #[test]
-fn schema_snapshot_and_all_twelve_tables() {
+fn schema_snapshot_includes_all_tables() {
     let temp = TempDir::new();
     let path = temp.db();
     drop(Store::open(&path).unwrap());
@@ -105,14 +105,24 @@ fn schema_snapshot_and_all_twelve_tables() {
         [
             "calibration",
             "decisions",
+            "delegated_run_history",
             "denylist_applied",
             "envelopes",
             "events",
             "facts",
+            "free_model_probe_schedule",
+            "free_model_probes",
+            "host_event_probes",
+            "host_health",
             "installs",
             "ledger",
             "repos",
             "sessions",
+            "shadow_judgments",
+            "skill_evidence",
+            "skill_evidence_sessions",
+            "spend_attempts",
+            "spend_migration",
             "tool_evidence",
             "turns"
         ]

@@ -3,8 +3,10 @@ use crate::{AdapterError, SessionSource, digest, writer::invalid};
 use rusqlite::{Connection, OpenFlags, OptionalExtension};
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
-use std::io;
+use std::io::{self, Read};
 use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
+use std::time::{Duration, Instant};
 use tkm_core::model::{Call, Host, Session, StopReason, Timestamp, ToolDef, ToolKind, Turn, Usage};
 
 const BUILTIN_TOOLS: [&str; 22] = [
@@ -36,22 +38,202 @@ fn sql(error: rusqlite::Error) -> AdapterError {
     AdapterError::Io(io::Error::other(error))
 }
 
-/// Resolves the source to `opencode.db`. The legacy `storage/` JSON tree is
-/// not read (ADR 0025); the caller falls back to fold-only reporting.
-fn database(path: &Path) -> Result<PathBuf, AdapterError> {
-    if !path.is_dir() {
-        return Ok(path.to_path_buf());
+fn database(path: &Path) -> Option<PathBuf> {
+    if path.is_file() {
+        return Some(path.to_path_buf());
     }
     let candidate = path.join("opencode.db");
-    if candidate.is_file() {
-        Ok(candidate)
-    } else if path.join("storage").is_dir() {
-        Err(AdapterError::Unsupported {
-            operation: "opencode legacy storage directory (no opencode.db)".to_owned(),
+    candidate.is_file().then_some(candidate)
+}
+
+fn json_files(path: &Path) -> Vec<Value> {
+    let Ok(entries) = std::fs::read_dir(path) else {
+        return Vec::new();
+    };
+    let mut paths: Vec<_> = entries
+        .flatten()
+        .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_file()))
+        .map(|entry| entry.path())
+        .collect();
+    paths.sort();
+    paths
+        .into_iter()
+        .map(|path| {
+            std::fs::read_to_string(path)
+                .ok()
+                .and_then(|text| parse(&text))
+                .unwrap_or(Value::Null)
         })
+        .collect()
+}
+
+fn legacy(source: &SessionSource) -> Option<Value> {
+    let root = if source
+        .path
+        .extension()
+        .is_some_and(|extension| extension == "db")
+    {
+        source.path.parent().unwrap_or(&source.path)
     } else {
-        Err(io::Error::new(io::ErrorKind::NotFound, "opencode.db not found").into())
+        &source.path
+    };
+    let storage = if root.file_name().is_some_and(|name| name == "storage") {
+        root.to_path_buf()
+    } else {
+        root.join("storage")
+    };
+    let sessions = std::fs::read_dir(storage.join("session")).ok()?;
+    let info = sessions
+        .flatten()
+        .filter_map(|entry| {
+            std::fs::read_to_string(entry.path().join(format!("{}.json", source.session_id))).ok()
+        })
+        .filter_map(|text| parse(&text))
+        .find(|value| {
+            value.get("id").and_then(Value::as_str) == Some(source.session_id.as_str())
+        })?;
+    let mut messages = json_files(&storage.join("message").join(&source.session_id));
+    messages.sort_by_key(|message| {
+        (
+            message
+                .pointer("/time/created")
+                .and_then(Value::as_i64)
+                .unwrap_or_default(),
+            message
+                .get("id")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_owned(),
+        )
+    });
+    let messages: Vec<_> = messages
+        .into_iter()
+        .map(|info| {
+            let parts = info
+                .get("id")
+                .and_then(Value::as_str)
+                .filter(|id| {
+                    !id.is_empty()
+                        && !id.contains('/')
+                        && !id.contains('\\')
+                        && *id != "."
+                        && *id != ".."
+                })
+                .map_or_else(Vec::new, |id| json_files(&storage.join("part").join(id)));
+            serde_json::json!({"info": info, "parts": parts})
+        })
+        .collect();
+    Some(serde_json::json!({"info": info, "messages": messages}))
+}
+
+fn export(source: &SessionSource) -> Result<Value, AdapterError> {
+    let mut command = Command::new("opencode");
+    command
+        .args(["export", &source.session_id])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null());
+    if source.cwd.is_dir() {
+        command.current_dir(&source.cwd);
     }
+    let mut child = command.spawn()?;
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| invalid("opencode export stdout unavailable"))?;
+    let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+    std::thread::spawn(move || {
+        let mut bytes = Vec::new();
+        let result = stdout
+            .take(256 * 1024 * 1024 + 1)
+            .read_to_end(&mut bytes)
+            .map(|_| bytes);
+        let _ = sender.send(result);
+    });
+    let deadline = Instant::now() + Duration::from_secs(30);
+    let status = loop {
+        if let Some(status) = child.try_wait()? {
+            break status;
+        }
+        if Instant::now() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(invalid("opencode export timed out"));
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    };
+    if !status.success() {
+        return Err(invalid("opencode export failed"));
+    }
+    let bytes = receiver
+        .recv_timeout(deadline.saturating_duration_since(Instant::now()))
+        .map_err(|_| invalid("opencode export read timed out"))??;
+    if bytes.len() > 256 * 1024 * 1024 {
+        return Err(invalid("opencode export too large"));
+    }
+    Ok(serde_json::from_slice(&bytes)?)
+}
+
+fn read_json(source: &SessionSource, value: &Value) -> Result<Session, AdapterError> {
+    let info = value
+        .get("info")
+        .or_else(|| value.get("session"))
+        .ok_or_else(|| invalid("opencode export missing session"))?;
+    if info.get("id").and_then(Value::as_str) != Some(source.session_id.as_str()) {
+        return Err(invalid("opencode export session mismatch"));
+    }
+    let mut reader = Reader {
+        session: Session {
+            agent_home: source.agent_home.clone(),
+            session_id: source.session_id.clone(),
+            repo_key: source.repo_key.clone(),
+            cwd: source.cwd.clone(),
+            started: Timestamp(
+                info.pointer("/time/created")
+                    .and_then(Value::as_i64)
+                    .unwrap_or_default(),
+            ),
+            ended: info
+                .pointer("/time/updated")
+                .and_then(Value::as_i64)
+                .map(Timestamp),
+            ..Session::new(Host::Opencode)
+        },
+        models: BTreeSet::new(),
+    };
+    let messages = value
+        .get("messages")
+        .and_then(Value::as_array)
+        .ok_or_else(|| invalid("opencode export missing messages"))?;
+    for entry in messages {
+        reader.session.total_records = reader.session.total_records.saturating_add(1);
+        let parts = entry
+            .get("parts")
+            .and_then(Value::as_array)
+            .map_or(&[][..], Vec::as_slice);
+        reader.session.total_records = reader
+            .session
+            .total_records
+            .saturating_add(u64::try_from(parts.len()).unwrap_or(u64::MAX));
+        reader.session.skipped_records = reader.session.skipped_records.saturating_add(
+            u64::try_from(
+                parts
+                    .iter()
+                    .filter(|part| !part.get("type").is_some_and(Value::is_string))
+                    .count(),
+            )
+            .unwrap_or(u64::MAX),
+        );
+        if !entry
+            .get("info")
+            .is_some_and(|message| reader.message(message, parts))
+        {
+            reader.session.skipped_records = reader.session.skipped_records.saturating_add(1);
+        }
+    }
+    reader.session.partial =
+        reader.session.skipped_records.saturating_mul(5) > reader.session.total_records;
+    Ok(reader.session)
 }
 
 fn parse(text: &str) -> Option<Value> {
@@ -77,10 +259,35 @@ struct Reader {
 }
 
 pub(super) fn read(source: &SessionSource) -> Result<Session, AdapterError> {
-    let path = database(&source.path)?;
-    std::fs::metadata(&path)?;
+    if source.session_id.is_empty()
+        || source.session_id.contains('/')
+        || source.session_id.contains('\\')
+        || source.session_id == "."
+        || source.session_id == ".."
+    {
+        return Err(invalid("invalid opencode session id"));
+    }
+    let db_error = if let Some(path) = database(&source.path) {
+        match read_database(source, &path) {
+            Ok(session) => return Ok(session),
+            Err(error) => Some(error),
+        }
+    } else {
+        None
+    };
+    if let Some(value) = legacy(source) {
+        return read_json(source, &value);
+    }
+    match export(source).and_then(|value| read_json(source, &value)) {
+        Ok(session) => Ok(session),
+        Err(error) => Err(db_error.unwrap_or(error)),
+    }
+}
+
+fn read_database(source: &SessionSource, path: &Path) -> Result<Session, AdapterError> {
+    std::fs::metadata(path)?;
     let db = Connection::open_with_flags(
-        &path,
+        path,
         OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
     )
     .map_err(sql)?;

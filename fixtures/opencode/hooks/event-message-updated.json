@@ -1,0 +1,14 @@
+{
+  "hook": "event",
+  "event": {
+    "id": "evt_example4",
+    "type": "message.updated",
+    "properties": {
+      "info": {
+        "id": "msg_example1",
+        "sessionID": "ses_example1",
+        "role": "user"
+      }
+    }
+  }
+}

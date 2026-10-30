@@ -44,6 +44,7 @@ fn constants_and_metadata_match_specification() {
     assert_eq!(adapter.prune_target(), PruneTarget::ReportOnly);
 
     let expected_markers = [
+        "CODEWHALE_HOME",
         "DEEPSEEK_SESSION_ID",
         "CODEWHALE_SESSION_ID",
         "DEEPSEEK_WORKSPACE",

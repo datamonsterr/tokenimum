@@ -2,6 +2,7 @@
 //! installation of the generated extension (SPEC 6.11, ADR 0025).
 
 mod install;
+pub(crate) use install::DENY_PATH;
 mod map;
 mod reader;
 mod reply;

@@ -212,7 +212,9 @@ impl<T: Transport, C: Clock, L: SpendLedger> DecisionClient<T, C, L> {
         }
         Outcome::NoDecision(NoDecisionReason::AllFailed)
     }
-    /// Ask the first two active models concurrently, returning independent outcomes.
+    /// Ask the primary and Jev reference concurrently, returning independent outcomes.
+    /// A custom chain without Jev uses its first two slots. A configured but unavailable
+    /// Jev reference fails open instead of substituting a different model silently.
     /// Each model is attempted once; combining their answers belongs to calibration.
     ///
     /// # Panics
@@ -223,9 +225,22 @@ impl<T: Transport, C: Clock, L: SpendLedger> DecisionClient<T, C, L> {
             return (outcome.clone(), outcome);
         }
         let models = self.chain.active_models();
+        let reference_configured = self
+            .config
+            .chain
+            .iter()
+            .any(|m| m.slug.starts_with("typesafe/jev-"));
+        let primary = models
+            .iter()
+            .find(|m| !reference_configured || !m.starts_with("typesafe/jev-"));
+        let reference = if reference_configured {
+            models.iter().find(|m| m.starts_with("typesafe/jev-"))
+        } else {
+            models.get(1)
+        };
         tokio::join!(
-            self.agreement_slot(models.first().map(String::as_str), &req),
-            self.agreement_slot(models.get(1).map(String::as_str), &req)
+            self.agreement_slot(primary.map(String::as_str), &req),
+            self.agreement_slot(reference.map(String::as_str), &req)
         )
     }
     /// Probe each free slot explicitly and activate only successful slots.
@@ -259,6 +274,37 @@ impl<T: Transport, C: Clock, L: SpendLedger> DecisionClient<T, C, L> {
         }
         outcomes
     }
+    /// Available model slugs in the current effective order.
+    #[must_use]
+    pub fn active_models(&self) -> Vec<String> {
+        self.chain.active_models()
+    }
+
+    /// Configured free slots, including ones that have not answered yet.
+    #[must_use]
+    pub fn free_models(&self) -> Vec<String> {
+        self.chain.free_models()
+    }
+
+    /// Restore a durable availability result; ignores models outside configured free slots.
+    pub fn restore_free_model(&self, model: &str, succeeded: bool) {
+        self.chain.reprobe_free(model, succeeded);
+    }
+
+    /// Probe configured free slots using the same request as doctor and the live client's
+    /// ordinary privacy, deadline, and budget gates. Success updates this client's live chain.
+    pub async fn probe_free_models(&self, session_id: &str) -> Vec<crate::probe::FreeProbeResult> {
+        let models = self.free_models();
+        let outcomes = self
+            .reprobe_free(crate::probe::availability_request(session_id))
+            .await;
+        models
+            .into_iter()
+            .zip(outcomes)
+            .map(|(model, outcome)| crate::probe::FreeProbeResult { model, outcome })
+            .collect()
+    }
+
     fn gate(&self, req: &DecideRequest) -> Option<Outcome> {
         if !self.config.enabled {
             return Some(Outcome::NoDecision(NoDecisionReason::Disabled));

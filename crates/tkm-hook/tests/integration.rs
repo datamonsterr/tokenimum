@@ -102,6 +102,7 @@ fn test_happy_path_claude_post_tool_use() {
     let expected_stdout = r#"{"systemMessage":"x"}"#;
     let reply = Reply {
         version: PROTOCOL_VERSION,
+        pending: None,
         action: ReplyAction::Nothing,
         stdout: expected_stdout.to_string(),
     };
@@ -195,6 +196,7 @@ fn test_cwd_priority_explicit_payload_and_fallback() {
         *received_clone.lock().unwrap() = Some(req);
         let reply = Reply {
             version: PROTOCOL_VERSION,
+            pending: None,
             action: ReplyAction::Nothing,
             stdout: String::new(),
         };
@@ -356,6 +358,7 @@ fn test_wrong_version_reply_noop() {
 
     let reply = Reply {
         version: 0xFFFF,
+        pending: None,
         action: ReplyAction::Nothing,
         stdout: "SHOULD_NOT_APPEAR".to_string(),
     };
@@ -621,6 +624,7 @@ fn test_env_allowlist_only_tkm_vars_forwarded() {
         *recv_clone.lock().unwrap() = Some(req);
         let reply = Reply {
             version: PROTOCOL_VERSION,
+            pending: None,
             action: ReplyAction::Nothing,
             stdout: String::new(),
         };
@@ -681,6 +685,7 @@ fn test_empty_stdin_payload_null() {
         *recv_clone.lock().unwrap() = Some(req);
         let reply = Reply {
             version: PROTOCOL_VERSION,
+            pending: None,
             action: ReplyAction::Nothing,
             stdout: String::new(),
         };
@@ -888,6 +893,7 @@ fn test_host_event_flag_overrides_payload_hook_event_name() {
         *received_clone.lock().unwrap() = Some(req);
         let reply = Reply {
             version: PROTOCOL_VERSION,
+            pending: None,
             action: ReplyAction::Nothing,
             stdout: String::new(),
         };
@@ -933,6 +939,7 @@ fn test_payload_flag_does_not_read_open_stdin() {
         *received_clone.lock().unwrap() = Some(req);
         let reply = Reply {
             version: PROTOCOL_VERSION,
+            pending: None,
             action: ReplyAction::Nothing,
             stdout: String::new(),
         };
@@ -978,6 +985,7 @@ fn test_invalid_payload_flag_sends_null_and_logs_error() {
         *received_clone.lock().unwrap() = Some(req);
         let reply = Reply {
             version: PROTOCOL_VERSION,
+            pending: None,
             action: ReplyAction::Nothing,
             stdout: String::new(),
         };
@@ -1009,6 +1017,7 @@ fn host_markers_are_forwarded_only_for_the_matching_host() {
             let request: tkm_proto::Request = read_frame(&mut stream, MAX_REQUEST_FRAME).unwrap();
             let reply = Reply {
                 version: PROTOCOL_VERSION,
+                pending: None,
                 action: ReplyAction::Nothing,
                 stdout: String::new(),
             };
@@ -1048,4 +1057,28 @@ fn deepseek_session_start_with_open_stdin_exits_promptly() {
         panic!("hook blocked on stdin");
     }
     assert!(child.wait_with_output().unwrap().status.success());
+}
+
+#[test]
+fn shim_host_receives_pending_signal_with_rendered_reply() {
+    let tmp = TempDir::new().unwrap();
+    let server = fake_server_one_reply(
+        &socket_path(&tmp),
+        Reply {
+            version: PROTOCOL_VERSION,
+            action: ReplyAction::Notice {
+                text: "hello".into(),
+            },
+            stdout: r#"{"notice":"hello"}"#.into(),
+            pending: Some(true),
+        },
+    );
+    let output = hook_cmd(&tmp, "pi", "prompt")
+        .args(["--payload", "{}"])
+        .output()
+        .unwrap();
+    server.join().unwrap();
+    let parsed: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(parsed["notice"], "hello");
+    assert_eq!(parsed["pending"], true);
 }

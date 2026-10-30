@@ -18,6 +18,9 @@ pub struct Cli {
 /// Every supported top-level command.
 #[derive(Debug, Subcommand)]
 pub enum Command {
+    /// Private history replay benchmark.
+    #[command(hide = true)]
+    Bench(crate::replay_bench::BenchArgs),
     /// Detect harnesses and install tokenimum.
     Init(InitArgs),
     /// Remove tokenimum's recorded entries and shims.
@@ -70,7 +73,7 @@ pub struct InitArgs {
     #[arg(long, value_name = "DIR")]
     pub home: Option<PathBuf>,
     /// Select the host associated with an explicit agent home.
-    #[arg(long, value_name = "HOST")]
+    #[arg(long, value_name = "HOST", value_parser = |s: &str| if s == "claude-code" { Ok(Host::Claude) } else { s.parse::<Host>() })]
     pub host: Option<Host>,
     /// Include superorchestrator account homes in detection.
     #[arg(long)]
@@ -175,7 +178,10 @@ pub enum PruneCommand {
 
 /// Deny-list apply options.
 #[derive(Debug, Default, Args)]
-pub struct PruneApplyArgs {}
+pub struct PruneApplyArgs {
+    /// Tool to apply; omit to apply all eligible tools.
+    pub tool: Option<String>,
+}
 
 /// Deny-list restore options.
 #[derive(Debug, Args)]
@@ -323,6 +329,9 @@ pub struct CalibrateArgs {
     /// Calibrate only this decision purpose; omit for all purposes.
     #[arg(long, value_enum)]
     pub purpose: Option<CalibrationPurpose>,
+    /// Fit against offline fixture outcomes instead of stored decisions.
+    #[arg(long)]
+    pub fixtures: Option<std::path::PathBuf>,
 }
 
 /// Supported calibration purposes.
@@ -339,6 +348,12 @@ pub enum CalibrationPurpose {
 /// Recorded session replay options.
 #[derive(Debug, Args)]
 pub struct ReplayArgs {
+    /// Run the offline decision bench for a fixture directory.
+    #[arg(long)]
+    pub bench: bool,
+    /// Refresh bench responses using the configured live decision models.
+    #[arg(long, requires = "bench")]
+    pub record: bool,
     /// Session identifier or fixture path.
     #[arg(value_name = "SESSION_OR_FIXTURE")]
     pub session_or_fixture: String,
@@ -418,9 +433,9 @@ impl Args for RunArgs {
 /// Diagnostic report options.
 #[derive(Debug, Args)]
 pub struct DoctorArgs {
-    /// Include live model and harness capability probes.
-    #[arg(long)]
-    pub probe: bool,
+    /// Probe a host in an isolated HOME; without HOST, probe decision models.
+    #[arg(long, num_args = 0..=1, default_missing_value = "models", value_name = "HOST")]
+    pub probe: Option<String>,
 }
 
 /// Repository state export options.

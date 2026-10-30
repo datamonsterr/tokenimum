@@ -24,9 +24,43 @@ pub enum LoopMode {
     Redirect,
 }
 
+/// Configured integration level for one host.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum HostLevel {
+    /// Select the host's standard integration.
+    #[default]
+    Auto,
+    /// Use native hooks.
+    Hooks,
+    /// Use the host shim.
+    Shim,
+    /// Read session logs without live integration.
+    FoldOnly,
+}
+
+/// Per-host integration settings.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct HostSettings {
+    /// Whether this host is enabled.
+    pub enabled: bool,
+    /// Requested integration level.
+    pub level: HostLevel,
+}
+
+impl Default for HostSettings {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            level: HostLevel::Auto,
+        }
+    }
+}
+
 /// Settings read by the daemon.
 #[derive(Debug, Clone)]
 pub struct Settings {
+    /// Host-specific settings, keyed by host wire name.
+    pub hosts: std::collections::HashMap<String, HostSettings>,
     /// `loop.mode`.
     pub loop_mode: LoopMode,
     /// Loop guard thresholds (`loop.*` over the `loop.level` preset).
@@ -37,6 +71,10 @@ pub struct Settings {
     pub inject_enabled: bool,
     /// Inject budget (`inject.max_tokens`, `inject.memory`, `facts.max_*`).
     pub inject: inject::Config,
+    /// Whether repository facts are collected and injected.
+    pub facts_enabled: bool,
+    /// Whether session usage is recorded in the ledger.
+    pub ledger_enabled: bool,
     /// Fact lifecycle settings.
     pub facts: FactsConfig,
     /// Pruning evidence settings.
@@ -45,6 +83,12 @@ pub struct Settings {
     pub otherskill_mode: tkm_integrations::detect::Mode,
     /// Session orchestrator integration mode.
     pub superorchestrator_mode: tkm_integrations::detect::Mode,
+    /// Local cache-aware model prices.
+    pub pricing: tkm_core::ledger::PriceTable,
+    /// Minimum elapsed days in the initial shadow window.
+    pub shadow_days: u64,
+    /// Minimum distinct judged turns in the initial shadow window.
+    pub shadow_turns: u64,
     /// Decision client settings.
     pub decide: DecideConfig,
     /// How long `prompt` waits for relevance scoring before using the cached default block.
@@ -57,6 +101,7 @@ impl Default for Settings {
     fn default() -> Self {
         let facts = FactsConfig::default();
         Self {
+            hosts: std::collections::HashMap::new(),
             loop_mode: LoopMode::Redirect,
             loop_cfg: LoopConfig::default(),
             escalate_command: None,
@@ -67,11 +112,16 @@ impl Default for Settings {
                 max_fact_tokens: facts.max_tokens,
                 memory: true,
             },
+            facts_enabled: true,
+            ledger_enabled: true,
             facts,
             prune: PruneConfig::default(),
             otherskill_mode: tkm_integrations::detect::Mode::Auto,
             superorchestrator_mode: tkm_integrations::detect::Mode::Auto,
+            shadow_days: 14,
+            shadow_turns: 200,
             decide: DecideConfig::default(),
+            pricing: tkm_core::ledger::PriceTable::default(),
             relevance_timeout_ms: 1_200,
             config_errors: Vec::new(),
         }
@@ -100,6 +150,21 @@ impl Settings {
             ..Self::default()
         };
 
+        for host in [
+            "claude", "codex", "agy", "cursor", "kimi", "deepseek", "opencode", "pi",
+        ] {
+            let enabled = config
+                .get_bool(&format!("hosts.{host}.enabled"))
+                .unwrap_or(true);
+            let level = match config.get_str(&format!("hosts.{host}.level")) {
+                Some("hooks") => HostLevel::Hooks,
+                Some("shim") => HostLevel::Shim,
+                Some("fold-only") => HostLevel::FoldOnly,
+                _ => HostLevel::Auto,
+            };
+            out.hosts
+                .insert(host.to_owned(), HostSettings { enabled, level });
+        }
         out.otherskill_mode = config
             .get_str("integrations.otherskill")
             .and_then(|s| s.parse().ok())
@@ -164,6 +229,8 @@ impl Settings {
             out.inject.memory = v;
         }
 
+        out.facts_enabled = config.get_bool("facts.enabled").unwrap_or(true);
+        out.ledger_enabled = config.get_bool("ledger.enabled").unwrap_or(true);
         let facts = &mut out.facts;
         if let Some(v) = unsigned(config, "facts.promote_confirmations") {
             facts.promote_confirmations = v;
@@ -201,6 +268,9 @@ impl Settings {
         if let Some(v) = unsigned(config, "prune.quiet_minutes") {
             out.prune.quiet_minutes = v;
         }
+        if let Some(protect) = config.get_list("prune.protect") {
+            out.prune.protect = protect.to_vec();
+        }
         out.prune.mode = match config.get_str("prune.mode") {
             Some("off") => PruneMode::Off,
             Some("report") => PruneMode::Report,
@@ -208,6 +278,12 @@ impl Settings {
             _ => PruneMode::Propose,
         };
 
+        if let Some(v) = unsigned(config, "calibration.shadow_days") {
+            out.shadow_days = v;
+        }
+        if let Some(v) = unsigned(config, "calibration.shadow_turns") {
+            out.shadow_turns = v;
+        }
         if let Some(v) = config.get_bool("decide.enabled") {
             out.decide.enabled = v;
         }
@@ -236,6 +312,34 @@ impl Settings {
         out
     }
 
+    /// Returns the effective host integration level; fallback policy can override this accessor.
+    #[must_use]
+    pub fn effective_host_level(&self, host: tkm_proto::Host) -> HostLevel {
+        self.host(host).level
+    }
+
+    /// Integration mode the configuration resolves to, before doctor health. Disabled hosts and
+    /// unsupported host and level combinations degrade to fold-only.
+    #[must_use]
+    pub fn configured_mode(&self, host: tkm_proto::Host) -> tkm_hosts::fold_only::IntegrationMode {
+        use tkm_hosts::fold_only::{IntegrationMode, mode_for};
+        let settings = self.host(host);
+        let native = mode_for(host, true);
+        match settings.level {
+            _ if !settings.enabled => IntegrationMode::FoldOnly,
+            HostLevel::Auto => native,
+            HostLevel::Hooks if native == IntegrationMode::Hooks => native,
+            HostLevel::Shim if native == IntegrationMode::Shim => native,
+            _ => IntegrationMode::FoldOnly,
+        }
+    }
+
+    /// Returns the settings for a host.
+    #[must_use]
+    pub fn host(&self, host: tkm_proto::Host) -> HostSettings {
+        self.hosts.get(host.as_str()).copied().unwrap_or_default()
+    }
+
     /// Loads the layered configuration for a repository root and maps it. A configuration that
     /// cannot be loaded yields the defaults plus one entry in [`Settings::config_errors`].
     pub fn load(paths: &Paths, repo_root: Option<&Path>, env: Vec<(String, String)>) -> Self {
@@ -245,13 +349,27 @@ impl Settings {
             env,
             flags: Vec::new(),
         };
-        match load(&inputs) {
+        let mut settings = match load(&inputs) {
             Ok(config) => Self::from_config(&config),
             Err(error) => Self {
                 config_errors: vec![error.to_string()],
                 ..Self::default()
             },
+        };
+        let pricing_path = paths.config_dir.join("pricing.toml");
+        match std::fs::read_to_string(&pricing_path) {
+            Ok(text) => match tkm_core::ledger::PriceTable::parse(&text) {
+                Ok(pricing) => settings.pricing = pricing,
+                Err(error) => settings
+                    .config_errors
+                    .push(format!("{}: {error}", pricing_path.display())),
+            },
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => settings
+                .config_errors
+                .push(format!("{}: {error}", pricing_path.display())),
         }
+        settings
     }
 }
 
@@ -314,6 +432,99 @@ mod tests {
             "{:?}",
             loaded.config_errors
         );
+    }
+
+    #[test]
+    fn mechanism_switches_are_loaded_from_configuration() {
+        let dir = std::env::temp_dir().join("tkmd-settings-switches-test-nonexistent");
+        let paths = Paths::from_dirs(&dir, Some(&dir), Some(&dir), Some(&dir));
+        let env = vec![
+            ("TKM_FACTS_ENABLED".to_owned(), "false".to_owned()),
+            ("TKM_LEDGER_ENABLED".to_owned(), "false".to_owned()),
+        ];
+        let settings = Settings::load(&paths, None, env);
+        assert!(!settings.facts_enabled);
+        assert!(!settings.ledger_enabled);
+    }
+
+    #[test]
+    fn per_host_switches_and_levels_are_loaded() {
+        let dir = std::env::temp_dir().join("tkmd-settings-hosts-test-nonexistent");
+        let paths = Paths::from_dirs(&dir, Some(&dir), Some(&dir), Some(&dir));
+        let settings = Settings::load(
+            &paths,
+            None,
+            vec![
+                ("TKM_HOSTS_CLAUDE_ENABLED".into(), "false".into()),
+                ("TKM_HOSTS_CLAUDE_LEVEL".into(), "fold-only".into()),
+                ("TKM_HOSTS_PI_LEVEL".into(), "shim".into()),
+            ],
+        );
+        assert!(!settings.host(tkm_proto::Host::Claude).enabled);
+        assert_eq!(
+            settings.host(tkm_proto::Host::Claude).level,
+            HostLevel::FoldOnly
+        );
+        assert_eq!(settings.host(tkm_proto::Host::Pi).level, HostLevel::Shim);
+        assert_eq!(settings.host(tkm_proto::Host::Codex).level, HostLevel::Auto);
+    }
+
+    #[test]
+    fn all_host_switches_and_levels_are_independent() {
+        let dir = std::env::temp_dir().join("tkmd-settings-all-hosts-test-nonexistent");
+        let paths = Paths::from_dirs(&dir, Some(&dir), Some(&dir), Some(&dir));
+        let hosts = [
+            tkm_proto::Host::Claude,
+            tkm_proto::Host::Codex,
+            tkm_proto::Host::Agy,
+            tkm_proto::Host::Cursor,
+            tkm_proto::Host::Kimi,
+            tkm_proto::Host::Deepseek,
+            tkm_proto::Host::Opencode,
+            tkm_proto::Host::Pi,
+        ];
+        let levels = ["auto", "hooks", "shim", "fold-only"];
+        for level in levels {
+            let env = hosts
+                .iter()
+                .flat_map(|host| {
+                    [
+                        (
+                            format!("TKM_HOSTS_{}_ENABLED", host.as_str().to_uppercase()),
+                            "false".into(),
+                        ),
+                        (
+                            format!("TKM_HOSTS_{}_LEVEL", host.as_str().to_uppercase()),
+                            level.into(),
+                        ),
+                    ]
+                })
+                .collect();
+            let settings = Settings::load(&paths, None, env);
+            for host in hosts {
+                assert!(!settings.host(host).enabled, "{}", host.as_str());
+                let expected = match level {
+                    "hooks" => HostLevel::Hooks,
+                    "shim" => HostLevel::Shim,
+                    "fold-only" => HostLevel::FoldOnly,
+                    _ => HostLevel::Auto,
+                };
+                assert_eq!(settings.effective_host_level(host), expected);
+            }
+        }
+    }
+
+    #[test]
+    fn agreement_defaults_off_and_can_be_enabled_by_configuration() {
+        let dir = std::env::temp_dir().join("tkmd-agreement-settings-nonexistent");
+        let paths = Paths::from_dirs(&dir, Some(&dir), Some(&dir), Some(&dir));
+        assert!(!Settings::default().decide.agreement);
+        let settings = Settings::load(
+            &paths,
+            None,
+            vec![("TKM_DECIDE_AGREEMENT".into(), "true".into())],
+        );
+        assert!(settings.decide.agreement);
     }
 
     #[test]

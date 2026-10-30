@@ -454,7 +454,11 @@ const fn host_env_markers(host: Host) -> &'static [&'static str] {
             "CURSOR_VERSION",
             "CURSOR_TRANSCRIPT_PATH",
         ],
+        Host::Kimi => &["KIMI_SHARE_DIR"],
+        Host::Pi => &["PI_CODING_AGENT_DIR"],
+        Host::Opencode => &["OPENCODE_DB", "XDG_DATA_HOME"],
         Host::Deepseek => &[
+            "CODEWHALE_HOME",
             "DEEPSEEK_SESSION_ID",
             "CODEWHALE_SESSION_ID",
             "DEEPSEEK_WORKSPACE",
@@ -552,6 +556,16 @@ pub fn run_hook_with_stdin<I, S, E, F>(
     );
 }
 
+/// Adds the `pending` flag to a JSON reply object; `None` when it cannot be serialised.
+fn stamp_pending(stdout: &str, pending: bool) -> Option<String> {
+    let mut payload =
+        serde_json::from_str::<serde_json::Value>(stdout).unwrap_or_else(|_| serde_json::json!({}));
+    payload
+        .as_object_mut()?
+        .insert("pending".into(), serde_json::Value::Bool(pending));
+    serde_json::to_string(&payload).ok()
+}
+
 /// Like [`run_hook_with_stdin`], but a stdin failure logs once and returns the host's no-op.
 pub fn run_hook_with_fallible_stdin<I, S, E, F>(
     args: I,
@@ -642,8 +656,32 @@ pub fn run_hook_with_fallible_stdin<I, S, E, F>(
         request.host_event = Some(host_event);
     }
 
-    match connect_and_exchange(socket_path, &request) {
+    write_outcome(
+        host,
+        connect_and_exchange(socket_path, &request),
+        socket_path,
+        log_path,
+        out,
+    );
+}
+
+/// Writes the host reply for one daemon exchange, logging and respawning as the outcome needs.
+fn write_outcome(
+    host: Host,
+    outcome: ExchangeOutcome,
+    socket_path: &Path,
+    log_path: Option<&Path>,
+    out: &mut dyn Write,
+) {
+    match outcome {
         ExchangeOutcome::Reply(reply) => {
+            if matches!(host, Host::Opencode | Host::Pi)
+                && let Some(pending) = reply.pending
+                && let Some(text) = stamp_pending(&reply.stdout, pending)
+            {
+                let _ = out.write_all(text.as_bytes());
+                return;
+            }
             let _ = out.write_all(reply.stdout.as_bytes());
         }
         ExchangeOutcome::VersionMismatch => {
@@ -733,6 +771,19 @@ mod arg_tests {
 mod host_marker_tests {
     use super::host_env_markers;
     use tkm_proto::Host;
+
+    #[test]
+    fn session_store_overrides_are_forwarded_for_their_host() {
+        for (host, key) in [
+            (Host::Kimi, "KIMI_SHARE_DIR"),
+            (Host::Deepseek, "CODEWHALE_HOME"),
+            (Host::Pi, "PI_CODING_AGENT_DIR"),
+            (Host::Opencode, "OPENCODE_DB"),
+            (Host::Opencode, "XDG_DATA_HOME"),
+        ] {
+            assert!(super::is_host_env_key(host, key), "{host:?} {key}");
+        }
+    }
 
     #[test]
     fn marker_table_matches_host_adapters() {

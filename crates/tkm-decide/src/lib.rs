@@ -14,5 +14,7 @@ pub mod client;
 pub mod config;
 pub mod digest;
 pub mod key;
+pub mod labels;
 pub mod pricing;
+pub mod probe;
 pub mod redact;

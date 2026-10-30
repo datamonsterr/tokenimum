@@ -97,3 +97,170 @@ fn prune_unsupported_host_reports_proposal_only() {
     assert!(String::from_utf8_lossy(&out.stdout).contains("proposal only"));
     assert!(store.list_denylist(&s.repo).unwrap().is_empty());
 }
+
+#[test]
+fn prune_apply_one_and_restore_all_four_hosts() {
+    let s = support_ops::Sandbox::new();
+    seed(&s);
+    let paths = tkm_config::paths::Paths::from_dirs(
+        s.home.path(),
+        Some(&s.home.path().join("data")),
+        Some(&s.home.path().join("config")),
+        Some(&s.home.path().join("run")),
+    );
+    let store = tkm_store::Store::open(paths.db).unwrap();
+    let repo = tkm_config::repo::repo_identity(&s.repo, "", Some(s.home.path()));
+    for host in [Host::Claude, Host::Cursor, Host::Opencode, Host::Pi] {
+        for tool in ["mcp__example__unused", "mcp__example__other"] {
+            for _ in 0..5 {
+                store
+                    .record_tool_unused_session(&repo.key, host, tool)
+                    .unwrap();
+            }
+        }
+    }
+    let out = s.run(&["prune", "apply", "mcp__example__unused"]);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    for (relative, token) in [
+        (".claude/settings.local.json", "mcp__example__unused"),
+        (".cursor/cli.json", "Mcp(example:unused)"),
+        ("opencode.json", "example_unused"),
+        (".pi/settings.json", "-mcp__example__unused"),
+    ] {
+        let path = s.repo.join(relative);
+        let contents = std::fs::read_to_string(&path).unwrap();
+        assert!(contents.contains(token));
+        assert!(!contents.contains("other"));
+    }
+    assert_eq!(
+        store
+            .list_denylist(&s.repo)
+            .unwrap()
+            .iter()
+            .filter(|entry| !entry.restored)
+            .count(),
+        4
+    );
+    assert!(
+        s.run(&["prune", "restore", "mcp__example__unused"])
+            .status
+            .success()
+    );
+    assert!(
+        store
+            .list_denylist(&s.repo)
+            .unwrap()
+            .iter()
+            .all(|entry| entry.restored)
+    );
+    assert!(s.run(&["prune", "apply"]).status.success());
+    assert!(s.run(&["prune", "restore"]).status.success());
+    assert!(
+        store
+            .list_denylist(&s.repo)
+            .unwrap()
+            .iter()
+            .all(|entry| entry.restored)
+    );
+}
+
+#[test]
+fn prune_honors_user_protection_and_disabled_orchestrator() {
+    let s = support_ops::Sandbox::new();
+    seed(&s);
+    std::fs::write(
+        s.repo.join(".tokenimum.toml"),
+        "[prune]\nprotect = ['mcp__example__*']\n[integrations]\nsuperorchestrator = 'off'\n",
+    )
+    .unwrap();
+    let paths = tkm_config::paths::Paths::from_dirs(
+        s.home.path(),
+        Some(&s.home.path().join("data")),
+        Some(&s.home.path().join("config")),
+        Some(&s.home.path().join("run")),
+    );
+    let store = tkm_store::Store::open(paths.db).unwrap();
+    let repo = tkm_config::repo::repo_identity(&s.repo, "", Some(s.home.path()));
+    for _ in 0..5 {
+        store
+            .record_tool_unused_session(
+                &repo.key,
+                Host::Claude,
+                "mcp__superorchestrator__spawn_agent",
+            )
+            .unwrap();
+    }
+    let out = s.run(&["prune"]);
+    assert!(out.status.success());
+    let text = String::from_utf8_lossy(&out.stdout);
+    assert!(!text.contains("mcp__example__unused"));
+    assert!(text.contains("mcp__superorchestrator__spawn_agent"));
+}
+
+#[test]
+fn prune_recent_delegation_caps_apply_only_when_adapter_enabled() {
+    for enabled in [false, true] {
+        let s = support_ops::Sandbox::new();
+        seed(&s);
+        std::fs::write(
+            s.repo.join(".tokenimum.toml"),
+            format!(
+                "[integrations]\nsuperorchestrator = '{}'\n",
+                if enabled { "on" } else { "off" }
+            ),
+        )
+        .unwrap();
+        let binary = s.home.path().join("bin/superorchestrator");
+        std::fs::write(&binary, "#!/bin/sh\nexit 0\n").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(binary, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        let paths = tkm_config::paths::Paths::from_dirs(
+            s.home.path(),
+            Some(&s.home.path().join("data")),
+            Some(&s.home.path().join("config")),
+            Some(&s.home.path().join("run")),
+        );
+        let store = tkm_store::Store::open(paths.db).unwrap();
+        let repo = tkm_config::repo::repo_identity(&s.repo, "", Some(s.home.path()));
+        let at = i64::try_from(
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_millis(),
+        )
+        .unwrap();
+        store
+            .record_delegated_run(
+                &repo.key,
+                &tkm_store::SessionKey {
+                    host: Host::Claude,
+                    agent_home: "test".into(),
+                    session_id: "delegated".into(),
+                },
+                tkm_core::model::Timestamp(at),
+            )
+            .unwrap();
+        let out = s.run(&["prune", "apply"]);
+        assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        assert_eq!(
+            s.repo.join(".claude/settings.local.json").exists(),
+            !enabled
+        );
+        if enabled {
+            assert!(
+                String::from_utf8_lossy(&out.stdout).contains("delegated run in the last 30 days")
+            );
+        }
+    }
+}

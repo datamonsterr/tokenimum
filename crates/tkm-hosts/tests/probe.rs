@@ -89,21 +89,32 @@ fn claude_event_kinds_are_normalized() {
 }
 
 #[test]
-fn shim_hosts_expect_no_hook_events() {
-    assert_eq!(
-        expected_events(Host::Opencode),
-        &[] as &[tkm_hosts::probe::ExpectedEvent]
-    );
-    assert_eq!(
-        expected_events(Host::Pi),
-        &[] as &[tkm_hosts::probe::ExpectedEvent]
-    );
+fn shim_hosts_have_probe_coverage_for_all_lifecycle_events() {
+    for host in [Host::Opencode, Host::Pi] {
+        assert_eq!(expected_events(host).len(), 5);
+        assert!(
+            expected_events(host)
+                .iter()
+                .any(|e| e.kind == EventKind::SessionEnd)
+        );
+    }
 }
 
 #[test]
 fn env_markers_are_empty_for_hosts_without_markers() {
     assert_eq!(tkm_hosts::env_markers(Host::Claude), &[] as &[&str]);
     assert_eq!(tkm_hosts::env_markers(Host::Codex), &[] as &[&str]);
-    assert_eq!(tkm_hosts::env_markers(Host::Opencode), &[] as &[&str]);
-    assert_eq!(tkm_hosts::env_markers(Host::Pi), &[] as &[&str]);
+}
+
+#[test]
+fn opencode_forwards_its_database_and_data_home_overrides() {
+    assert_eq!(
+        tkm_hosts::env_markers(Host::Opencode),
+        ["OPENCODE_DB", "XDG_DATA_HOME"]
+    );
+}
+
+#[test]
+fn pi_forwards_its_agent_directory_override() {
+    assert_eq!(tkm_hosts::env_markers(Host::Pi), ["PI_CODING_AGENT_DIR"]);
 }

@@ -335,7 +335,11 @@ impl Reader {
         let output = if call.is_error {
             content
         } else {
-            record.get("toolUseResult").unwrap_or(content)
+            // A structured result that carries metadata only (an exit code) must not hide the text.
+            record
+                .get("toolUseResult")
+                .filter(|result| !metadata_only(result))
+                .unwrap_or(content)
         };
         call.output_digest = digest::output_digest(output);
         let text = digest::output_text(content);
@@ -454,6 +458,15 @@ fn parse_usage(value: &Value) -> Usage {
             .and_then(Value::as_u64)
             .unwrap_or(0),
     }
+}
+
+fn metadata_only(result: &Value) -> bool {
+    result.as_object().is_some_and(|object| {
+        !object.is_empty()
+            && object
+                .keys()
+                .all(|key| ["exit_code", "interrupted", "duration_ms"].contains(&key.as_str()))
+    })
 }
 
 #[cfg(test)]

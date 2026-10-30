@@ -305,6 +305,12 @@ fn build_registry() -> Vec<Key> {
             "Quiet period before writing a deny list."
         ),
         key!(
+            "prune.protect",
+            Kind::List,
+            "[]",
+            "Tool names or trailing-star prefixes protected from pruning."
+        ),
+        key!(
             "prune.mode",
             Kind::Enum(&["off", "report", "propose", "apply"]),
             "propose",
@@ -790,6 +796,20 @@ fn file_entries(
         .collect()
 }
 
+/// `TKM_` variables that steer processes or carry hook context; they are not configuration keys.
+const PROCESS_ENV: &[&str] = &[
+    "TKM_CONFIG",
+    "TKM_DELEGATED",
+    "TKM_DISABLE",
+    "TKM_HOST",
+    "TKM_PROBE_EVENTS",
+    "TKM_REPO",
+    "TKM_SESSION",
+    "TKM_SESSION_ID",
+    "TKM_TKMD_BIN",
+    "TKM_TURN_CALLS",
+];
+
 fn env_entries(
     keys: &[Key],
     env: &[(String, String)],
@@ -797,7 +817,7 @@ fn env_entries(
 ) -> Vec<(Layer, String, Result<Value, ConfigError>)> {
     let mut entries = Vec::new();
     for (name, value) in env {
-        if !name.starts_with("TKM_") || name == "TKM_CONFIG" || name == "TKM_DISABLE" {
+        if !name.starts_with("TKM_") || PROCESS_ENV.contains(&name.as_str()) {
             continue;
         }
         if let Some(key) = keys

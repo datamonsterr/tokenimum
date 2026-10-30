@@ -255,6 +255,9 @@ pub struct Reply {
     pub action: ReplyAction,
     /// Exact stdout to print, without adding a newline or re-serializing JSON.
     pub stdout: String,
+    /// Whether session context or steering remains queued; absent means unknown.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pending: Option<bool>,
 }
 
 /// Failure to encode, transport, or decode one length-prefixed JSON frame.
