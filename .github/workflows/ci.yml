@@ -13,7 +13,7 @@ env:
   CARGO_TERM_COLOR: always
 jobs:
   installer:
-    runs-on: ubuntu-latest
+    runs-on: namespace-profile-datamonster01
     steps:
       - uses: actions/checkout@v7
       - run: bash -n install.sh

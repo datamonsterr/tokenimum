@@ -44,8 +44,8 @@ integrations, and check health. Moving an existing installation to another bin d
 not part of this procedure: recorded service and hook paths must continue to resolve.
 
 The CI `installer` job covers offline failure cases and real downloads of the initial preview
-using both authentication methods. These small shell/Python checks run on a GitHub-hosted Linux
-runner; Rust build and benchmark jobs retain their existing runner profiles.
+using both authentication methods. These small shell/Python checks use the existing
+`namespace-profile-datamonster01` runner; Rust build and benchmark jobs retain their existing profiles.
 
 ## Initial preview
 
