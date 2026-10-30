@@ -22,9 +22,19 @@ jobs:
         if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
         env:
           GH_TOKEN: ${{ github.token }}
+          INSTALLER_REF: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
+          set -euo pipefail
           for method in gh curl; do
-            bash install.sh --method "$method" --version v0.0.0 --bin-dir "$RUNNER_TEMP/tokenimum-$method/bin"
+            if [ "$method" = gh ]; then
+              gh api -H 'Accept: application/vnd.github.raw+json' \
+                "repos/$GITHUB_REPOSITORY/contents/install.sh?ref=$INSTALLER_REF" > "$RUNNER_TEMP/install-$method.sh"
+            else
+              curl -fsSL -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github.raw+json' \
+                "https://api.github.com/repos/$GITHUB_REPOSITORY/contents/install.sh?ref=$INSTALLER_REF" > "$RUNNER_TEMP/install-$method.sh"
+            fi
+            cmp install.sh "$RUNNER_TEMP/install-$method.sh"
+            bash "$RUNNER_TEMP/install-$method.sh" --method "$method" --version v0.0.0 --bin-dir "$RUNNER_TEMP/tokenimum-$method/bin"
             for binary in tkm tkm-hook tkmd; do
               "$RUNNER_TEMP/tokenimum-$method/bin/$binary" --version
             done
