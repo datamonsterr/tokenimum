@@ -8,9 +8,9 @@
 ## What is tokenimum?
 
 tokenimum is a local tool that helps coding agents reuse what they learn about your project.
-It learns from coding sessions in a repository, saves useful facts, and brings them into
-later sessions, detects repeated failure loops, and proposes removing tools the project does
-not use. For example, an agent can learn that this repository needs `python -m pytest` instead
+It saves useful facts from coding sessions and brings them into later sessions. It also detects
+repeated failure loops and proposes removing tools the project does not use. For example,
+an agent can learn that this repository needs `python -m pytest` instead
 of `pytest`, rather than rediscovering the same fix each session.
 
 This is an early preview. The CLI, daemon, eight host adapters, and offline tests are implemented;
