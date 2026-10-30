@@ -12,6 +12,12 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
 jobs:
+  installer:
+    runs-on: namespace-profile-datamonster01
+    steps:
+      - uses: actions/checkout@v7
+      - run: bash -n install.sh
+      - run: python3 scripts/tests/test_installer.py
   fmt:
     runs-on: namespace-profile-datamonster01
     steps:
