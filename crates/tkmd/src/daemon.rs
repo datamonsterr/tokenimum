@@ -424,18 +424,21 @@ impl Daemon {
 
     pub(crate) fn stamp_pending(&self, request: &Request, mut reply: Reply) -> Reply {
         if let Ok(Some(event)) = self.adapters.get(request.host).map_event(request) {
-            let state = lock(&self.state);
-            reply.pending = state
-                .sessions
-                .get(&(event.host, event.session_id))
-                .map(|session| {
-                    session.pending_inject.is_some()
-                        || session
-                            .turn
-                            .as_ref()
-                            .is_some_and(|turn| turn.pending_redirect.is_some())
-                });
+            return self.stamp_pending_for(&(event.host, event.session_id), reply);
         }
+        reply
+    }
+
+    /// Sets `reply.pending` from the live session under `tag`; `None` when the session is unknown.
+    pub(crate) fn stamp_pending_for(&self, tag: &Tag, mut reply: Reply) -> Reply {
+        let state = lock(&self.state);
+        reply.pending = state.sessions.get(tag).map(|session| {
+            session.pending_inject.is_some()
+                || session
+                    .turn
+                    .as_ref()
+                    .is_some_and(|turn| turn.pending_redirect.is_some())
+        });
         reply
     }
 
@@ -501,18 +504,31 @@ impl Daemon {
             return noop_reply(host);
         }
         let adapter = self.adapters.get(host);
+        let mut tag: Option<Tag> = None;
         let result = match adapter.map_event(request) {
             Ok(Some(event)) if event.kind == EventKind::ToolDone => {
                 if !self.host_allows_live(event.host, &event.session_id) {
                     return noop_reply(host);
                 }
+                // Reuse the mapped event: a second `map_event` would re-parse the payload.
+                tag = Some((event.host, event.session_id.clone()));
                 self.tool_done(request, adapter.as_ref(), event)
             }
-            Ok(_) => Ok(noop_reply(host)),
+            Ok(Some(event)) => {
+                tag = Some((event.host, event.session_id));
+                Ok(noop_reply(host))
+            }
+            Ok(None) => Ok(noop_reply(host)),
             Err(error) => Err(error.into()),
         };
         match result {
-            Ok(reply) => cap_reply(self.stamp_pending(request, reply), host),
+            Ok(reply) => cap_reply(
+                match tag {
+                    Some(tag) => self.stamp_pending_for(&tag, reply),
+                    None => reply,
+                },
+                host,
+            ),
             Err(error) => {
                 self.log_error(&format!("{} tool_done: {error}", host.as_str()));
                 noop_reply(host)
