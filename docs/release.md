@@ -45,13 +45,30 @@ tkm init
 The archive's `SHA256SUMS` checks the three executable files. The adjacent `.sha256` release asset
 checks the archive itself. The binaries are statically linked and require no system musl runtime.
 
+## Initial preview
+
+[v0.0.0](https://github.com/datamonsterr/tokenimum/releases/tag/v0.0.0) is an explicitly
+marked prerelease of the current `0.0.0` workspace. It includes both Linux architectures,
+archive checksums, per-binary checksums inside each archive, and cargo-geiger reports.
+The release notes record artifact provenance and the matching source tree. Publication
+reused the successful release-build artifacts; automatic publication remains controlled by
+`RELEASE_PUBLISH_ENABLED`.
+
+The repository is private. For authenticated downloads and tested installation commands,
+see the [README installation section](../README.md#installation).
+
 ## Benchmark workflow
 
-The benchmark workflow compares the Criterion placeholder and hyperfine's mean hook startup
-against the latest cached main-branch results. Main pushes save a new immutable cache; PRs read
-but never save it, and fail when either result exceeds 120% of the corresponding baseline.
-A PR with no baseline passes; the gate can only be exercised after a successful main run has
-saved one. Cache eviction likewise leaves no baseline until main runs again. Shared runners are
-noisy, especially for the current empty hook; E4.8 and E10.3 should replace the placeholder and
-tune the gate and performance budgets. The hyperfine benchmark runs the hook with empty stdin;
-it is not yet the daemon round trip or a p99 check.
+The [Bench workflow](../.github/workflows/bench.yml) runs Criterion benchmarks for tool-event
+handling, prompt handling, session folding, and terminal rendering. It also measures native
+hook round trips, Bun-based opencode/Pi shim round trips, and idle daemon memory/CPU.
+Native hook round trips use a recorded tool event against a running daemon with decisions
+disabled, with 20 warmups and 500 measured runs. The gate requires p50 below 3 ms and p99
+below 10 ms. Empty-stdin hook startup is measured separately.
+
+Main pushes save immutable baseline caches. Pull requests read the latest available baseline
+and fail above 120% of the corresponding result, in addition to absolute performance budgets.
+A missing or evicted baseline skips the relative comparison until main establishes another.
+
+The README links a dated run and reports its measured overhead. The committed decision report
+uses synthetic test-double responses and is not evidence of live model quality or token savings.

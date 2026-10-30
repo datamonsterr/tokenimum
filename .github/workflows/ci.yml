@@ -136,3 +136,4 @@ jobs:
       - run: python3 scripts/tests/test_fresh_install.py
       - run: cargo build --release --locked -p tkm-cli -p tkmd -p tkm-hook
       - run: python3 scripts/fresh_install.py --bin-dir target/release
+      - run: python3 scripts/verify_readme.py --bin-dir target/release
