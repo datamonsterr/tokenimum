@@ -24,7 +24,8 @@ pub fn effective_level(
 }
 
 impl crate::daemon::Daemon {
-    pub(crate) fn refresh_host_health(
+    /// Recomputes the cached doctor state for `host` and its missing-event routing.
+    pub fn refresh_host_health(
         &self,
         store: &Store,
         host: Host,
@@ -51,7 +52,8 @@ impl crate::daemon::Daemon {
         Ok(())
     }
 
-    pub(crate) fn host_is_fold_only(&self, host: Host) -> bool {
+    /// Whether the cached doctor state forces `host` to fold-only.
+    pub fn host_is_fold_only(&self, host: Host) -> bool {
         crate::daemon::lock(&self.host_fallback)
             .get(&host)
             .copied()
