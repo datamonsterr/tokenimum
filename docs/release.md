@@ -24,26 +24,28 @@ inputs run the build and geiger jobs without publishing. Heavy build and geiger 
 
 ## Install from a GitHub Release
 
-Choose the archive matching the machine architecture. On Linux, `x86_64` means a 64-bit Intel or
-AMD machine and `aarch64` means 64-bit ARM. Download both the `.tar.gz` archive and its `.sha256`
-file from the release assets, then verify and install:
+See the [README installation instructions](../README.md#installation) for the platform matrix,
+authenticated GitHub CLI and curl commands, and manual/offline installation. The root
+[`install.sh`](../install.sh) selects the Linux architecture, downloads the archive and checksum,
+verifies the archive and all three executables, and installs into `~/.local/bin` by default.
+It stages replacements in the destination filesystem so an existing executable can keep running
+until the daemon is restarted. No Rust toolchain or system musl runtime is needed.
 
-```sh
-sha256sum -c tokenimum-x86_64-unknown-linux-musl.tar.gz.sha256
-tar -xzf tokenimum-x86_64-unknown-linux-musl.tar.gz
-mkdir -p "$HOME/.local/bin"
-install -m755 tkm tkm-hook tkmd "$HOME/.local/bin/"
-```
+The installer is fetched from the default branch, independently of the binary release tag.
+`--version TAG` selects an explicit release, including previews; `latest` selects the latest
+stable release only. The initial preview must use `--version v0.0.0`. The repository is private:
+anonymous curl URLs work only after it becomes public. For authenticated curl, the installer
+resolves asset API URLs using `GH_TOKEN` (or `GITHUB_TOKEN`) and `jq`; GitHub CLI handles its own
+authentication. `--archive /path/to/tokenimum-TARGET.tar.gz` uses local files without network.
 
-For ARM64, use `tokenimum-aarch64-unknown-linux-musl.tar.gz` and its matching checksum file in
-the commands above. Ensure `$HOME/.local/bin` is in `PATH`, then run:
+Updates replace all three binaries and preserve local state. Follow the
+[update procedure](../README.md#updating) to stop the old daemon, select the release, refresh
+integrations, and check health. Moving an existing installation to another bin directory is
+not part of this procedure: recorded service and hook paths must continue to resolve.
 
-```sh
-tkm init
-```
-
-The archive's `SHA256SUMS` checks the three executable files. The adjacent `.sha256` release asset
-checks the archive itself. The binaries are statically linked and require no system musl runtime.
+The CI `installer` job covers offline failure cases and real downloads of the initial preview
+using both authentication methods. These small shell/Python checks use the existing
+`namespace-profile-datamonster01` runner; Rust build and benchmark jobs retain their existing profiles.
 
 ## Initial preview
 

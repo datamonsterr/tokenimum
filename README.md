@@ -3,7 +3,7 @@
 **Help coding agents remember your project and waste fewer tokens.**
 
 [Install](#installation) · [Use it in a project](#use-it-in-a-project) ·
-[Benchmarks](#benchmarks) · [Contributing](CONTRIBUTING.md)
+[Update](#updating) · [Benchmarks](#benchmarks) · [Contributing](CONTRIBUTING.md)
 
 ## What is tokenimum?
 
@@ -56,45 +56,135 @@ interception. See [host verification](docs/verified/e5b-hosts.md) and
 
 ## Prerequisites
 
-- **Linux x86_64 or ARM64** for the downloadable release binaries. They are statically linked;
-  Rust and a system musl installation are not required.
 - At least one supported coding agent, installed and initialized under your user account.
 - A project checkout. Run repository-specific commands from inside that project.
-- For the installation commands below: Bash, `tar`, `sha256sum`, `install`, and the
-  [GitHub CLI](https://cli.github.com/). Authenticate `gh` with an account that can access this
-  repository; it is currently private.
 - Optional: an OpenRouter API key for model-assisted decisions. Start offline without a key.
 
 The daemon uses a user service when available and can fall back to a detached process.
-It does not require root. macOS service support exists in the source, but this release ships
-Linux archives only.
+It does not require root.
 
 ## Installation
 
-Download the initial preview, verify both the archive and binaries, and install all three
-executables. Run this in a new directory:
+The installer downloads a release, verifies its archive and binary SHA-256 checksums, and installs
+`tkm`, `tkm-hook`, and `tkmd` into `~/.local/bin`. No Rust toolchain, system musl, or `sudo` is needed.
+It requires Bash and standard Linux tools (`tar`, `sha256sum`, and coreutils).
+
+### Platform support
+
+| Machine | Installer / release archive | Notes |
+| --- | --- | --- |
+| Linux, Intel/AMD 64-bit (`x86_64`) | Supported | Static musl binaries; works across glibc and musl distributions |
+| Linux, ARM64 (`aarch64` / `arm64`) | Supported | Same installer; selects the ARM64 archive automatically |
+| Windows with WSL2, x86_64 or ARM64 | Use the Linux installer inside WSL2 | Install and run your coding agent in the same WSL environment; WSL runtime is not yet verified |
+| macOS, Intel or Apple Silicon | No release archive | Service support exists in source; native installation is not yet verified |
+| Native Windows, 32-bit Linux, other architectures | No release archive | Use a supported Linux environment; there is no PowerShell installer |
+
+### Quick install (current private repository)
+
+Install the [GitHub CLI](https://cli.github.com/) and run `gh auth login` once with an account
+that has repository access. Then run in Bash:
 
 ```bash
-case "$(uname -m)" in
-  x86_64) target=x86_64-unknown-linux-musl ;;
-  aarch64|arm64) target=aarch64-unknown-linux-musl ;;
-  *) echo "Unsupported architecture" >&2; exit 1 ;;
-esac
-archive="tokenimum-${target}.tar.gz"
-gh release download v0.0.0 --repo datamonsterr/tokenimum \
-  --pattern "$archive" --pattern "$archive.sha256"
+set -o pipefail
+gh api -H 'Accept: application/vnd.github.raw+json' \
+  'repos/datamonsterr/tokenimum/contents/install.sh?ref=main' |
+  bash -s -- --method gh --version v0.0.0
+```
+
+The current release, `v0.0.0`, is a **preview**. Select it explicitly: GitHub's `latest` endpoint
+only selects stable releases, and none is published yet.
+
+Make the commands available in this terminal:
+
+```bash
+export PATH="$HOME/.local/bin:$PATH"
+tkm --version
+```
+
+Add that `export` line to `~/.bashrc` (Bash) or `~/.zshrc` (Zsh) for future terminals.
+Then [initialize tokenimum in your project](#use-it-in-a-project).
+
+### Install with curl
+
+For a **public** repository, the equivalent command is:
+
+```bash
+set -o pipefail
+curl -fsSL https://raw.githubusercontent.com/datamonsterr/tokenimum/main/install.sh |
+  bash -s -- --method curl --version v0.0.0
+```
+
+Anonymous curl downloads return 404 while this repository is private. To use curl now, install
+`jq` and export `GH_TOKEN` with read access to this repository, then use the authenticated API:
+
+```bash
+set -o pipefail
+curl -fsSL -H "Authorization: Bearer ${GH_TOKEN:?Export GH_TOKEN first}" \
+  -H 'Accept: application/vnd.github.raw+json' \
+  'https://api.github.com/repos/datamonsterr/tokenimum/contents/install.sh?ref=main' |
+  bash -s -- --method curl --version v0.0.0
+```
+
+Both download methods support `--bin-dir /absolute/path` and `--version TAG`. For example,
+append `--bin-dir "$HOME/bin"` to install elsewhere, and put that directory on `PATH`.
+The installer prints its next steps and does not edit your shell files or agent configuration.
+You can also download and inspect [install.sh](install.sh) before running `bash install.sh --help`.
+
+### Install from release assets (manual or offline)
+
+Download the matching archive **and** its adjacent `.sha256` file from
+[Releases](https://github.com/datamonsterr/tokenimum/releases) while signed in. You can copy
+these files to another machine with the same OS and architecture; the destination needs no network.
+
+| Linux architecture | Archive |
+| --- | --- |
+| x86_64 | `tokenimum-x86_64-unknown-linux-musl.tar.gz` |
+| ARM64 | `tokenimum-aarch64-unknown-linux-musl.tar.gz` |
+
+In a new directory containing those two files, set `archive` to your filename, then run:
+
+```bash
+set -e
+archive=tokenimum-x86_64-unknown-linux-musl.tar.gz
 sha256sum -c "$archive.sha256"
 tar -xzf "$archive"
 sha256sum -c SHA256SUMS
 mkdir -p "$HOME/.local/bin"
 install -m755 tkm tkm-hook tkmd "$HOME/.local/bin/"
 export PATH="$HOME/.local/bin:$PATH"
-tkm --help
+tkm --version
 ```
 
-Add `~/.local/bin` to `PATH` in your shell startup file to keep it available in new terminals.
-Release assets and checksums are listed on the [releases page](https://github.com/datamonsterr/tokenimum/releases).
-For build provenance and publication details, see the [release guide](docs/release.md).
+If you also copied `install.sh`, you can replace those steps with
+`bash install.sh --archive "$PWD/tokenimum-x86_64-unknown-linux-musl.tar.gz"`
+(use the ARM64 filename on ARM64); it verifies and installs without downloading.
+For updates, stop the daemon first as described below. For build provenance and publication
+details, see the [release guide](docs/release.md).
+
+### Updating
+
+1. Finish active coding sessions and stop the daemon. With a systemd user service, run
+   `systemctl --user stop tkmd.service`. If `init` reported a detached process instead (for
+   example, without systemd), run `pkill -u "$(id -u)" -x tkmd`; exit code 1 means none was running.
+2. Re-run your installation command with the desired `--version TAG`, using the **same bin
+   directory**. Choose a published tag from [Releases](https://github.com/datamonsterr/tokenimum/releases).
+   Once stable releases exist, `--version latest` selects the newest stable release. Previews
+   always need an explicit tag. Manual/offline users repeat the release-asset steps with the new files.
+3. From your project, refresh integrations and start the daemon with your existing preset:
+
+   ```bash
+   tkm init --yes
+   tkm doctor
+   tkm status
+   ```
+
+   Reuse your original `--only`, `--home`, or `--no-shims` options if you customized initialization.
+   Restart your coding agent after these checks.
+
+Updates replace all three executables. They keep your configuration and local database; you do
+not need to uninstall first. Read release notes for migration requirements and back up local data
+before an upgrade. There is no `tkm update` command or automatic updater. `tkm --version` reports
+the CLI version; `tkm doctor` checks daemon health after restart.
 
 ## Use it in a project
 

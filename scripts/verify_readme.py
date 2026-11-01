@@ -50,6 +50,13 @@ def stop_daemon(env):
 
 def verify(bin_dir, base):
     env = fresh_env(base, bin_dir)
+    # Exercise the detached-daemon path without controlling the runner's user services.
+    managers = Path(base) / 'service-managers'
+    managers.mkdir()
+    systemctl = managers / 'systemctl'
+    systemctl.write_text('#!/bin/sh\nexit 1\n')
+    systemctl.chmod(0o755)
+    env['PATH'] = f'{managers}:{env["PATH"]}'
     project = Path(base) / 'project'
     project.mkdir()
     (Path(env['HOME']) / '.claude').mkdir(exist_ok=True)

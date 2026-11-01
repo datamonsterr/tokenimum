@@ -14,9 +14,9 @@ No local Cargo build, Rust test, Clippy, or benchmark compilation was run.
   static linkage. Seven assets were published: two archives, two archive checksum files,
   and three cargo-geiger reports. `SHA256SUMS` is inside each archive.
 
-## Installation
+## Original manual installation
 
-Extracted the first Bash block directly from README.md and executed it with `bash -euc`
+For the README at `addd67e`, extracted the first Bash block and executed it with `bash -euc`
 in a temporary directory and temporary HOME. Only GitHub CLI authentication was reused
 through `GH_CONFIG_DIR` for access to this private repository.
 
@@ -28,6 +28,51 @@ extracted it, checked all three executable checksums, installed the binaries und
 ARM64 asset checksums and cross-compilation are covered by the release workflow. ARM64 runtime
 execution and macOS installation were not tested here. The README does not advertise macOS
 release archives.
+
+## Release installer and update instructions
+
+The installation section now uses root `install.sh`. Its verification entry point is the
+`installer` CI job on [PR #26](https://github.com/datamonsterr/tokenimum/pull/26/checks).
+The job runs shell syntax validation and `scripts/tests/test_installer.py`, covering:
+
+- Linux architecture selection, ARM64 aliases, and unsupported OS/architecture errors.
+- Explicit preview tags and the default stable-release URL.
+- GitHub CLI, anonymous curl, and token-authenticated asset API downloads.
+- Download failure, corrupt archive, corrupt binary, and missing binary checksum rejection.
+- Local archive installation without downloads, paths containing spaces, invalid options,
+  and replacement of an executable while its previous inode is running.
+
+The live step fetches the script using both authenticated bootstrap commands, using the PR head
+as `ref` while the file is not yet on main. It compares fetched bytes to the checked-out script,
+downloads the actual `v0.0.0` release with `gh` and authenticated curl, checks the installed
+executables, and runs `tkm --version`. Only the CLI implements a version flag; `tkmd --version`
+starts a daemon and must not be used as a version probe. The existing isolated fresh-install
+and README scripts then exercise init, doctor, a hook round trip, and the documented CLI examples
+against the installed preview. Tests and smoke checks run in Actions, without local Cargo builds.
+The README smoke check forces service-manager calls to fail in its temporary PATH, exercising
+the documented detached-daemon fallback without touching the runner's user services. This also
+avoids a partially available `systemctl` registering a service without a usable user bus.
+
+The README documents stopping the daemon before replacement, refreshing integrations with the
+existing preset and initialization options, and checking daemon health afterward. The installer
+changes only the bin directory; it does not edit shell startup files or initialize integrations.
+Moving installations to another bin directory and schema rollback are outside this procedure.
+
+Checked repository state on 2026-10-30: private, with a single `v0.0.0` prerelease and both
+Linux archives/checksums. Anonymous public-URL downloads cannot be tested against this private
+repository; their URL selection is covered offline. ARM64 selection and release build checks
+do not establish ARM64 runtime verification. WSL2 and macOS runtime behavior were not tested.
+
+Command/API references checked on 2026-10-30:
+
+- [GitHub CLI release download](https://cli.github.com/manual/gh_release_download)
+  and [API raw responses](https://cli.github.com/manual/gh_api).
+- [Release asset API](https://docs.github.com/en/rest/releases/assets#get-a-release-asset)
+  for authenticated `application/octet-stream` downloads.
+- [Repository contents API](https://docs.github.com/en/rest/repos/contents#get-repository-content)
+  for raw script bootstrap, and [latest release semantics](https://docs.github.com/en/rest/releases/releases#get-the-latest-release).
+- [curl options](https://curl.se/docs/manpage.html) for HTTP errors, redirects, TLS-only
+  transport, connection timeout, and transfer timeout.
 
 ## Commands and instructions
 
