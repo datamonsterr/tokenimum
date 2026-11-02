@@ -25,7 +25,7 @@ try {
         if (-not $match.Success -or $decoded -cne $match.Groups[1].Value.Replace("`r`n", "`n")) { throw 'Encoded script did not round-trip' }
     }
     if ($global:tokenimumTestCalls[1][-1] -notmatch 'bash -s -- curl v1\.2\.3$') { throw 'WSL arguments were not forwarded' }
-    foreach ($badVersion in @('v1.2.3;touch', 'v1.2', 'latest ', 'LATEST')) {
+    foreach ($badVersion in @('v1.2.3;touch', 'v1.2', 'latest ', 'LATEST', "v1.2.3`n")) {
         $failed = $false
         try { & $installer -Version $badVersion } catch { $failed = $true }
         if (-not $failed) { throw 'Invalid version was accepted' }

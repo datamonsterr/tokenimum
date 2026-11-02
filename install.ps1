@@ -3,7 +3,7 @@ param(
     [ValidateSet('auto', 'gh', 'curl')][string]$Method = 'auto'
 )
 $ErrorActionPreference = 'Stop'
-if ($Version -cnotmatch '^(latest|v\d+\.\d+\.\d+([-.][A-Za-z0-9.-]+)?)$') {
+if ($Version -cnotmatch '^(latest|v\d+\.\d+\.\d+([-.][A-Za-z0-9.-]+)?)\z') {
     throw 'Invalid version: use latest or a release tag such as v0.0.0.'
 }
 $Method = $Method.ToLowerInvariant()
