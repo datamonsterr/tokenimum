@@ -3,7 +3,7 @@
 set -euo pipefail
 
 main() {
-  local version=latest method=auto archive_path= bin_dir="${HOME:?HOME is not set}/.local/bin"
+  local version=latest method=auto archive_path='' bin_dir="${HOME:?HOME is not set}/.local/bin"
   while [ "$#" -gt 0 ]; do
     case "$1" in
       --version|--method|--bin-dir|--archive)
@@ -147,6 +147,8 @@ EOF
   done
   printf '\nInstalled tkm, tkm-hook, and tkmd in %s\n' "$bin_dir"
   printf 'Add this directory to PATH in your shell startup file, then open a new terminal:\n'
+  # Print the literal PATH expansion for the user's shell.
+  # shellcheck disable=SC2016
   printf '  export PATH="%s:$PATH"\n' "$bin_dir"
   printf 'First install: run tkm init --yes --preset offline inside your project.\n'
   printf 'Updating: restart tkmd and your coding agent, then run tkm doctor.\n'
