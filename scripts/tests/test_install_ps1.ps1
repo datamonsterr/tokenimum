@@ -18,4 +18,5 @@ try {
 } finally {
     Remove-Item Function:\wsl.exe -ErrorAction SilentlyContinue
     Remove-Variable tokenimumTestCalls -Scope Global -ErrorAction SilentlyContinue
+    $global:LASTEXITCODE = 0
 }
