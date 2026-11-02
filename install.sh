@@ -126,7 +126,7 @@ EOF
     cd "$work"
     [ "$("${checksum[@]}" "$archive")" = "$(cat "$archive.sha256")" ] || die "Archive checksum mismatch"
     "${checksum[@]}" --check "$archive.sha256"
-    tar -xzf "$archive" tkm tkm-hook tkmd SHA256SUMS
+    tar -xzf "$archive" --no-same-owner tkm tkm-hook tkmd SHA256SUMS
     for binary in tkm tkm-hook tkmd SHA256SUMS; do
       [ -f "$binary" ] && [ ! -L "$binary" ] || die "Invalid release file: $binary"
     done

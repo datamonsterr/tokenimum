@@ -46,7 +46,7 @@ jobs:
   installer-platforms:
     strategy:
       matrix:
-        os: [macos-15, ubuntu-24.04]
+        os: [macos-15, ubuntu-24.04, windows-2022]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
@@ -56,6 +56,10 @@ jobs:
       - name: Test PowerShell WSL installer
         if: runner.os == 'Linux'
         shell: pwsh
+        run: ./scripts/tests/test_install_ps1.ps1
+      - name: Test Windows PowerShell 5.1 WSL installer
+        if: runner.os == 'Windows'
+        shell: powershell
         run: ./scripts/tests/test_install_ps1.ps1
   fmt:
     runs-on: namespace-profile-datamonster01
