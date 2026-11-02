@@ -28,24 +28,35 @@ env:
 jobs:
   build:
     name: Build ${{ matrix.target }}
-    runs-on: namespace-profile-linux-xl
+    runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
       matrix:
-        target:
-          - x86_64-unknown-linux-musl
-          - aarch64-unknown-linux-musl
+        include:
+          - target: x86_64-unknown-linux-musl
+            runner: namespace-profile-linux-xl
+          - target: aarch64-unknown-linux-musl
+            runner: namespace-profile-linux-xl
+          - target: aarch64-apple-darwin
+            runner: macos-15
+          - target: x86_64-apple-darwin
+            runner: macos-15-intel
     steps:
       - uses: actions/checkout@v7
       - run: rustup show
       - name: Install native build tools
+        if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y cmake clang
       - name: Install target and pinned Zig linker
+        if: runner.os == 'Linux'
         run: |
           rustup target add "${{ matrix.target }}"
           python3 -m pip install --user --break-system-packages ziglang==0.17.0
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
           cargo install --locked cargo-zigbuild --version 0.24.0
+      - name: Install macOS target
+        if: runner.os == 'macOS'
+        run: rustup target add "${{ matrix.target }}"
       - name: Build twice, verify static linking, and compare hashes
         env:
           TARGET: ${{ matrix.target }}
@@ -54,34 +65,43 @@ jobs:
           set -euo pipefail
           export RUSTFLAGS="--remap-path-prefix=$HOME/.cargo=/cargo --remap-path-prefix=$GITHUB_WORKSPACE=/workspace"
           for build in first second; do
-            CARGO_TARGET_DIR="$RUNNER_TEMP/$build" cargo zigbuild --release --locked --target "$TARGET" -p tkm-cli -p tkm-hook -p tkmd
+            if [[ "$RUNNER_OS" == Linux ]]; then
+              CARGO_TARGET_DIR="$RUNNER_TEMP/$build" cargo zigbuild --release --locked --target "$TARGET" -p tkm-cli -p tkm-hook -p tkmd
+            else
+              CARGO_TARGET_DIR="$RUNNER_TEMP/$build" cargo build --release --locked --target "$TARGET" -p tkm-cli -p tkm-hook -p tkmd
+            fi
           done
+          if [[ "$RUNNER_OS" == macOS ]]; then
+            checksum=(shasum -a 256)
+          else
+            checksum=(sha256sum)
+          fi
           mkdir -p "dist/$TARGET"
           for binary in tkm tkm-hook tkmd; do
             first="$RUNNER_TEMP/first/$TARGET/release/$binary"
             second="$RUNNER_TEMP/second/$TARGET/release/$binary"
             description=$(file -b "$first")
             echo "$binary: $description"
-            if [[ "$description" == *"dynamically linked"* ]] || \
-              { [[ "$description" != *"statically linked"* ]] && [[ "$description" != *"static-pie linked"* ]]; }; then
+            if [[ "$RUNNER_OS" == Linux ]] && { [[ "$description" == *"dynamically linked"* ]] || \
+              { [[ "$description" != *"statically linked"* ]] && [[ "$description" != *"static-pie linked"* ]]; }; }; then
               echo "Expected a statically linked musl executable: $binary" >&2
               exit 1
             fi
-            if [[ "$TARGET" == x86_64-* ]]; then
+            if [[ "$RUNNER_OS" == Linux && "$TARGET" == x86_64-* ]]; then
               ldd_output=$(ldd "$first" 2>&1 || true)
               if [[ "$ldd_output" != *"not a dynamic executable"* ]]; then
                 echo "ldd did not confirm static linking for $binary: $ldd_output" >&2
                 exit 1
               fi
             fi
-            first_hash=$(sha256sum "$first" | cut -d ' ' -f 1)
-            second_hash=$(sha256sum "$second" | cut -d ' ' -f 1)
+            first_hash=$("${checksum[@]}" "$first" | cut -d ' ' -f 1)
+            second_hash=$("${checksum[@]}" "$second" | cut -d ' ' -f 1)
             test "$first_hash" = "$second_hash"
             install -m 755 "$first" "dist/$TARGET/$binary"
           done
-          (cd "dist/$TARGET" && sha256sum tkm tkm-hook tkmd > SHA256SUMS)
+          (cd "dist/$TARGET" && "${checksum[@]}" tkm tkm-hook tkmd > SHA256SUMS)
           tar -czf "dist/tokenimum-$TARGET.tar.gz" -C "dist/$TARGET" tkm tkm-hook tkmd SHA256SUMS
-          (cd dist && sha256sum "tokenimum-$TARGET.tar.gz" > "tokenimum-$TARGET.tar.gz.sha256")
+          (cd dist && "${checksum[@]}" "tokenimum-$TARGET.tar.gz" > "tokenimum-$TARGET.tar.gz.sha256")
       - uses: actions/upload-artifact@v7
         with:
           name: tokenimum-${{ matrix.target }}

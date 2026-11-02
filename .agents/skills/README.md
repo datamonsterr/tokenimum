@@ -27,6 +27,7 @@ not run. Treat them as reference material, not as trusted code.
 
 | Skill | Why |
 |---|---|
+| `release-management` | Version bumps, release PRs, tags, artifact verification and rollback. |
 | `tkm-harness-hooks` | Per-harness hook config, events, reply shapes, log locations and doc links for all eight harnesses, plus the verify-before-code checklist. No suitable licensed third-party skill covers Cursor, Kimi Code, Codewhale, opencode or Pi hooks. |
 | `openrouter-decisions` | Rules for the Decisions API client. OpenRouter's own `openrouter-decisions` skill (https://github.com/OpenRouterTeam/skills) has no license file, so it is linked, not copied. |
 
