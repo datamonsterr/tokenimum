@@ -3,7 +3,7 @@
 set -euo pipefail
 
 main() {
-  local version=latest method=auto archive_path= bin_dir="${HOME:?HOME is not set}/.local/bin"
+  local version=latest method=auto archive_path='' bin_dir="${HOME:?HOME is not set}/.local/bin"
   while [ "$#" -gt 0 ]; do
     case "$1" in
       --version|--method|--bin-dir|--archive)
@@ -17,7 +17,7 @@ main() {
         shift 2 ;;
       -h|--help)
         cat <<EOF
-Install or update tokenimum's Linux release binaries (no root required).
+Install or update tokenimum's Linux and macOS release binaries (no root required).
 
 Usage: bash install.sh [options]
   --version TAG    Release tag, e.g. v0.0.0 (default: latest stable release)
@@ -26,7 +26,7 @@ Usage: bash install.sh [options]
   --archive FILE  Install a local release .tar.gz with its adjacent .sha256 file
   --help          Show this help
 
-Supports Linux x86_64 and ARM64, including Linux inside WSL2.
+Supports Linux and macOS x86_64 and ARM64, including Linux inside WSL2.
 Private repositories: authenticate gh, or use curl with GH_TOKEN and jq.
 No stable release yet? Select a preview explicitly with --version v0.0.0.
 Re-run with the same --bin-dir to update. Restart tkmd and your coding agent afterward.
@@ -43,18 +43,30 @@ EOF
 
   local system architecture target archive
   system=$(uname -s)
-  [ "$system" = Linux ] || die "Unsupported OS: $system. Release binaries support Linux only; on Windows use WSL2."
   architecture=$(uname -m)
   case "$architecture" in
-    x86_64|amd64) target=x86_64-unknown-linux-musl ;;
-    aarch64|arm64) target=aarch64-unknown-linux-musl ;;
+    x86_64|amd64) architecture=x86_64 ;;
+    aarch64|arm64) architecture=aarch64 ;;
     *) die "Unsupported architecture: $architecture. Releases support x86_64 and ARM64 only." ;;
+  esac
+  case "$system" in
+    Linux) target="$architecture-unknown-linux-musl" ;;
+    Darwin) target="$architecture-apple-darwin" ;;
+    *) die "Unsupported OS: $system. On Windows use the PowerShell WSL2 installer." ;;
   esac
   archive="tokenimum-$target.tar.gz"
   local utility
-  for utility in tar sha256sum install mktemp cp mv; do
+  for utility in tar install mktemp cp mv; do
     command -v "$utility" >/dev/null || die "Required command missing: $utility"
   done
+
+  if command -v sha256sum >/dev/null; then
+    checksum=(sha256sum)
+  elif command -v shasum >/dev/null; then
+    checksum=(shasum -a 256)
+  else
+    die "Required command missing: sha256sum or shasum"
+  fi
 
   work=$(mktemp -d)
   stage=
@@ -112,14 +124,14 @@ EOF
 
   (
     cd "$work"
-    [ "$(sha256sum "$archive")" = "$(cat "$archive.sha256")" ] || die "Archive checksum mismatch"
-    sha256sum --check "$archive.sha256"
+    [ "$("${checksum[@]}" "$archive")" = "$(cat "$archive.sha256")" ] || die "Archive checksum mismatch"
+    "${checksum[@]}" --check "$archive.sha256"
     tar -xzf "$archive" --no-same-owner tkm tkm-hook tkmd SHA256SUMS
     for binary in tkm tkm-hook tkmd SHA256SUMS; do
       [ -f "$binary" ] && [ ! -L "$binary" ] || die "Invalid release file: $binary"
     done
-    sha256sum --check SHA256SUMS
-    [ "$(sha256sum tkm tkm-hook tkmd)" = "$(cat SHA256SUMS)" ] || die "Incomplete binary checksums"
+    "${checksum[@]}" --check SHA256SUMS
+    [ "$("${checksum[@]}" tkm tkm-hook tkmd)" = "$(cat SHA256SUMS)" ] || die "Incomplete binary checksums"
   )
 
   mkdir -p -- "$bin_dir"
@@ -131,10 +143,12 @@ EOF
   stage=$(mktemp -d "$bin_dir/.tokenimum.XXXXXX")
   install -m755 "$work/tkm" "$work/tkm-hook" "$work/tkmd" "$stage/"
   for binary in tkm tkm-hook tkmd; do
-    mv -fT -- "$stage/$binary" "$bin_dir/$binary"
+    mv -f -- "$stage/$binary" "$bin_dir/$binary"
   done
   printf '\nInstalled tkm, tkm-hook, and tkmd in %s\n' "$bin_dir"
   printf 'Add this directory to PATH in your shell startup file, then open a new terminal:\n'
+  # Print the literal PATH expansion for the user's shell.
+  # shellcheck disable=SC2016
   printf '  export PATH="%s:$PATH"\n' "$bin_dir"
   printf 'First install: run tkm init --yes --preset offline inside your project.\n'
   printf 'Updating: restart tkmd and your coding agent, then run tkm doctor.\n'

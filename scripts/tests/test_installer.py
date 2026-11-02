@@ -73,8 +73,8 @@ cp "$TEST_ASSETS/"* "$directory/"
         path.write_text(source)
         path.chmod(0o755)
 
-    def make_archive(self, target='x86_64', corrupt_binary=False):
-        archive = self.assets / f'tokenimum-{target}-unknown-linux-musl.tar.gz'
+    def make_archive(self, target='x86_64', corrupt_binary=False, platform='unknown-linux-musl'):
+        archive = self.assets / f'tokenimum-{target}-{platform}.tar.gz'
         contents = {name: f'#!/bin/sh\necho {name}-fixture\n'.encode() for name in BINARIES}
         sums = ''.join(f'{hashlib.sha256(data).hexdigest()}  {name}\n'
                        for name, data in contents.items()).encode()
@@ -121,8 +121,16 @@ cp "$TEST_ASSETS/"* "$directory/"
                 self.assert_installed(self.run_installer('--method', 'curl', '--version', 'v0.0.0'))
         self.assertIn('/download/v0.0.0/tokenimum-aarch64-', self.log.read_text())
 
+    def test_macos_architectures(self):
+        self.env['TEST_OS'] = 'Darwin'
+        for architecture, target in (('arm64', 'aarch64'), ('x86_64', 'x86_64')):
+            with self.subTest(architecture=architecture):
+                self.env['TEST_ARCH'] = architecture
+                archive = self.make_archive(target, platform='apple-darwin')
+                self.assert_installed(self.run_installer('--archive', str(archive)))
+
     def test_unsupported_platform_fails_before_download(self):
-        for system, architecture in (('Darwin', 'arm64'), ('MINGW64_NT', 'x86_64'), ('Linux', 'armv7l')):
+        for system, architecture in (('Darwin', 'armv7l'), ('MINGW64_NT', 'x86_64'), ('Linux', 'armv7l')):
             with self.subTest(system=system, architecture=architecture):
                 self.env.update(TEST_OS=system, TEST_ARCH=architecture)
                 result = self.run_installer('--method', 'curl')

@@ -67,7 +67,24 @@ It does not require root.
 
 The installer downloads a release, verifies its archive and binary SHA-256 checksums, and installs
 `tkm`, `tkm-hook`, and `tkmd` into `~/.local/bin`. No Rust toolchain, system musl, or `sudo` is needed.
-It requires Bash and standard Linux tools (`tar`, `sha256sum`, and coreutils).
+It requires Bash, `tar`, and either `sha256sum` or `shasum`. Windows installs into WSL2.
+
+For a public repository, install the latest stable release with:
+
+```bash
+# Linux
+curl -fsSL https://raw.githubusercontent.com/datamonsterr/tokenimum/main/install.sh | bash
+# macOS
+curl -fsSL https://raw.githubusercontent.com/datamonsterr/tokenimum/main/install.sh | bash
+```
+
+```powershell
+# Windows (WSL2)
+irm https://raw.githubusercontent.com/datamonsterr/tokenimum/main/install.ps1 | iex
+```
+
+The repository is currently private; use the authenticated commands below. The existing `v0.0.0`
+preview contains Linux assets only. macOS assets require a new release.
 
 ### Platform support
 
@@ -75,9 +92,9 @@ It requires Bash and standard Linux tools (`tar`, `sha256sum`, and coreutils).
 | --- | --- | --- |
 | Linux, Intel/AMD 64-bit (`x86_64`) | Supported | Static musl binaries; works across glibc and musl distributions |
 | Linux, ARM64 (`aarch64` / `arm64`) | Supported | Same installer; selects the ARM64 archive automatically |
-| Windows with WSL2, x86_64 or ARM64 | Use the Linux installer inside WSL2 | Install and run your coding agent in the same WSL environment; WSL runtime is not yet verified |
-| macOS, Intel or Apple Silicon | No release archive | Service support exists in source; native installation is not yet verified |
-| Native Windows, 32-bit Linux, other architectures | No release archive | Use a supported Linux environment; there is no PowerShell installer |
+| macOS, Intel or Apple Silicon | Native archive | Selects the matching macOS archive |
+| Windows with WSL2, x86_64 or ARM64 | PowerShell installer | Install and run your coding agent inside the same WSL2 distribution |
+| Native Windows, 32-bit Linux, other architectures | No release archive | Use a supported Linux environment |
 
 ### Quick install (current private repository)
 
@@ -93,6 +110,18 @@ gh api -H 'Accept: application/vnd.github.raw+json' \
 
 The current release, `v0.0.0`, is a **preview**. Select it explicitly: GitHub's `latest` endpoint
 only selects stable releases, and none is published yet.
+
+For Windows, authenticate `gh` on Windows to fetch the PowerShell script and also authenticate
+`gh` **inside WSL** for the release assets. Run this in PowerShell (replace the version once a
+new release is available):
+
+```powershell
+& ([scriptblock]::Create((gh api -H 'Accept: application/vnd.github.raw+json' 'repos/datamonsterr/tokenimum/contents/install.ps1?ref=main' | Out-String))) -Version v0.0.0 -Method gh
+```
+
+Alternatively, set `GH_TOKEN` and install `jq` inside WSL and use `-Method curl`. The script
+requires a working default WSL2 distribution; run `wsl --install` if needed. Run the installed
+binaries and coding agent in that distribution.
 
 Make the commands available in this terminal:
 
@@ -136,10 +165,12 @@ Download the matching archive **and** its adjacent `.sha256` file from
 [Releases](https://github.com/datamonsterr/tokenimum/releases) while signed in. You can copy
 these files to another machine with the same OS and architecture; the destination needs no network.
 
-| Linux architecture | Archive |
+| Platform | Archive |
 | --- | --- |
-| x86_64 | `tokenimum-x86_64-unknown-linux-musl.tar.gz` |
-| ARM64 | `tokenimum-aarch64-unknown-linux-musl.tar.gz` |
+| Linux x86_64 | `tokenimum-x86_64-unknown-linux-musl.tar.gz` |
+| Linux ARM64 | `tokenimum-aarch64-unknown-linux-musl.tar.gz` |
+| macOS Intel | `tokenimum-x86_64-apple-darwin.tar.gz` |
+| macOS Apple Silicon | `tokenimum-aarch64-apple-darwin.tar.gz` |
 
 In a new directory containing those two files, set `archive` to your filename, then run:
 

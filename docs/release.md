@@ -1,15 +1,16 @@
 # Release and benchmark workflows
 
-## Linux releases
+## Release builds
 
 The release workflow builds `tkm`, `tkm-hook`, and `tkmd` as statically linked musl binaries for
 `x86_64-unknown-linux-musl` and `aarch64-unknown-linux-musl`. It uses pinned `cargo-zigbuild`
 and Zig versions so both architectures can be built on the `namespace-profile-linux-xl` runner.
-SPEC 13.2 requires static Linux musl releases; it does not specify macOS release targets.
+macOS builds use native GitHub-hosted macOS runners for `aarch64-apple-darwin` and
+`x86_64-apple-darwin`. SPEC 13.2 requires static Linux musl releases.
 
-Each target is built twice in clean target directories with `SOURCE_DATE_EPOCH=0`, incremental
+Each target is built twice from a clean target directory (macOS reuses the same path) with `SOURCE_DATE_EPOCH=0`, incremental
 compilation disabled, and Cargo/workspace paths remapped. The workflow compares SHA-256 hashes
-and fails if they differ. It also requires `file` to identify every binary as statically linked;
+and fails if they differ. On Linux it also requires `file` to identify every binary as statically linked;
 on x86_64, `ldd` must report that the executable is not dynamic. A target archive contains all
 three executables and a `SHA256SUMS` file. The release also attaches a SHA-256 checksum for each
 archive and a JSON `cargo-geiger` report.
@@ -18,18 +19,19 @@ Tag pushes matching `v*` build and publish when the repository variable
 `RELEASE_PUBLISH_ENABLED` is set to `true`. A manual `workflow_dispatch` defaults to dry-run and
 builds the same artifacts; publishing requires dispatching on a version tag, setting `dry_run` to
 false, and enabling the repository variable. Pull requests that change the workflow or Rust build
-inputs run the build and geiger jobs without publishing. Heavy build and geiger work uses
-`namespace-profile-linux-xl`; artifact download and release publication use
+inputs run the build and geiger jobs without publishing. Linux build and geiger work uses
+`namespace-profile-linux-xl`, macOS builds use GitHub-hosted runners; artifact download and release publication use
 `namespace-profile-datamonster01`.
 
 ## Install from a GitHub Release
 
 See the [README installation instructions](../README.md#installation) for the platform matrix,
 authenticated GitHub CLI and curl commands, and manual/offline installation. The root
-[`install.sh`](../install.sh) selects the Linux architecture, downloads the archive and checksum,
+[`install.sh`](../install.sh) selects the Linux or macOS architecture, downloads the archive and checksum,
 verifies the archive and all three executables, and installs into `~/.local/bin` by default.
 It stages replacements in the destination filesystem so an existing executable can keep running
-until the daemon is restarted. No Rust toolchain or system musl runtime is needed.
+until the daemon is restarted. No Rust toolchain or system musl runtime is needed. Windows users can run `install.ps1` to
+install in their default WSL2 distribution, with authentication configured within WSL.
 
 The installer is fetched from the default branch, independently of the binary release tag.
 `--version TAG` selects an explicit release, including previews; `latest` selects the latest
