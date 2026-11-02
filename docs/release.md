@@ -8,7 +8,7 @@ and Zig versions so both architectures can be built on the `namespace-profile-li
 macOS builds use native GitHub-hosted macOS runners for `aarch64-apple-darwin` and
 `x86_64-apple-darwin`. SPEC 13.2 requires static Linux musl releases.
 
-Each target is built twice in clean target directories with `SOURCE_DATE_EPOCH=0`, incremental
+Each target is built twice from a clean target directory (macOS reuses the same path) with `SOURCE_DATE_EPOCH=0`, incremental
 compilation disabled, and Cargo/workspace paths remapped. The workflow compares SHA-256 hashes
 and fails if they differ. On Linux it also requires `file` to identify every binary as statically linked;
 on x86_64, `ldd` must report that the executable is not dynamic. A target archive contains all
