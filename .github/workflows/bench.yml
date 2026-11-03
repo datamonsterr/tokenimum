@@ -34,6 +34,7 @@ jobs:
       - name: Test bench scripts
         run: |
           python3 scripts/tests/test_check_bench_budget.py
+          python3 scripts/tests/test_compare_bench.py
           python3 scripts/tests/test_check_hook_latency.py
           python3 scripts/tests/test_roundtrip_benchmark.py
           python3 scripts/tests/test_perf_budget_table.py
@@ -113,14 +114,51 @@ jobs:
             python3 scripts/shim_benchmark.py "$host" "shim-$host.json" "shim-$host-metrics.json"
           done
           python3 -c 'import json; print(json.dumps(json.load(open("shim-opencode-metrics.json")) + json.load(open("shim-pi-metrics.json"))))' > shim-benchmark.json
+      # Same job, same runner: head samples (the first is the budgeted run above) are interleaved
+      # with base samples, then medians are compared and only a regression beyond noise fails.
+      - name: Compare Criterion against PR base (interleaved, median, noise-aware)
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -eu
+          git fetch --no-tags --depth=1 origin "$BASE_SHA"
+          git worktree add --detach "$RUNNER_TEMP/base" "$BASE_SHA"
+          bench_one() { # <source dir> <output file> <package> <bench>
+            rm -rf target/criterion
+            (cd "$1" && CARGO_TARGET_DIR="$GITHUB_WORKSPACE/target" cargo bench --locked -p "$3" --bench "$4" -- --output-format bencher) >> "$2"
+          }
+          bench_pass() { # <source dir> <output file>
+            : > "$2"
+            bench_one "$1" "$2" tkmd tool_done
+            bench_one "$1" "$2" tkm-ui render
+            bench_one "$1" "$2" tkmd prompt
+            bench_one "$1" "$2" tkmd fold_session
+          }
+          cp criterion.txt head-1.txt
+          bench_pass "$RUNNER_TEMP/base" base-1.txt
+          for i in 2 3 4; do
+            if [ $((i % 2)) -eq 0 ]; then
+              bench_pass "$GITHUB_WORKSPACE" "head-$i.txt"
+              bench_pass "$RUNNER_TEMP/base" "base-$i.txt"
+            else
+              bench_pass "$RUNNER_TEMP/base" "base-$i.txt"
+              bench_pass "$GITHUB_WORKSPACE" "head-$i.txt"
+            fi
+          done
+          python3 scripts/compare_bench.py --threshold 1.20 --summary "$GITHUB_STEP_SUMMARY" \
+            --head head-1.txt head-2.txt head-3.txt head-4.txt \
+            --base base-1.txt base-2.txt base-3.txt base-4.txt
       - uses: actions/cache/restore@v6
         with:
           path: benchmark-data
           key: benchmark-v1-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: benchmark-v1-
       - run: mkdir -p benchmark-data
-      # Shared runner noise can trigger the 20% gate; later epics should tune it.
-      - name: Compare Criterion
+      # Pull requests compare against their own base in the step above; the stored history was
+      # measured on another runner and flaked the ratio gate. Main pushes keep it for charts.
+      - name: Record Criterion history
+        if: github.event_name != 'pull_request'
         uses: benchmark-action/github-action-benchmark@v1.22.2
         with:
           name: Criterion
@@ -130,7 +168,11 @@ jobs:
           external-data-json-path: benchmark-data/criterion.json
           alert-threshold: '120%'
           fail-on-alert: ${{ github.event_name == 'pull_request' }}
+      - name: Compare hook startup, round trip and shim against PR base (interleaved, median, noise-aware)
+        if: github.event_name == 'pull_request'
+        run: scripts/bench_pr_hooks.sh "$RUNNER_TEMP/base"
       - name: Compare hook startup
+        if: github.event_name != 'pull_request'
         uses: benchmark-action/github-action-benchmark@v1.22.2
         with:
           name: Hook
@@ -141,6 +183,7 @@ jobs:
           alert-threshold: '120%'
           fail-on-alert: ${{ github.event_name == 'pull_request' }}
       - name: Compare hook round trip percentiles
+        if: github.event_name != 'pull_request'
         uses: benchmark-action/github-action-benchmark@v1.22.2
         with:
           name: Hook round trip
@@ -151,6 +194,7 @@ jobs:
           alert-threshold: '120%'
           fail-on-alert: ${{ github.event_name == 'pull_request' }}
       - name: Compare shim percentiles
+        if: github.event_name != 'pull_request'
         uses: benchmark-action/github-action-benchmark@v1.22.2
         with:
           name: Shim
@@ -235,7 +279,17 @@ jobs:
           key: idle-benchmark-v2-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: idle-benchmark-v2-
       - run: mkdir -p idle-benchmark-data
+      - name: Compare idle CPU and memory against PR base (interleaved, median, noise-aware)
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -eu
+          git fetch --no-tags --depth=1 origin "$BASE_SHA"
+          git worktree add --detach "$RUNNER_TEMP/base" "$BASE_SHA"
+          scripts/bench_pr_idle.sh "$RUNNER_TEMP/base"
       - name: Compare default idle CPU and memory
+        if: github.event_name != 'pull_request'
         uses: benchmark-action/github-action-benchmark@v1.22.2
         with:
           name: Default idle
@@ -246,6 +300,7 @@ jobs:
           alert-threshold: '120%'
           fail-on-alert: ${{ github.event_name == 'pull_request' }}
       - name: Compare web idle CPU and memory
+        if: github.event_name != 'pull_request'
         uses: benchmark-action/github-action-benchmark@v1.22.2
         with:
           name: Web idle
