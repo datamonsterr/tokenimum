@@ -554,20 +554,27 @@ fn render(report: &StatusReport) -> String {
         report.daemon.uptime,
         report.preset
     );
-    let _ = writeln!(
-        text,
-        "Adapters: {}",
-        report
-            .adapters
-            .iter()
-            .map(|a| format!(
+    let adapters = report
+        .adapters
+        .iter()
+        .map(|a| {
+            format!(
                 "{} {} ({})",
                 a.name,
                 if a.enabled { "on" } else { "off" },
                 a.reason
-            ))
-            .collect::<Vec<_>>()
-            .join("; ")
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("; ");
+    let _ = writeln!(
+        text,
+        "Adapters: {}",
+        if adapters.is_empty() {
+            "none"
+        } else {
+            &adapters
+        }
     );
     for repo in &report.repositories {
         let _ = writeln!(text, "Repository: {}", report::line(&repo.repo_key));
@@ -578,6 +585,7 @@ fn render(report: &StatusReport) -> String {
             text.push_str("  Harnesses: none observed\n");
         }
         for host in &repo.harnesses {
+            let missing = host.events_missing.join(", ");
             let _ = writeln!(
                 text,
                 "  Harness {}: {}; {} ({}); last event {}; missing {}; {}",
@@ -586,7 +594,7 @@ fn render(report: &StatusReport) -> String {
                 if host.enabled { "on" } else { "off" },
                 host.reason,
                 host.last_event,
-                host.events_missing.join(", "),
+                if missing.is_empty() { "none" } else { &missing },
                 host.coverage
             );
         }
@@ -686,4 +694,71 @@ fn render(report: &StatusReport) -> String {
         }
     }
     text
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn report(adapters: Vec<AdapterReport>, missing: Vec<String>) -> StatusReport {
+        StatusReport {
+            daemon: DaemonReport {
+                state: "running".into(),
+                version: "0".into(),
+                uptime: "1s".into(),
+            },
+            preset: "balanced".into(),
+            adapters,
+            repositories: vec![RepoReport {
+                repo_key: "r".into(),
+                config_source: None,
+                harnesses: vec![HarnessReport {
+                    host: "claude".into(),
+                    level: "hooks".into(),
+                    enabled: true,
+                    reason: "ok".into(),
+                    last_event: "now".into(),
+                    events_missing: missing,
+                    coverage: "observed".into(),
+                }],
+                facts: FactCounts {
+                    active: 0,
+                    candidates: 0,
+                    retired_last_7_days: 0,
+                },
+                loop_guard: LoopReport {
+                    mode: "shadow".into(),
+                    envelopes: vec![],
+                    redirects_last_7_days: 0,
+                    escalations_last_7_days: 0,
+                },
+                pruning: PruneReport {
+                    mode: "shadow".into(),
+                    pending_proposals: 0,
+                },
+                spend: SpendReport {
+                    decisions_today_usd: 0.0,
+                    daily_cap_usd: 0.0,
+                    scope: "repo",
+                    unknown_session_costs: 0,
+                    unknown_decision_costs_today: 0,
+                },
+                savings: vec![],
+                last_actions: vec![],
+            }],
+        }
+    }
+
+    #[test]
+    fn empty_lists_render_as_none() {
+        let text = render(&report(vec![], vec![]));
+        assert!(text.contains("missing none; observed"), "{text}");
+        assert!(text.contains("Adapters: none\n"), "{text}");
+    }
+
+    #[test]
+    fn missing_events_are_listed() {
+        let text = render(&report(vec![], vec!["a".into(), "b".into()]));
+        assert!(text.contains("missing a, b; observed"), "{text}");
+    }
 }
