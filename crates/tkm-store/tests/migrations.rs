@@ -146,3 +146,47 @@ fn opening_current_database_does_not_reserve_writer() {
     let result = Store::open_with_timeout(&path, Duration::from_millis(1));
     assert!(result.is_ok());
 }
+
+#[test]
+fn upgrade_drops_empty_skill_evidence_and_prices_zero_token_ledger_rows() {
+    // Evidence folded before the reader recognized skill catalogs recorded no loaded skill.
+    // Dropping it lets the session be read again; evidence with a loaded skill stays.
+    let temp = TempDir::new();
+    let path = temp.db();
+    drop(Store::open(&path).unwrap());
+    let conn = Connection::open(&path).unwrap();
+    conn.pragma_update(None, "user_version", 10).unwrap();
+    conn.execute_batch(
+        "INSERT INTO repos VALUES ('r','r',1,1,0);
+         INSERT INTO sessions VALUES (1,'claude','/h','s1','r','/c',1,2,'folded',0,'hooks');
+         INSERT INTO sessions VALUES (2,'claude','/h','s2','r','/c',1,2,'folded',0,'hooks');
+         INSERT INTO skill_evidence_sessions VALUES (1);
+         INSERT INTO skill_evidence_sessions VALUES (2);
+         INSERT INTO skill_evidence VALUES (1,'a',0,1);
+         INSERT INTO skill_evidence VALUES (2,'a',1,0);
+         INSERT INTO ledger VALUES (1,0,0,0,0,0.0,0,0.0,0.0,NULL);
+         INSERT INTO ledger VALUES (2,5,0,0,0,0.0,0,0.0,0.0,NULL);",
+    )
+    .unwrap();
+    drop(conn);
+    let store = Store::open(&path).unwrap();
+    let priced = |id: i64| -> Option<f64> {
+        Connection::open(&path)
+            .unwrap()
+            .query_row(
+                "SELECT priced_cost_usd FROM ledger WHERE session_id=?1",
+                [id],
+                |row| row.get(0),
+            )
+            .unwrap()
+    };
+    assert_eq!(priced(1), Some(0.0), "no tokens, no cost");
+    assert_eq!(priced(2), None, "tokens with unknown model stay unknown");
+    assert!(!store.has_skill_evidence(1).unwrap());
+    assert!(store.has_skill_evidence(2).unwrap());
+    let report = store
+        .skill_evidence(&tkm_core::model::RepoKey("r".into()))
+        .unwrap();
+    assert_eq!(report.skills["a"].loaded_sessions, 1);
+    assert_eq!(report.skills["a"].invocations, 0);
+}

@@ -97,23 +97,33 @@ impl PriceTable {
             return tails.next().is_none().then_some(price);
         }
         let wanted = canonical_model(model)?;
-        let mut found: Option<&Price> = None;
-        for (id, price) in &self.models {
-            if id.contains(':') || canonical_model(id).as_deref() != Some(wanted.as_str()) {
-                continue;
-            }
-            match found {
-                Some(seen) if seen != price => return None,
-                _ => found = Some(price),
-            }
-        }
-        found
+        let candidates: Vec<(&str, &Price)> = self
+            .models
+            .iter()
+            .filter(|(id, _)| {
+                !id.contains(':') && canonical_model(id).as_deref() == Some(wanted.as_str())
+            })
+            .map(|(id, price)| (id.as_str(), price))
+            .collect();
+        unique_price(candidates.iter().copied()).or_else(|| {
+            // Several prices: the undated alias key beats dated snapshot keys.
+            unique_price(
+                candidates
+                    .iter()
+                    .copied()
+                    .filter(|(id, _)| !has_date_suffix(id)),
+            )
+        })
     }
     /// Price a session. The caller supplies a session model when aggregate usage lacks
     /// per-model data; an unknown or absent model yields `None`.
     #[must_use]
     pub fn price_session(&self, session: &Session, model: Option<&str>) -> Option<f64> {
         if session.usage_by_model.is_empty() {
+            if session.usage == Usage::default() {
+                // No tokens were billed, so no model is needed to know the cost.
+                return Some(0.0);
+            }
             self.price_usage(model?, session.usage)
         } else {
             let attributed = session
@@ -137,6 +147,20 @@ impl PriceTable {
                 })
         }
     }
+}
+
+/// The single price all entries agree on, or `None` for no entries or conflicting prices.
+fn unique_price<'a>(mut entries: impl Iterator<Item = (&'a str, &'a Price)>) -> Option<&'a Price> {
+    let (_, first) = entries.next()?;
+    entries.all(|(_, price)| price == first).then_some(first)
+}
+
+/// Whether a key ends in a `-YYYYMMDD` snapshot date (before any `[`/`@` suffix).
+fn has_date_suffix(id: &str) -> bool {
+    let tail = id.rsplit('/').next().unwrap_or(id);
+    let tail = tail.split(['[', '@']).next().unwrap_or(tail);
+    tail.rsplit_once('-')
+        .is_some_and(|(_, date)| date.len() == 8 && date.bytes().all(|b| b.is_ascii_digit()))
 }
 
 /// Canonical model name shared by harness IDs and price-table keys: lowercase, without a

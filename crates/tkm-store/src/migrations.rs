@@ -119,8 +119,9 @@ CREATE TABLE installs (
 ";
 
 /// Migrations in schema version order.
-pub(crate) const MIGRATIONS: &[&str] =
-    &[V001, V002, V003, V004, V005, V006, V007, V008, V009, V010];
+pub(crate) const MIGRATIONS: &[&str] = &[
+    V001, V002, V003, V004, V005, V006, V007, V008, V009, V010, V011,
+];
 
 /// Distinct judged turns and the first decision timestamp survive daemon restarts.
 pub(crate) const V005: &str = r"
@@ -265,7 +266,7 @@ mod report_schema_tests {
         let version: i64 = conn
             .pragma_query_value(None, "user_version", |row| row.get(0))
             .unwrap();
-        assert_eq!(version, 10);
+        assert_eq!(version, 11);
         let legacy = store
             .get_fact(&tkm_core::model::RepoKey("legacy".into()), "f")
             .unwrap()
@@ -349,4 +350,14 @@ CREATE TABLE delegated_run_history (
     PRIMARY KEY(repo_key, host, agent_home, session_id)
 );
 CREATE INDEX delegated_run_history_window ON delegated_run_history(repo_key, ran_at);
+";
+
+/// Evidence folded before the Claude reader recognized skill catalogs lists no loaded skill.
+/// Dropping it and its marker lets those sessions be read again; evidence that lists a loaded
+/// skill is kept. A ledger row with no tokens costs nothing; it was left unpriced only because
+/// no model could be named for it.
+pub(crate) const V011: &str = r"
+UPDATE ledger SET priced_cost_usd = 0 WHERE priced_cost_usd IS NULL AND input_tokens + output_tokens + cache_read_tokens + cache_write_tokens = 0;
+DELETE FROM skill_evidence WHERE session_id NOT IN (SELECT session_id FROM skill_evidence WHERE loaded > 0);
+DELETE FROM skill_evidence_sessions WHERE session_id NOT IN (SELECT session_id FROM skill_evidence WHERE loaded > 0);
 ";

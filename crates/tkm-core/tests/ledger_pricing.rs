@@ -227,3 +227,49 @@ fn invalid_price_and_cost_boundaries() {
         None
     );
 }
+
+#[test]
+fn undated_alias_wins_over_dated_snapshot_keys() {
+    let table = PriceTable::parse(
+        r#"
+[models."anthropic/claude-opus-5.5-20260921"]
+input = 2.0
+output = 10.0
+cache_read = 0.1
+cache_write = 2.5
+[models."anthropic/claude-opus-5.5"]
+input = 4.0
+output = 20.0
+cache_read = 0.2
+cache_write = 5.0
+[models."anthropic/claude-opus-5.5:batch"]
+input = 2.0
+output = 10.0
+cache_read = 0.1
+cache_write = 2.5
+"#,
+    )
+    .unwrap();
+    let usage = Usage {
+        input: 1_000_000,
+        output: 1_000_000,
+        ..Usage::default()
+    };
+    assert_eq!(table.price_usage("claude-opus-5-5", usage), Some(24.0));
+    // Two dated snapshots with different prices and no alias stay ambiguous.
+    let ambiguous = PriceTable::parse(
+        "[models.\"a/m-1-20260101\"]\ninput=1.0\noutput=1.0\n[models.\"a/m-1-20260202\"]\ninput=2.0\noutput=2.0",
+    )
+    .unwrap();
+    assert_eq!(ambiguous.price_usage("m-1", usage), None);
+}
+
+#[test]
+fn session_without_tokens_costs_nothing_without_a_model() {
+    let table = PriceTable::parse("[models.\"a/m\"]\ninput=1.0\noutput=1.0").unwrap();
+    let empty = Session::new(Host::Claude);
+    assert_eq!(table.price_session(&empty, None), Some(0.0));
+    let mut used = Session::new(Host::Claude);
+    used.usage.input = 5;
+    assert_eq!(table.price_session(&used, None), None);
+}
