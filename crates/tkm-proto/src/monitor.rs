@@ -34,6 +34,12 @@ pub struct SessionUpdate {
     pub turn_calls: u32,
     /// Learned envelope for the repository, if enough good turns exist.
     pub envelope: Option<f64>,
+    /// Good-turn samples recorded for the repository envelope, when known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub envelope_samples: Option<u32>,
+    /// Good-turn samples required before an envelope exists, when known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub envelope_min_samples: Option<u32>,
     /// Loop-guard state: `off`, `shadow`, `watching`, `judging`, `redirected` or `escalated`.
     pub loop_state: String,
 }

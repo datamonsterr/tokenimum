@@ -320,6 +320,19 @@ fn bounded_status(
     }
 }
 
+/// Longest a harness `--version` may take; some harnesses (opencode) start slowly.
+pub(crate) const VERSION_TIMEOUT: Duration = Duration::from_secs(5);
+
+fn version_timeout() -> CliError {
+    std::io::Error::new(
+        std::io::ErrorKind::TimedOut,
+        format!("--version timed out after {} s", VERSION_TIMEOUT.as_secs()),
+    )
+    .into()
+}
+
+/// Run `program --version`, bounded by [`VERSION_TIMEOUT`]. A timeout is an
+/// [`std::io::ErrorKind::TimedOut`] I/O error.
 pub(crate) fn version(ctx: &Ctx<'_>, program: &Path) -> Result<String, CliError> {
     let mut child = command(ctx, program)
         .arg("--version")
@@ -342,7 +355,7 @@ pub(crate) fn version(ctx: &Ctx<'_>, program: &Path) -> Result<String, CliError>
         let _ = child.wait();
         return Err(error.into());
     }
-    let deadline = Instant::now() + Duration::from_secs(1);
+    let deadline = Instant::now() + VERSION_TIMEOUT;
     loop {
         if let Some(status) = child.try_wait()? {
             if !status.success() {
@@ -350,14 +363,14 @@ pub(crate) fn version(ctx: &Ctx<'_>, program: &Path) -> Result<String, CliError>
             }
             let bytes = receiver
                 .recv_timeout(deadline.saturating_duration_since(Instant::now()))
-                .map_err(|_| state::failure("--version timed out after 1 s"))??;
+                .map_err(|_| version_timeout())??;
             let version: String = String::from_utf8_lossy(&bytes).chars().take(256).collect();
             return Ok(version.replace(['\r', '\n'], " ").trim().to_owned());
         }
         if Instant::now() >= deadline {
             let _ = child.kill();
             let _ = child.wait();
-            return Err(state::failure("--version timed out after 1 s"));
+            return Err(version_timeout());
         }
         std::thread::sleep(Duration::from_millis(10));
     }

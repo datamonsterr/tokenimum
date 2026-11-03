@@ -11,6 +11,15 @@ pub struct EnvelopeTracker {
     lengths: Vec<u32>,
 }
 impl EnvelopeTracker {
+    /// Rebuild a tracker from stored good-turn lengths, oldest first; empty turns are skipped.
+    #[must_use]
+    pub fn from_lengths(lengths: &[u32]) -> Self {
+        let mut lengths: Vec<u32> = lengths.iter().copied().filter(|n| *n > 0).collect();
+        if lengths.len() > 500 {
+            lengths.drain(..lengths.len() - 500);
+        }
+        Self { lengths }
+    }
     /// Record a classified good, nonempty turn; returns whether it was included.
     pub fn record(&mut self, turn: &Turn, escalated: bool) -> bool {
         if !is_good_turn(turn, escalated) {

@@ -990,32 +990,7 @@ impl Daemon {
                 host: record.key.host,
                 repo: record.repo_key.clone(),
                 cwd: record.cwd.clone(),
-                log_path: if record.key.host == Host::Opencode {
-                    let var = |key: &str| {
-                        self.env
-                            .iter()
-                            .rev()
-                            .find(|(name, _)| name == key)
-                            .map(|(_, value)| value)
-                    };
-                    var("OPENCODE_DB")
-                        .map(|value| PathBuf::from(value.as_str()))
-                        .or_else(|| {
-                            var("XDG_DATA_HOME").map(|path| {
-                                PathBuf::from(path.as_str()).join("opencode/opencode.db")
-                            })
-                        })
-                } else {
-                    None
-                }
-                .or_else(|| {
-                    derived_log_path(
-                        record.key.host,
-                        &agent_home,
-                        &record.cwd,
-                        &record.key.session_id,
-                    )
-                }),
+                log_path: self.stored_log_path(record),
                 agent_home,
                 settings: resolved.settings.clone(),
                 injected: BTreeSet::new(),
@@ -1028,6 +1003,90 @@ impl Daemon {
             });
             let _ = seed;
         }
+    }
+
+    /// Log location of a stored session, which keeps no transcript path of its own.
+    fn stored_log_path(&self, record: &SessionRecord) -> Option<PathBuf> {
+        if record.key.host == Host::Opencode {
+            let var = |key: &str| {
+                self.env
+                    .iter()
+                    .rev()
+                    .find(|(name, _)| name == key)
+                    .map(|(_, value)| value)
+            };
+            let db = var("OPENCODE_DB")
+                .map(|value| PathBuf::from(value.as_str()))
+                .or_else(|| {
+                    var("XDG_DATA_HOME")
+                        .map(|path| PathBuf::from(path.as_str()).join("opencode/opencode.db"))
+                });
+            if db.is_some() {
+                return db;
+            }
+        }
+        derived_log_path(
+            record.key.host,
+            Path::new(&record.key.agent_home),
+            &record.cwd,
+            &record.key.session_id,
+        )
+    }
+
+    /// Re-prices ledger rows that have tokens but no price, for example rows written before a
+    /// model ID could be matched to `pricing.toml`. Reads each session log again and updates
+    /// only its ledger row; facts, pruning and fold status are untouched. The maintenance loop
+    /// runs it once per daemon start; it is idempotent. Returns the number of rows priced.
+    pub async fn reprice_ledger(self: &Arc<Self>) -> usize {
+        let me = self.clone();
+        tokio::task::spawn_blocking(move || me.reprice_ledger_blocking())
+            .await
+            .unwrap_or(0)
+    }
+
+    fn reprice_ledger_blocking(&self) -> usize {
+        let pricing = &self.default_settings.pricing;
+        let records = match self
+            .backing
+            .open()
+            .and_then(|store| Ok((store.list_unpriced_ledger_sessions()?, store)))
+        {
+            Ok(found) => found,
+            Err(error) => {
+                self.log_error(&format!("reprice ledger: {error}"));
+                return 0;
+            }
+        };
+        let (records, store) = records;
+        let mut priced = 0;
+        for record in records {
+            let Some(path) = self.stored_log_path(&record) else {
+                continue;
+            };
+            let source = SessionSource {
+                agent_home: PathBuf::from(&record.key.agent_home),
+                path,
+                session_id: record.key.session_id.clone(),
+                repo_key: record.repo_key.clone(),
+                cwd: record.cwd.clone(),
+            };
+            let Ok(session) = self.adapters.get(record.key.host).read_session(&source) else {
+                continue;
+            };
+            let Some(cost) = pricing.price_session(&session, None) else {
+                continue;
+            };
+            match store.reprice_ledger(record.id, session.usage, cost) {
+                Ok(true) => priced += 1,
+                Ok(false) => {}
+                Err(error) => self.log_error(&format!(
+                    "reprice ledger {} {}: {error}",
+                    record.key.host.as_str(),
+                    record.key.session_id
+                )),
+            }
+        }
+        priced
     }
 
     pub(crate) fn spawn_fold(self: &Arc<Self>, job: FoldJob) {
@@ -1103,6 +1162,8 @@ impl Daemon {
                             phase: "folded".into(),
                             turn_calls: 0,
                             envelope: None,
+                            envelope_samples: None,
+                            envelope_min_samples: None,
                             loop_state: report.status.to_owned(),
                         })
                     });

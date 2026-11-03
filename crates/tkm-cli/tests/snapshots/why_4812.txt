@@ -1,4 +1,4 @@
-Event 4812, 2026-11-03 14:22, Claude Code, repo github.com/acme/api
+Event 4812, 2026-11-03 14:22 UTC, Claude Code, repo github.com/acme/api
 
 What happened: tokenimum added a short note to the agent's context:
   "Run tests with `python -m pytest` (`pytest` fails here: ImportError)."

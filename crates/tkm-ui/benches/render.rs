@@ -23,6 +23,8 @@ fn render_benches(c: &mut Criterion) {
             phase: "active".into(),
             turn_calls: 20,
             envelope: Some(40.0),
+            envelope_samples: None,
+            envelope_min_samples: None,
             loop_state: "watching".into(),
         }));
         state.apply(MonitorMessage::Fact(FactNotice {

@@ -235,6 +235,13 @@ fn installed(
     {
         Some(program) => match system::version(ctx, &program) {
             Ok(version) => line(ctx, "ok", &format!("{host} version"), &version)?,
+            // A slow harness is still installed; only a failing one is unhealthy.
+            Err(CliError::Io(error)) if error.kind() == std::io::ErrorKind::TimedOut => line(
+                ctx,
+                "warn",
+                &format!("{host} version"),
+                &CliError::Io(error).to_string(),
+            )?,
             Err(error) => {
                 line(ctx, "fail", &format!("{host} version"), &error.to_string())?;
                 healthy = false;

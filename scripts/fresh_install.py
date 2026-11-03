@@ -108,7 +108,13 @@ def main(argv=None):
             return 1
         finally:
             # Stop the daemon the first hook call started.
-            subprocess.run(['pkill', '-f', f'{Path(args.bin_dir).resolve()}/tkmd'], check=False)
+            daemon = f'{Path(args.bin_dir).resolve()}/tkmd'
+            subprocess.run(['pkill', '-f', daemon], check=False)
+            # Let it exit before the temporary home is removed; it may still be writing there.
+            deadline = time.monotonic() + 10
+            while time.monotonic() < deadline and subprocess.run(
+                    ['pgrep', '-f', daemon], capture_output=True, check=False).returncode == 0:
+                time.sleep(0.1)
     print('fresh install ok: init, doctor and hook round trip')
     return 0
 

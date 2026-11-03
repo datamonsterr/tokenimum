@@ -704,6 +704,7 @@ impl Daemon {
             resolved: false,
             shadow: false,
             envelope: None,
+            envelope_samples: 0,
             loop_state: "watching",
             loop_evidence: None,
             observed_hooks: std::collections::BTreeSet::new(),
@@ -796,6 +797,7 @@ impl Daemon {
             good = entry.record(&model_turn, escalated, &session.settings.loop_cfg);
             if good {
                 session.envelope = entry.value;
+                session.envelope_samples = sample_count(&entry.tracker);
                 outbox.envelope.push_back(crate::persist::EnvelopeSample {
                     repo: session.repo.clone(),
                     host: session.host,
@@ -1122,8 +1124,27 @@ impl Daemon {
             phase: phase.to_owned(),
             turn_calls: session.turn.as_ref().map_or(0, |turn| turn.total_calls),
             envelope: session.envelope,
+            envelope_samples: session.resolved.then_some(session.envelope_samples),
+            envelope_min_samples: session
+                .resolved
+                .then(|| u32::try_from(session.settings.loop_cfg.envelope_min_samples).ok())
+                .flatten(),
             loop_state: session.loop_state.to_owned(),
         }
+    }
+
+    /// Current sessions and spend, sent to a new monitor subscriber after `Hello` so it does
+    /// not wait for the next state change.
+    pub(crate) fn monitor_backlog(&self) -> Vec<MonitorMessage> {
+        let mut messages: Vec<MonitorMessage> = lock(&self.state)
+            .sessions
+            .values()
+            .map(|session| MonitorMessage::Session(Self::session_update(session, "active")))
+            .collect();
+        messages.push(MonitorMessage::Spend(
+            self.spend_update(&self.default_settings),
+        ));
+        messages
     }
 
     fn observe_hook(&self, tag: &Tag, kind: EventKind, native: Option<&str>) -> bool {
@@ -1310,6 +1331,7 @@ impl Daemon {
                     )
                 });
             session.envelope = entry.value;
+            session.envelope_samples = sample_count(&entry.tracker);
             let mut outbox = lock(&self.outbox);
             outbox.push_repo(Repo {
                 repo_key: resolved.repo.clone(),
@@ -1537,6 +1559,10 @@ impl Daemon {
             session_cap_usd: settings.decide.session_cap_usd,
         }
     }
+}
+
+fn sample_count(tracker: &tkm_core::loopguard::EnvelopeTracker) -> u32 {
+    u32::try_from(tracker.lengths().len()).unwrap_or(u32::MAX)
 }
 
 fn is_cursor_duplicate(request: &Request) -> bool {

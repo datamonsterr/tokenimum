@@ -115,6 +115,7 @@ impl Daemon {
     }
 
     pub(crate) async fn maintenance_loop(self: Arc<Self>) {
+        let mut repriced = false;
         loop {
             // Health changes made by doctor apply to sessions already running. Read outside
             // state locks and never on the tool hot path.
@@ -141,6 +142,11 @@ impl Daemon {
                 Err(error) => self.log_error(&format!("host health worker: {error}")),
             }
             self.reprobe_models().await;
+            // Once per start, after the probe, so the two never contend for the store.
+            if !repriced {
+                self.reprice_ledger().await;
+                repriced = true;
+            }
             tokio::time::sleep(Duration::from_secs(60)).await;
         }
     }

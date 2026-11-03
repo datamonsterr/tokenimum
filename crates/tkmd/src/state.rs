@@ -94,6 +94,8 @@ pub struct SessionState {
     pub shadow: bool,
     /// Learned envelope for this session's repository (cached; see [`EnvelopeEntry`]).
     pub envelope: Option<f64>,
+    /// Good-turn samples behind `envelope`.
+    pub envelope_samples: u32,
     /// Loop guard state for the monitor.
     pub loop_state: &'static str,
     /// Exact model decision behind the current turn, resolved to its stored ID by the flusher.

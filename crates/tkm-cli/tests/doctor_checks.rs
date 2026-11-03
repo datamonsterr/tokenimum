@@ -106,15 +106,29 @@ fn doctor_reports_healthy_with_fake_monitor_and_installed_hooks() {
 }
 
 #[test]
-fn doctor_bounds_harness_version_to_one_second() {
+fn doctor_bounds_harness_version_and_warns_on_timeout() {
     let fixture = Fixture::new();
     fixture.init();
     fixture.script("claude", "while :; do :; done\n");
     let started = std::time::Instant::now();
     let output = fixture.run(&["doctor"]);
-    assert!(started.elapsed() < std::time::Duration::from_secs(5));
+    assert!(started.elapsed() < std::time::Duration::from_secs(10));
+    let text = stdout(&output);
     assert!(
-        stdout(&output).contains("fail claude version: tkm: --version timed out after 1 s"),
+        text.contains("warn claude version: tkm: --version timed out after 5 s"),
+        "{output:?}"
+    );
+    assert!(!text.contains("fail claude version"), "{output:?}");
+}
+
+#[test]
+fn doctor_accepts_a_slow_harness_version() {
+    let fixture = Fixture::new();
+    fixture.init();
+    fixture.script("claude", "/bin/sleep 2\necho 'claude 9.9.9'\n");
+    let output = fixture.run(&["doctor"]);
+    assert!(
+        stdout(&output).contains("ok claude version: claude 9.9.9"),
         "{output:?}"
     );
 }

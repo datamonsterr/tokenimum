@@ -262,7 +262,7 @@ After an action has been recorded, inspect its evidence:
 tkm why last
 ```
 
-This returns exit code 1 with an `unknown action event` message if there is no action yet.
+If no action exists yet, this prints `no actions recorded yet` and exits 0. An unknown event ID exits 1.
 
 For a live view, run this in an interactive terminal; press `q` to quit:
 

@@ -443,3 +443,106 @@ async fn disabled_host_does_not_create_or_fold_sessions() {
             .is_empty()
     );
 }
+
+#[tokio::test]
+async fn startup_reprices_ledger_rows_left_unpriced_by_an_older_price_lookup() {
+    use tkm_core::model::{RepoKey, Timestamp, Usage};
+    use tkm_store::{LedgerRecord, NewSession, Repo, SessionKey};
+    let env = Env::new();
+    let agent_home = env.dir.path().join("claude-home");
+    let cwd = env.dir.path().join("work/repo");
+    let slug: String = cwd
+        .to_string_lossy()
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+        .collect();
+    let log = agent_home
+        .join("projects")
+        .join(slug)
+        .join("old-session.jsonl");
+    std::fs::create_dir_all(log.parent().unwrap()).unwrap();
+    let text = std::fs::read_to_string(transcript()).unwrap();
+    std::fs::write(
+        &log,
+        text.replace("claude-haiku-5-5", "example-model")
+            .replace("claude-opus-5-5", "example-model"),
+    )
+    .unwrap();
+    let repo = RepoKey(FIXTURE_REPO.into());
+    let session_id = {
+        let store = env.store();
+        store
+            .upsert_repo(&Repo {
+                repo_key: repo.clone(),
+                display_name: "repo".into(),
+                first_seen: Timestamp(1),
+                last_seen: Timestamp(2),
+                delegated_runs: 0,
+            })
+            .unwrap();
+        let id = store
+            .upsert_session(&NewSession {
+                key: SessionKey {
+                    host: Host::Claude,
+                    agent_home: agent_home.to_string_lossy().into_owned(),
+                    session_id: "old-session".into(),
+                },
+                repo_key: repo,
+                cwd: cwd.clone(),
+                started: Timestamp(1),
+                ended: Some(Timestamp(2)),
+                fold_status: "folded".into(),
+                shadow: false,
+                integration_level: "hooks".into(),
+            })
+            .unwrap();
+        store
+            .upsert_ledger(&LedgerRecord {
+                session_id: id,
+                usage: Usage {
+                    input: 1,
+                    ..Usage::default()
+                },
+                priced_cost: None,
+                overhead_tokens: 0,
+                overhead_cost: Some(0.0),
+            })
+            .unwrap();
+        id
+    };
+    let settings = Settings {
+        pricing: tkm_core::ledger::PriceTable::parse(include_str!(
+            "../../../fixtures/pricing/pricing.toml"
+        ))
+        .unwrap(),
+        ..Settings::default()
+    };
+    let daemon = daemon_with(&env, settings, Arc::new(NullDecider));
+    assert_eq!(daemon.reprice_ledger().await, 1);
+    let read = || {
+        let conn = tkm_store::open_read_only(&env.paths.db).unwrap();
+        conn.query_row(
+            "SELECT priced_cost, priced_cost_usd, input_tokens FROM ledger WHERE session_id=?1",
+            [session_id],
+            |r| {
+                Ok((
+                    r.get::<_, f64>(0)?,
+                    r.get::<_, Option<f64>>(1)?,
+                    r.get::<_, i64>(2)?,
+                ))
+            },
+        )
+        .unwrap()
+    };
+    let (legacy, usd, input) = read();
+    assert!(usd.is_some_and(|cost| cost > 0.0), "{usd:?}");
+    assert_eq!(Some(legacy), usd);
+    assert!(input > 1, "usage refreshed from the log");
+    assert_eq!(daemon.reprice_ledger().await, 0, "idempotent");
+    assert_eq!(read(), (legacy, usd, input));
+    let store = env.store();
+    assert_eq!(
+        store.get_session(session_id).unwrap().unwrap().fold_status,
+        "folded"
+    );
+}

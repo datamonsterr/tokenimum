@@ -53,7 +53,7 @@ pub(crate) fn host_name(host: Host) -> &'static str {
         _ => "unknown harness",
     }
 }
-// UTC civil dates without a new date/time dependency. Bound the supported calendar first.
+// UTC civil dates, labelled UTC, without a new date/time dependency. Bound the supported calendar first.
 #[must_use]
 pub(crate) fn time(at: Option<Timestamp>) -> String {
     let Some(Timestamp(ms)) = at else {
@@ -98,7 +98,7 @@ pub(crate) fn time(at: Option<Timestamp>) -> String {
     }
     let tod = seconds.rem_euclid(86_400);
     format!(
-        "{year:04}-{month:02}-{:02} {:02}:{:02}",
+        "{year:04}-{month:02}-{:02} {:02}:{:02} UTC",
         days + 1,
         tod / 3600,
         tod % 3600 / 60
@@ -118,9 +118,12 @@ mod tests {
     use tkm_core::model::Timestamp;
     #[test]
     fn utc_calendar_handles_epoch_negative_and_leap_days() {
-        assert_eq!(time(Some(Timestamp(0))), "1970-01-01 00:00");
-        assert_eq!(time(Some(Timestamp(-1))), "1969-12-31 23:59");
-        assert_eq!(time(Some(Timestamp(951_782_400_000))), "2000-02-29 00:00");
+        assert_eq!(time(Some(Timestamp(0))), "1970-01-01 00:00 UTC");
+        assert_eq!(time(Some(Timestamp(-1))), "1969-12-31 23:59 UTC");
+        assert_eq!(
+            time(Some(Timestamp(951_782_400_000))),
+            "2000-02-29 00:00 UTC"
+        );
         assert_eq!(time(None), "unknown time");
         assert_eq!(time(Some(Timestamp(i64::MAX))), "unknown time");
     }

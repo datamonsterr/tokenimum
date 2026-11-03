@@ -46,6 +46,17 @@ pub fn run(ctx: &mut Ctx<'_>, args: &WhyArgs) -> Result<ExitCode, CliError> {
             return Ok(ExitCode::SUCCESS);
         }
     }
+    if args.event == "last" {
+        // An empty history is a normal state, not a lookup failure.
+        writeln!(
+            ctx.stdout,
+            "tkm why: no actions recorded yet{}",
+            args.session
+                .as_ref()
+                .map_or_else(String::new, |s| format!(" for session {}", report::line(s)))
+        )?;
+        return Ok(ExitCode::SUCCESS);
+    }
     writeln!(
         ctx.stderr,
         "tkm why: unknown action event {}{}",
