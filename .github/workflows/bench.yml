@@ -167,8 +167,12 @@ jobs:
           output-file-path: criterion.txt
           external-data-json-path: benchmark-data/criterion.json
           alert-threshold: '120%'
-          fail-on-alert: false
+          fail-on-alert: ${{ github.event_name == 'pull_request' }}
+      - name: Compare hook startup, round trip and shim against PR base (interleaved, median, noise-aware)
+        if: github.event_name == 'pull_request'
+        run: scripts/bench_pr_hooks.sh "$RUNNER_TEMP/base"
       - name: Compare hook startup
+        if: github.event_name != 'pull_request'
         uses: benchmark-action/github-action-benchmark@v1.22.2
         with:
           name: Hook
@@ -179,6 +183,7 @@ jobs:
           alert-threshold: '120%'
           fail-on-alert: ${{ github.event_name == 'pull_request' }}
       - name: Compare hook round trip percentiles
+        if: github.event_name != 'pull_request'
         uses: benchmark-action/github-action-benchmark@v1.22.2
         with:
           name: Hook round trip
@@ -189,6 +194,7 @@ jobs:
           alert-threshold: '120%'
           fail-on-alert: ${{ github.event_name == 'pull_request' }}
       - name: Compare shim percentiles
+        if: github.event_name != 'pull_request'
         uses: benchmark-action/github-action-benchmark@v1.22.2
         with:
           name: Shim
@@ -273,7 +279,17 @@ jobs:
           key: idle-benchmark-v2-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: idle-benchmark-v2-
       - run: mkdir -p idle-benchmark-data
+      - name: Compare idle CPU and memory against PR base (interleaved, median, noise-aware)
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -eu
+          git fetch --no-tags --depth=1 origin "$BASE_SHA"
+          git worktree add --detach "$RUNNER_TEMP/base" "$BASE_SHA"
+          scripts/bench_pr_idle.sh "$RUNNER_TEMP/base"
       - name: Compare default idle CPU and memory
+        if: github.event_name != 'pull_request'
         uses: benchmark-action/github-action-benchmark@v1.22.2
         with:
           name: Default idle
@@ -284,6 +300,7 @@ jobs:
           alert-threshold: '120%'
           fail-on-alert: ${{ github.event_name == 'pull_request' }}
       - name: Compare web idle CPU and memory
+        if: github.event_name != 'pull_request'
         uses: benchmark-action/github-action-benchmark@v1.22.2
         with:
           name: Web idle

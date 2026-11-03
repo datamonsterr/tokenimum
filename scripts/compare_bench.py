@@ -11,6 +11,7 @@ spread (max-min over median) of the head or base samples.
 Exit: 0 pass, 1 regression, 2 usage or input error.
 """
 import argparse
+import json
 import re
 import sys
 
@@ -20,6 +21,10 @@ LINE = re.compile(r"^test (?P<name>\S+)\s+\.\.\. bench:\s+(?P<mean>[\d,]+) ns/it
 def collect(texts):
     out = {}
     for text in texts:
+        if text.lstrip().startswith("["):  # github-action-benchmark customSmallerIsBetter JSON
+            for item in json.loads(text):
+                out.setdefault(item["name"], []).append(float(item["value"]))
+            continue
         for line in text.splitlines():
             m = LINE.match(line.strip())
             if m:
@@ -71,7 +76,7 @@ def render(rows, threshold):
                          f"{r['noise']:.2f} | {r['samples']} | {r['status']} |")
         else:
             lines.append(f"| {r['name']} | | | | | | {r['status']} |")
-    return f"Criterion head vs base (threshold {threshold:.2f}x, medians)\n\n" + "\n".join(lines) + "\n"
+    return f"Head vs base (threshold {threshold:.2f}x, medians)\n\n" + "\n".join(lines) + "\n"
 
 
 def main(argv):

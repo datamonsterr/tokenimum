@@ -67,6 +67,17 @@ class CompareBenchTests(unittest.TestCase):
         rows = module.compare(samples("a", [1, 1]), samples("b", [1, 1]), 1.2)
         self.assertEqual({r["name"]: r["status"] for r in rows}, {"a": "new", "b": "removed"})
 
+    def test_collect_reads_custom_smaller_is_better_json(self):
+        text = '[{"name": "hook p50", "unit": "ms", "value": 1.5}, {"name": "hook p99", "unit": "ms", "value": 3}]'
+        self.assertEqual(module.collect([text, text]), {"hook p50": [1.5, 1.5], "hook p99": [3, 3]})
+
+    def test_json_samples_regress_beyond_noise(self):
+        def js(v):
+            return '[{"name": "hook p50", "unit": "ms", "value": %s}]' % v
+        head = [js(1.5), js(1.52), js(1.49)]
+        base = [js(1.0), js(1.01), js(0.99)]
+        self.assertEqual(module.compare(head, base, 1.2)[0]["status"], "regression")
+
     def test_main_exit_codes(self):
         with tempfile.TemporaryDirectory() as d:
             d = pathlib.Path(d)
