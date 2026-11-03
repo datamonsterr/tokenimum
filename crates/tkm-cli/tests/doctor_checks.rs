@@ -159,3 +159,27 @@ fn doctor_persists_fallback_then_clears_it_after_repair() {
     fixture.run(&["doctor"]);
     assert!(!store.host_fold_only(Host::Claude).unwrap());
 }
+
+#[test]
+fn doctor_warns_when_the_unit_is_inactive_but_a_daemon_runs() {
+    let fixture = Fixture::new();
+    fixture.init();
+    fixture.script("systemctl", "case \"$*\" in *is-active*) exit 3;; esac\n");
+    let _daemon = fixture.paths.lock_daemon().unwrap().expect("lock is free");
+    let report = stdout(&fixture.run(&["doctor"]));
+    let line = report
+        .lines()
+        .find(|line| line.starts_with("warn service:"))
+        .unwrap_or_else(|| panic!("{report}"));
+    assert!(line.contains("tkmd.service is not active"), "{line}");
+    assert!(line.contains("unmanaged"), "{line}");
+}
+
+#[test]
+fn doctor_is_quiet_when_the_unit_is_active() {
+    let fixture = Fixture::new();
+    fixture.init();
+    let _daemon = fixture.paths.lock_daemon().unwrap().expect("lock is free");
+    let report = stdout(&fixture.run(&["doctor"]));
+    assert!(!report.contains("warn service:"), "{report}");
+}

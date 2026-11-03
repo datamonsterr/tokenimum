@@ -89,7 +89,9 @@ pub fn run(ctx: &mut Ctx<'_>, args: &UninstallArgs) -> Result<ExitCode, CliError
                 continue;
             }
             match remove_service(ctx, &service) {
-                Ok(()) => {}
+                Ok(()) => {
+                    tkm_config::paths::ServiceMarker::remove(&ctx.paths.data_dir)?;
+                }
                 Err(error) => {
                     writeln!(ctx.stderr, "fail service uninstall: {error}")?;
                     // Preserve a recovery anchor when service removal fails after host reversal.

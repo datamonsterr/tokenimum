@@ -38,6 +38,26 @@ A caller whose `$XDG_RUNTIME_DIR` names a different absolute directory than the 
 cannot reach it, but it can no longer start a competing daemon; the error log names the socket it
 tried.
 
+## Addendum: service-managed daemons (2026-11-04)
+
+Stopping the unit (`systemctl --user stop tkmd.service`, as in the README update steps) let the
+next hook spawn a detached `tkmd` (PPID 1). The unit's later start then found the lock held and
+exited 0, leaving the unit `inactive` with an unmanaged daemon serving everything.
+
+Decision: `tkm init` writes `<data>/tokenimum/service.json` (`manager`, `unit`) when the manager
+registered the unit (`ServiceRecord::manager_registered`); `tkm uninstall` removes it. The hook
+cannot open the installs database within the section 14 budget, so it reads this small file
+instead. With the marker the hook, on a down daemon, runs `systemctl --user start --no-block
+tkmd.service` (launchd: `launchctl kickstart gui/<uid>/com.tokenimum.tkmd`) fire-and-forget,
+throttled by the existing 2 s spawn marker, and replies with the no-op. If the manager cannot be
+executed it falls back to the detached spawn, so a broken manager never leaves hooks without a
+daemon. `tkm doctor` warns when the marker exists, a daemon holds the lock and the manager
+reports the unit inactive.
+
+Rejected: making a unit-started `tkmd` take over from an unmanaged one. It needs a handoff
+protocol (ask the old daemon to exit, wait for flush, retake the lock) and risks losing in-memory
+state; the hook change removes the cause and `tkm doctor` names the cure.
+
 ## Hook read timeouts
 
 `tkm-hook: read_frame: frame I/O failed: Resource temporarily unavailable (os error 11)` is the

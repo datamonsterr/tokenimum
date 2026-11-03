@@ -9,6 +9,8 @@ use std::{
 pub const ERRORS_LOG_MAX_BYTES: u64 = 5 * 1024 * 1024;
 /// File name of the daemon's exclusive lock, kept in the data directory.
 pub const DAEMON_LOCK_NAME: &str = "tkmd.lock";
+/// File name of the service-manager marker, kept in the data directory.
+pub const SERVICE_MARKER_NAME: &str = "service.json";
 /// Parent of the per-user runtime directories that `systemd-logind` and `elogind` create.
 pub const USER_RUNTIME_ROOT: &str = "/run/user";
 
@@ -259,5 +261,47 @@ impl ErrorLog {
                 .open(&self.path)?,
             "{timestamp} {line}"
         )
+    }
+}
+
+/// Service manager that `tkm init` registered `tkmd` with, as recorded in `service.json`.
+///
+/// `tkm-hook` reads it to start the unit through its manager instead of racing it with a
+/// detached `tkmd`.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct ServiceMarker {
+    /// `systemd` or `launchd`.
+    pub manager: String,
+    /// Unit name (`tkmd.service`) or launchd label (`com.tokenimum.tkmd`).
+    pub unit: String,
+}
+
+impl ServiceMarker {
+    /// Reads the marker in `data_dir`; `None` when absent or unreadable.
+    #[must_use]
+    pub fn read(data_dir: &Path) -> Option<Self> {
+        let bytes = fs::read(data_dir.join(SERVICE_MARKER_NAME)).ok()?;
+        serde_json::from_slice(&bytes).ok()
+    }
+
+    /// Writes the marker into `data_dir`, creating it.
+    ///
+    /// # Errors
+    /// Returns an error when the file cannot be written.
+    pub fn write(&self, data_dir: &Path) -> io::Result<()> {
+        fs::create_dir_all(data_dir)?;
+        let bytes = serde_json::to_vec(self).map_err(io::Error::other)?;
+        fs::write(data_dir.join(SERVICE_MARKER_NAME), bytes)
+    }
+
+    /// Removes the marker in `data_dir`; a missing file is fine.
+    ///
+    /// # Errors
+    /// Returns an error when an existing file cannot be removed.
+    pub fn remove(data_dir: &Path) -> io::Result<()> {
+        match fs::remove_file(data_dir.join(SERVICE_MARKER_NAME)) {
+            Err(error) if error.kind() != io::ErrorKind::NotFound => Err(error),
+            _ => Ok(()),
+        }
     }
 }

@@ -859,7 +859,15 @@ is `/run/user/<uid>` if that is a directory owned by the user with mode 700, els
 service-managed daemon listens on. `tkmd` holds an exclusive lock on `tkmd.lock` for its
 lifetime: one daemon per data directory, whatever runtime directory its environment names. A
 second `tkmd` exits 0 before opening the database, and `tkm-hook` does not spawn a daemon while
-the lock is held.
+the lock is held. When `tkm init` registered a service-manager unit it records
+`~/.local/share/tokenimum/service.json` (`{"manager":"systemd","unit":"tkmd.service"}` or
+launchd); with that marker `tkm-hook` never spawns a detached `tkmd`: it runs
+`systemctl --user start --no-block tkmd.service` (launchd: `launchctl kickstart gui/<uid>/<label>`)
+without waiting, still replies with the no-op, and falls back to a detached spawn only when the
+manager cannot be run. `tkm doctor` warns when the unit is not active while a daemon holds the
+lock. If `ui.web.enabled` is set and the dashboard cannot bind, `tkmd-web.json` holds
+`{"unavailable":"bind","bind":"<addr>","error":"<reason>"}` and `tkm dashboard` names the address
+and the `tkm config set ui.web.bind` fix.
 
 ### 10.2 Layered configuration
 
