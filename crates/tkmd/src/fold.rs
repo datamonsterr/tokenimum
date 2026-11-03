@@ -1035,8 +1035,8 @@ impl Daemon {
 
     /// Re-prices ledger rows that have tokens but no price, for example rows written before a
     /// model ID could be matched to `pricing.toml`. Reads each session log again and updates
-    /// only its ledger row; facts, pruning and fold status are untouched. Runs at daemon start
-    /// and is idempotent. Returns the number of rows priced.
+    /// only its ledger row; facts, pruning and fold status are untouched. The maintenance loop
+    /// runs it once per daemon start; it is idempotent. Returns the number of rows priced.
     pub async fn reprice_ledger(self: &Arc<Self>) -> usize {
         let me = self.clone();
         tokio::task::spawn_blocking(move || me.reprice_ledger_blocking())

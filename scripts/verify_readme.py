@@ -63,16 +63,16 @@ def verify(bin_dir, base):
     subprocess.run(['git', 'init', '-q', str(project)], check=True, env=env)
     count = 0
 
-    def run(*args, expected=0):
+    def run(*args, expected=(0,)):
         nonlocal count
         result = subprocess.run(['tkm', *args], env=env, cwd=project,
                                 text=True, capture_output=True, timeout=60)
-        if result.returncode != expected:
+        if result.returncode not in expected:
             raise RuntimeError(f'tkm {" ".join(args)}: {result.returncode}\n'
                                f'{result.stdout}\n{result.stderr}')
         print(f'PASS tkm {" ".join(args)}')
         count += 1
-        return result.stdout
+        return result
 
     try:
         run('--help')
@@ -83,12 +83,15 @@ def verify(bin_dir, base):
         run('status')
         run('init', '--yes', '--only', 'claude', '--preset', 'offline')
         run('facts', '--brief')
-        # No action exists in this fresh repository.
-        if 'no actions recorded yet' not in run('why', 'last'):
+        # No action exists in this fresh repository: exit 0 with a notice. The installer job
+        # also checks the published preview, which predates that and exits 1 instead.
+        why = run('why', 'last', expected=(0, 1))
+        if not ('no actions recorded yet' in why.stdout if why.returncode == 0
+                else 'unknown action event' in why.stderr):
             raise RuntimeError('missing expected no-action message')
         run('prune')
         run('config', 'show', '--effective')
-        exported = run('export')
+        exported = run('export').stdout
         json.loads(exported)
         (project / 'tokenimum-state.json').write_text(exported)
         run('config', 'preset', 'offline')

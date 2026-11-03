@@ -355,10 +355,6 @@ impl Daemon {
         tasks.push(tokio::spawn(self.clone().idle_loop()));
         tasks.push(crate::fold::spawn_log_watcher(self.clone()));
         tasks.push(tokio::spawn(self.clone().maintenance_loop()));
-        let me = self.clone();
-        tasks.push(tokio::spawn(async move {
-            me.reprice_ledger().await;
-        }));
     }
 
     /// Refreshes integration-dependent settings on all live sessions after detection.
