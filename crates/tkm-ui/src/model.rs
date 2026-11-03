@@ -50,8 +50,10 @@ pub struct MonitorState {
     pub decision_ids: VecDeque<Option<i64>>,
     /// Latest live spend and caps, when available.
     pub spend: Option<SpendUpdate>,
-    /// Daily ledger totals for the seven most recent days.
+    /// Daily decision spend (UTC) for the seven most recent days, oldest first.
     pub spend_days: Vec<(String, f64)>,
+    /// Why no decisions can be made right now, when known (disabled or no key).
+    pub decisions_unavailable: Option<String>,
     /// Count of durable decisions with unknown cost.
     pub unknown_decision_costs: u64,
     /// Count of sessions whose cost is unknown.
@@ -118,6 +120,12 @@ impl MonitorState {
                 }
             }
             MonitorMessage::Decision(update) => {
+                if update.cost_usd.is_finite()
+                    && update.cost_usd > 0.0
+                    && let Some((_, today)) = self.spend_days.last_mut()
+                {
+                    *today += update.cost_usd;
+                }
                 push_bounded(&mut self.decisions, update);
                 push_bounded(&mut self.decision_ids, None);
             }
@@ -173,6 +181,8 @@ pub struct SnapshotConfig {
     pub loop_cfg: LoopConfig,
     /// Current time in Unix milliseconds, used for today's spend.
     pub now_ms: Option<i64>,
+    /// Why decisions cannot run (disabled or no API key), when known.
+    pub decisions_unavailable: Option<String>,
 }
 /// Read a snapshot from an existing connection, normally opened with `tkm_store::open_read_only`.
 ///
@@ -252,13 +262,12 @@ pub fn load_snapshot_with(
             })
         })?
         .collect::<rusqlite::Result<_>>()?;
-    let sql = format!(
-        "SELECT day, cost FROM (SELECT date(s.started_at / 1000, 'unixepoch') AS day, sum({price}) AS cost FROM ledger l JOIN sessions s ON s.id=l.session_id WHERE {price} IS NOT NULL GROUP BY day ORDER BY day DESC LIMIT 7) ORDER BY day"
-    );
-    let mut query = conn.prepare(&sql)?;
-    state.spend_days = query
-        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
-        .collect::<rusqlite::Result<_>>()?;
+    state
+        .decisions_unavailable
+        .clone_from(&config.decisions_unavailable);
+    if version >= 4 {
+        state.spend_days = decision_spend_days(conn, config.now_ms.unwrap_or_else(system_now_ms))?;
+    }
     load_redirects(conn, &mut state)?;
     if let (Some((daily_cap_usd, session_cap_usd)), Some(now_ms), true) =
         (config.caps, config.now_ms, version >= 4)
@@ -272,12 +281,47 @@ pub fn load_snapshot_with(
     Ok(state)
 }
 
+const DAY_MS: i64 = 86_400_000;
+
+fn system_now_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()
+        .and_then(|d| i64::try_from(d.as_millis()).ok())
+        .unwrap_or(0)
+}
+
 /// Decision spend since UTC midnight, counted as `tkm status` counts it.
 fn spent_today(conn: &Connection, now_ms: i64) -> Result<f64, crate::Error> {
-    let day_start = now_ms - now_ms.rem_euclid(86_400_000);
+    spent_between(conn, now_ms - now_ms.rem_euclid(DAY_MS), now_ms)
+}
+
+/// Decision spend per UTC day for the seven days ending at `now_ms`, oldest first.
+///
+/// This is decision spend, not session ledger cost: SPEC 11.3 plots spend against the caps.
+fn decision_spend_days(conn: &Connection, now_ms: i64) -> Result<Vec<(String, f64)>, crate::Error> {
+    let today = now_ms - now_ms.rem_euclid(DAY_MS);
+    (0..7)
+        .rev()
+        .map(|back| {
+            let start = today - back * DAY_MS;
+            let end = if back == 0 {
+                now_ms
+            } else {
+                start + DAY_MS - 1
+            };
+            let day = conn.query_row("SELECT date(?1 / 1000, 'unixepoch')", [start], |row| {
+                row.get::<_, String>(0)
+            })?;
+            Ok((day, spent_between(conn, start, end)?))
+        })
+        .collect()
+}
+
+fn spent_between(conn: &Connection, from_ms: i64, to_ms: i64) -> Result<f64, crate::Error> {
     let spent = conn.query_row(
         "SELECT COALESCE((SELECT sum(json_extract(record, '$.cost_usd')) FROM spend_attempts WHERE json_extract(record, '$.ts_ms') BETWEEN ?1 AND ?2 AND json_extract(record, '$.cost_usd') >= 0), 0) + COALESCE((SELECT sum(cost_usd) FROM decisions WHERE created_at BETWEEN ?1 AND ?2 AND cost_usd >= 0 AND (NOT EXISTS (SELECT 1 FROM spend_attempts) OR id <= (SELECT legacy_decision_max FROM spend_migration) OR purpose IN ('models_probe','doctor_probe'))), 0)",
-        [day_start, now_ms],
+        [from_ms, to_ms],
         |row| row.get::<_, f64>(0),
     )?;
     Ok(if spent.is_finite() { spent } else { 0.0 })

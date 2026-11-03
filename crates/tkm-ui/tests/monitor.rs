@@ -781,3 +781,166 @@ fn footer_labels_last_message_time_as_utc() {
     let text = rendered(&MonitorState::default(), &view);
     assert!(text.contains("last: 14:23:00 UTC"), "{text}");
 }
+
+const SPARK_BARS: [char; 8] = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
+
+fn now_ms() -> i64 {
+    let elapsed = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap();
+    i64::try_from(elapsed.as_millis()).unwrap()
+}
+
+/// A database holding session ledger cost but no decision spend.
+fn ledger_only_database(dir: &std::path::Path) -> std::path::PathBuf {
+    use tkm_core::model::{RepoKey, Timestamp, Usage};
+    use tkm_store::{LedgerRecord, NewSession, Repo, SessionKey, Store};
+    let path = dir.join("monitor.db");
+    let store = Store::open(&path).unwrap();
+    let repo = RepoKey("example/repo".into());
+    store
+        .upsert_repo(&Repo {
+            repo_key: repo.clone(),
+            display_name: "repo".into(),
+            first_seen: Timestamp(1),
+            last_seen: Timestamp(2),
+            delegated_runs: 0,
+        })
+        .unwrap();
+    let session = store
+        .upsert_session(&NewSession {
+            key: SessionKey {
+                host: Host::Claude,
+                agent_home: "home".into(),
+                session_id: "s".into(),
+            },
+            repo_key: repo,
+            cwd: dir.into(),
+            started: Timestamp(now_ms()),
+            ended: None,
+            fold_status: "open".into(),
+            shadow: false,
+            integration_level: "full".into(),
+        })
+        .unwrap();
+    store
+        .upsert_ledger(&LedgerRecord {
+            session_id: session,
+            usage: Usage::default(),
+            priced_cost: Some(144.0),
+            overhead_tokens: 0,
+            overhead_cost: Some(0.0),
+        })
+        .unwrap();
+    path
+}
+
+#[test]
+fn spend_sparkline_ignores_session_ledger_cost_and_draws_no_bars_when_idle() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = ledger_only_database(dir.path());
+    let conn = tkm_store::open_read_only(&path).unwrap();
+    let config = tkm_ui::model::SnapshotConfig {
+        caps: Some((0.5, 0.02)),
+        now_ms: Some(now_ms()),
+        ..Default::default()
+    };
+    let state = tkm_ui::model::load_snapshot_with(&conn, &config).unwrap();
+    assert_eq!(state.spend_days.len(), 7);
+    assert!(state.spend_days.iter().all(|(_, usd)| *usd == 0.0));
+    let view = ViewState {
+        pane: Pane::Spend,
+        ..ViewState::default()
+    };
+    let text = rendered(&state, &view);
+    assert!(!text.chars().any(|c| SPARK_BARS.contains(&c)), "{text}");
+}
+
+#[test]
+fn spend_sparkline_follows_decision_spend_per_day() {
+    use tkm_store::{NewDecision, Store};
+    let dir = tempfile::tempdir().unwrap();
+    let path = ledger_only_database(dir.path());
+    Store::open(&path)
+        .unwrap()
+        .insert_decision_with_context(
+            &NewDecision {
+                model: "model".into(),
+                purpose: "loop_guard".into(),
+                questions: serde_json::json!({}),
+                answers: serde_json::json!({}),
+                cost_usd: Some(0.25),
+                latency_ms: 1,
+                shadow: false,
+            },
+            Some(tkm_core::model::Timestamp(now_ms() - 1_000)),
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+    let conn = tkm_store::open_read_only(&path).unwrap();
+    let config = tkm_ui::model::SnapshotConfig {
+        caps: Some((0.5, 0.02)),
+        now_ms: Some(now_ms()),
+        ..Default::default()
+    };
+    let state = tkm_ui::model::load_snapshot_with(&conn, &config).unwrap();
+    assert_eq!(state.spend_days.len(), 7);
+    assert!(state.spend_days[..6].iter().all(|(_, usd)| *usd == 0.0));
+    assert!((state.spend_days[6].1 - 0.25).abs() < 1e-9);
+    let view = ViewState {
+        pane: Pane::Spend,
+        ..ViewState::default()
+    };
+    let text = rendered(&state, &view);
+    assert!(text.contains('█'), "{text}");
+}
+
+#[test]
+fn empty_panes_explain_why_and_what_to_do() {
+    let mut state = MonitorState::default();
+    let mut view = ViewState::default();
+    for (pane, expected) in [
+        (Pane::Sessions, "No active sessions."),
+        (Pane::Decisions, "No decisions yet."),
+        (
+            Pane::Spend,
+            "No decisions yet; per-model share appears here.",
+        ),
+        (Pane::Savings, "No priced sessions yet."),
+        (
+            Pane::Facts,
+            "No facts yet; facts are learned from decisions over several sessions.",
+        ),
+        (Pane::Redirects, "No redirects yet."),
+    ] {
+        view.pane = pane;
+        let text = rendered(&state, &view);
+        assert!(text.contains(expected), "{pane:?}: {text}");
+    }
+    view.pane = Pane::Decisions;
+    assert!(!rendered(&state, &view).contains("Decisions are off"));
+    state.decisions_unavailable = Some("decide.enabled is false".into());
+    let text = rendered(&state, &view);
+    assert!(
+        text.contains("No decisions yet. Decisions are off: set decide.enabled = true"),
+        "{text}"
+    );
+}
+
+#[test]
+fn snapshot_config_reports_why_decisions_are_unavailable() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = ledger_only_database(dir.path());
+    let conn = tkm_store::open_read_only(&path).unwrap();
+    let config = tkm_ui::model::SnapshotConfig {
+        decisions_unavailable: Some("no OpenRouter key".into()),
+        ..Default::default()
+    };
+    let state = tkm_ui::model::load_snapshot_with(&conn, &config).unwrap();
+    assert_eq!(
+        state.decisions_unavailable.as_deref(),
+        Some("no OpenRouter key")
+    );
+}
