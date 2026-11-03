@@ -330,3 +330,19 @@ async fn action_body_limit_and_unknown_preset_are_rejected() {
         StatusCode::BAD_REQUEST
     );
 }
+
+#[test]
+fn dashboard_script_explains_empty_panes() {
+    let script = include_str!("../assets/app.js");
+    for text in [
+        "No active sessions.",
+        "No decisions yet.",
+        "Decisions are off: set decide.enabled = true",
+        "No decisions yet; per-model share appears here.",
+        "No priced sessions yet.",
+        "No facts yet; facts are learned from decisions over several sessions.",
+        "No redirects yet.",
+    ] {
+        assert!(script.contains(text), "{text}");
+    }
+}

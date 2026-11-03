@@ -173,6 +173,20 @@ pub fn handle_key(view: &mut ViewState, key: KeyEvent, state: &MonitorState) -> 
     }
     Action::None
 }
+/// One-line explanation shown in place of an empty pane.
+fn empty_message(state: &MonitorState, pane: Pane) -> String {
+    match pane {
+        Pane::Sessions => "No active sessions. Start an agent session in a repository where `tkm init` installed hooks.".into(),
+        Pane::Decisions => match &state.decisions_unavailable {
+            Some(_) => "No decisions yet. Decisions are off: set decide.enabled = true and configure an OpenRouter key (tkm models probe).".into(),
+            None => "No decisions yet.".into(),
+        },
+        Pane::Spend => "No decisions yet; per-model share appears here.".into(),
+        Pane::Savings => "No priced sessions yet. Savings compare session cost per repository once sessions end with a known price.".into(),
+        Pane::Facts => "No facts yet; facts are learned from decisions over several sessions.".into(),
+        Pane::Redirects => "No redirects yet. Redirects appear when the loop guard steers an agent (loop.mode is shadow or on).".into(),
+    }
+}
 fn rows(state: &MonitorState, pane: Pane) -> Vec<String> {
     match pane {
         Pane::Sessions => state
@@ -282,6 +296,9 @@ fn spend_rows(state: &MonitorState) -> Vec<String> {
         *models.entry(&decision.model).or_default() += decision.cost_usd;
     }
     let total: f64 = models.values().sum();
+    if models.is_empty() {
+        rows.push(empty_message(state, Pane::Spend));
+    }
     rows.extend(models.into_iter().map(|(model, cost)| {
         format!(
             "{model}: ${cost:.6} ({:.1}% of observed decisions)",
@@ -328,6 +345,9 @@ fn savings_rows(state: &MonitorState) -> Vec<String> {
             state.unknown_session_costs
         ));
     }
+    if rows.is_empty() {
+        rows.push(empty_message(state, Pane::Savings));
+    }
     rows
 }
 /// Render the entire screen without side effects or access to a clock.
@@ -344,6 +364,13 @@ pub fn render(state: &MonitorState, view: &ViewState, frame: &mut Frame<'_>) {
     );
     if view.pane == Pane::Spend {
         render_spend(state, areas[1], frame);
+    } else if len(state, view.pane) == 0 && rows(state, view.pane).is_empty() {
+        frame.render_widget(
+            Paragraph::new(empty_message(state, view.pane))
+                .block(Block::bordered().title(view.pane.name()))
+                .wrap(Wrap { trim: true }),
+            areas[1],
+        );
     } else {
         let list = List::new(rows(state, view.pane))
             .block(Block::bordered().title(view.pane.name()))
@@ -508,6 +535,27 @@ fn apply_queued<E>(
     Ok(true)
 }
 /// Global settings the snapshot needs; an unreadable configuration leaves them unknown.
+/// Why decisions cannot run: switched off, or no OpenRouter key where the daemon looks for one.
+fn decisions_unavailable(config: &tkm_config::config::EffectiveConfig) -> Option<String> {
+    if config.get_bool("decide.enabled") == Some(false) {
+        return Some("decide.enabled is false".into());
+    }
+    if std::env::var("OPENROUTER_API_KEY").is_ok_and(|key| !key.trim().is_empty()) {
+        return None;
+    }
+    let home = std::env::var_os("HOME").map(std::path::PathBuf::from);
+    let path = config
+        .get_str("decide.api_key_path")
+        .map(|path| match (path.strip_prefix("~/"), &home) {
+            (Some(rest), Some(home)) => home.join(rest),
+            _ => std::path::PathBuf::from(path),
+        })
+        .or_else(|| {
+            home.as_ref()
+                .map(|home| home.join(".config/tokenimum/openrouter.env"))
+        })?;
+    (!path.exists()).then(|| "no OpenRouter key".into())
+}
 fn snapshot_config(paths: &Paths) -> model::SnapshotConfig {
     use tkm_config::config::{Layer, LoadInputs, load};
     let Ok(config) = load(&LoadInputs::from_env(
@@ -550,6 +598,7 @@ fn snapshot_config(paths: &Paths) -> model::SnapshotConfig {
         loop_mode: config.get_str("loop.mode").map(str::to_owned),
         loop_cfg,
         now_ms: None,
+        decisions_unavailable: decisions_unavailable(&config),
     }
 }
 /// Run the terminal monitor against one initial snapshot and the live stream.
@@ -643,13 +692,16 @@ pub fn run(paths: &Paths) -> Result<(), Error> {
     result
 }
 
-/// Whole thousandths of a dollar for a sparkline bar; negative or non-finite costs draw as zero.
+/// Whole millionths of a dollar for a sparkline bar; negative or non-finite costs draw as zero.
+///
+/// Decision costs are fractions of a cent, so thousandths would round real spend to nothing.
+/// `Sparkline` scales bars to the tallest value, and an all-zero week draws no bars.
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
 fn spark_height(cost: f64) -> u64 {
-    let milli = (cost * 1_000.0).round();
-    if milli.is_finite() && milli > 0.0 {
+    let micro = (cost * 1_000_000.0).round();
+    if micro.is_finite() && micro > 0.0 {
         // Clamped below 2^53, so the conversion is exact and cannot lose sign.
-        milli.min(9_007_199_254_740_991.0) as u64
+        micro.min(9_007_199_254_740_991.0) as u64
     } else {
         0
     }

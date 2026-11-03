@@ -11,6 +11,19 @@ async function api(path, options = {}) {
   return response.json();
 }
 function display(value) { return JSON.stringify(value, (key, item) => item === null && (key === "priced_cost" || key === "cost") ? "unknown" : item, 2); }
+function emptyMessage(pane) {
+  switch (pane) {
+    case 'sessions': return 'No active sessions. Start an agent session in a repository where `tkm init` installed hooks.';
+    case 'decisions': return snapshot.decisions_unavailable
+      ? 'No decisions yet. Decisions are off: set decide.enabled = true and configure an OpenRouter key (tkm models probe).'
+      : 'No decisions yet.';
+    case 'spend': return 'No decisions yet; per-model share appears here.';
+    case 'savings': return 'No priced sessions yet. Savings compare session cost per repository once sessions end with a known price.';
+    case 'facts': return 'No facts yet; facts are learned from decisions over several sessions.';
+    case 'redirects': return 'No redirects yet. Redirects appear when the loop guard steers an agent (loop.mode is shadow or on).';
+    default: return 'Nothing to show yet.';
+  }
+}
 function renderSpend() {
   const spend = snapshot.spend;
   const section = document.createElement('section');
@@ -21,12 +34,12 @@ function renderSpend() {
   for (const decision of snapshot.decisions || []) totals.set(decision.model, (totals.get(decision.model) || 0) + decision.cost_usd);
   const total = [...totals.values()].reduce((sum, amount) => sum + amount, 0);
   const shares = document.createElement('pre');
-  shares.textContent = [...totals].map(([model, amount]) => `${model}: $${amount.toFixed(6)} (${total ? (100 * amount / total).toFixed(1) : '0.0'}% of observed decisions)`).join('\n') || 'No priced model decisions';
+  shares.textContent = [...totals].map(([model, amount]) => `${model}: $${amount.toFixed(6)} (${total ? (100 * amount / total).toFixed(1) : '0.0'}% of observed decisions)`).join('\n') || emptyMessage('spend');
   if (snapshot.unknown_decision_costs) shares.textContent += `\nDecision cost unknown: ${snapshot.unknown_decision_costs} attempts`;
   section.append(shares);
   const values = (snapshot.spend_days || []).slice(-7);
   const max = Math.max(1, ...values.map(([, amount]) => amount));
-  const points = values.map(([, amount], index) => `${values.length > 1 ? index * 590 / (values.length - 1) : 0},${90 - amount * 80 / max}`).join(' ');
+  const points = !values.some(([, amount]) => amount > 0) ? '' : values.map(([, amount], index) => `${values.length > 1 ? index * 590 / (values.length - 1) : 0},${90 - amount * 80 / max}`).join(' ');
   const svg = document.createElementNS('http:' + '/' + '/www.w3.org/2000/svg', 'svg');
   svg.setAttribute('viewBox', '0 0 600 100'); svg.setAttribute('role', 'img'); svg.setAttribute('aria-label', 'Seven day spend sparkline');
   const line = document.createElementNS(svg.namespaceURI, 'polyline');
@@ -39,7 +52,8 @@ function render() {
   if (selected === 'spend') { renderSpend(); }
   else {
   const pre = document.createElement('pre');
-  pre.textContent = display(snapshot[selected] ?? []);
+  const items = snapshot[selected] ?? [];
+  pre.textContent = Array.isArray(items) && items.length === 0 && !snapshot.unknown_session_costs ? emptyMessage(selected) : display(items);
   element('content').replaceChildren(pre);
   }
   for (const button of element('tabs').children) button.setAttribute('aria-selected', String(button.dataset.pane === selected));
