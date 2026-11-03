@@ -849,7 +849,14 @@ SQLite at `~/.local/share/tokenimum/tokenimum.db` (WAL), one file for all reposi
 
 Migrations versioned in `tkm-store`. Table and column names are a compatibility surface once
 released. Other files: `~/.local/share/tokenimum/errors.log` (rotated, 5 MB),
-`$XDG_RUNTIME_DIR/tokenimum/tkmd.sock` (mode 600).
+`$XDG_RUNTIME_DIR/tokenimum/tkmd.sock` (mode 600), and `~/.local/share/tokenimum/tkmd.lock`.
+When `$XDG_RUNTIME_DIR` is unset, as in many hook and shell environments, the runtime directory
+is `/run/user/<uid>` if that is a directory owned by the user with mode 700, else
+`~/.local/share/tokenimum/run`; every process of one user therefore resolves the socket the
+service-managed daemon listens on. `tkmd` holds an exclusive lock on `tkmd.lock` for its
+lifetime: one daemon per data directory, whatever runtime directory its environment names. A
+second `tkmd` exits 0 before opening the database, and `tkm-hook` does not spawn a daemon while
+the lock is held.
 
 ### 10.2 Layered configuration
 

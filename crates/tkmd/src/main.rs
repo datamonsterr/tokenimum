@@ -68,15 +68,24 @@ async fn main() -> ExitCode {
     };
     tkmd::logging::init(&paths);
     let env: Vec<(String, String)> = std::env::vars().collect();
+    if is_disabled(&env) {
+        return ExitCode::SUCCESS;
+    }
+    // One daemon per data directory: a second one exits before it opens the database.
+    let lock = match paths.lock_daemon() {
+        Ok(Some(lock)) => lock,
+        Ok(None) => return ExitCode::SUCCESS,
+        Err(error) => {
+            eprintln!("tkmd: cannot lock {}: {error}", paths.daemon_lock.display());
+            return ExitCode::FAILURE;
+        }
+    };
     // Daemon-only variables are not configuration keys; keep them out of the config loader.
     let config_env: Vec<(String, String)> = env
         .iter()
         .filter(|(name, _)| name != "TKM_DECIDE_ENDPOINT" && name != "TKM_DELEGATED")
         .cloned()
         .collect();
-    if is_disabled(&env) {
-        return ExitCode::SUCCESS;
-    }
     let var = |name: &str| {
         env.iter()
             .rev()
@@ -187,7 +196,7 @@ async fn main() -> ExitCode {
         }
     });
 
-    let server = match Server::bind(daemon.clone()).await {
+    let server = match Server::bind_locked(daemon.clone(), lock).await {
         Ok(Bind::Bound(server)) => server,
         Ok(Bind::AlreadyRunning) => return ExitCode::SUCCESS,
         Err(error) => {

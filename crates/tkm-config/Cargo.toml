@@ -16,3 +16,6 @@ toml_edit = { workspace = true }
 directories = { workspace = true }
 thiserror = { workspace = true }
 tkm-core = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

@@ -221,6 +221,26 @@ async fn a_live_daemons_socket_is_never_stolen() {
     assert_eq!(roundtrip(&env, &session_start()).await.stdout, "");
 }
 
+#[tokio::test]
+async fn second_daemon_on_the_same_data_dir_refuses_whatever_its_runtime_dir() {
+    let env = Env::new();
+    let (_daemon, _server) = serve(&env).await;
+    // Same data directory, but the caller's environment resolved another runtime directory.
+    let mut paths = env.paths.clone();
+    paths.socket = env.dir.path().join("other-run/tokenimum/tkmd.sock");
+    let other = Env {
+        dir: tempfile::tempdir().unwrap(),
+        paths,
+    };
+    let second = daemon_with(&other, Default::default(), Arc::new(NullDecider));
+    match Server::bind(second).await.unwrap() {
+        Bind::AlreadyRunning => {}
+        Bind::Bound(_) => panic!("second daemon on one data dir must not bind"),
+    }
+    assert!(!other.paths.socket.exists());
+    assert!(env.paths.daemon_running().unwrap());
+}
+
 #[test]
 fn reply_larger_than_the_frame_limit_becomes_the_noop_reply() {
     let huge = Reply {

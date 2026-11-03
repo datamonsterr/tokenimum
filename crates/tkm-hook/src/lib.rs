@@ -27,7 +27,7 @@ use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
-use tkm_config::paths::{ERRORS_LOG_MAX_BYTES, ErrorLog};
+use tkm_config::paths::{DAEMON_LOCK_NAME, ERRORS_LOG_MAX_BYTES, ErrorLog, lock_held};
 use tkm_proto::{
     CONNECT_TIMEOUT, EventKind, Host, MAX_REPLY_FRAME, MAX_REQUEST_FRAME, PROTOCOL_VERSION, Reply,
     Request,
@@ -413,6 +413,13 @@ pub fn connect_and_exchange(socket_path: &Path, request: &Request) -> ExchangeOu
     ExchangeOutcome::Reply(reply)
 }
 
+/// Whether a daemon holds the lock in the data directory, which also holds `errors.log`.
+fn daemon_lock_held(log_path: Option<&Path>) -> bool {
+    log_path
+        .and_then(Path::parent)
+        .is_some_and(|data_dir| lock_held(&data_dir.join(DAEMON_LOCK_NAME)).unwrap_or(false))
+}
+
 // ── Error logging ─────────────────────────────────────────────────────────────
 
 /// Append one line to the error log at `log_path` using `ErrorLog` (best-effort, never panics).
@@ -691,10 +698,24 @@ fn write_outcome(
             let _ = out.write_all(host.noop_reply().as_bytes());
         }
         ExchangeOutcome::DaemonDown => {
-            if let Some(log) = log_path {
-                append_error_log(log, "daemon not running; spawning");
+            if daemon_lock_held(log_path) {
+                // A daemon owns this data directory but listens elsewhere; a second one would
+                // only race it for the database.
+                if let Some(log) = log_path {
+                    append_error_log(
+                        log,
+                        &format!(
+                            "daemon holds the data-directory lock but is not reachable at {}; not spawning",
+                            socket_path.display()
+                        ),
+                    );
+                }
+            } else {
+                if let Some(log) = log_path {
+                    append_error_log(log, "daemon not running; spawning");
+                }
+                let _ = spawn_daemon_detached(socket_path);
             }
-            let _ = spawn_daemon_detached(socket_path);
             let _ = out.write_all(host.noop_reply().as_bytes());
         }
         ExchangeOutcome::DaemonBusy => {
