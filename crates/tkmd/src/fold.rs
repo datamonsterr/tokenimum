@@ -1060,7 +1060,9 @@ impl Daemon {
         let (records, store) = records;
         let mut priced = 0;
         for record in records {
+            let label = format!("{} {}", record.key.host.as_str(), record.key.session_id);
             let Some(path) = self.stored_log_path(&record) else {
+                self.log_error(&format!("reprice ledger {label}: no session log path"));
                 continue;
             };
             let source = SessionSource {
@@ -1070,10 +1072,18 @@ impl Daemon {
                 repo_key: record.repo_key.clone(),
                 cwd: record.cwd.clone(),
             };
-            let Ok(session) = self.adapters.get(record.key.host).read_session(&source) else {
-                continue;
+            let session = match self.adapters.get(record.key.host).read_session(&source) {
+                Ok(session) => session,
+                Err(error) => {
+                    self.log_error(&format!("reprice ledger {label}: unreadable log: {error}"));
+                    continue;
+                }
             };
             let Some(cost) = pricing.price_session(&session, None) else {
+                let models: Vec<&str> = session.usage_by_model.keys().map(String::as_str).collect();
+                self.log_error(&format!(
+                    "reprice ledger {label}: no price for models {models:?} (unknown, ambiguous, or usage not attributed to a model)"
+                ));
                 continue;
             };
             match store.reprice_ledger(record.id, session.usage, cost) {
