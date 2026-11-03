@@ -411,6 +411,8 @@ impl Store {
             i64::try_from(ledger.usage.cache_write).map_err(|_| StoreError::TokenOverflow)?;
         let overhead =
             i64::try_from(ledger.overhead_tokens).map_err(|_| StoreError::TokenOverflow)?;
+        // `priced_cost` and `overhead_cost` are the NOT NULL v1 columns: they store 0.0 for an
+        // unknown cost. The nullable `*_usd` columns (v4) are authoritative; readers use them.
         self.conn.execute("INSERT INTO ledger (session_id, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, priced_cost, overhead_tokens, overhead_cost, priced_cost_usd, overhead_cost_usd) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10) ON CONFLICT(session_id) DO UPDATE SET input_tokens=excluded.input_tokens, output_tokens=excluded.output_tokens, cache_read_tokens=excluded.cache_read_tokens, cache_write_tokens=excluded.cache_write_tokens, priced_cost=excluded.priced_cost, overhead_tokens=excluded.overhead_tokens, overhead_cost=excluded.overhead_cost, priced_cost_usd=excluded.priced_cost_usd, overhead_cost_usd=excluded.overhead_cost_usd", params![ledger.session_id, input, output, read, write, ledger.priced_cost.unwrap_or(0.0), overhead, ledger.overhead_cost.unwrap_or(0.0), ledger.priced_cost, ledger.overhead_cost])?;
         Ok(())
     }

@@ -81,6 +81,66 @@ fn pricing_session_prefers_breakdown_and_requires_known_model() {
     assert_eq!(prices.price_session(&session, Some("example-model")), None);
 }
 #[test]
+fn pricing_maps_harness_model_ids_to_provider_keys() {
+    let prices = PriceTable::parse(
+        r#"
+[models."anthropic/claude-opus-5.5"]
+input = 5.0
+output = 25.0
+[models."anthropic/claude-opus-5.5-20260921"]
+input = 5.0
+output = 25.0
+[models."anthropic/claude-opus-5.5:batch"]
+input = 2.5
+output = 12.5
+[models."anthropic/claude-3.5-sonnet"]
+input = 3.0
+output = 15.0
+"#,
+    )
+    .unwrap();
+    let usage = Usage {
+        input: 1_000_000,
+        output: 1_000_000,
+        ..Usage::default()
+    };
+    for id in [
+        "claude-opus-5-5",
+        "claude-opus-5-5-20260921",
+        "claude-opus-5.5",
+        "claude-opus-5-5[1m]",
+        "Claude-Opus-5-5",
+        "anthropic/claude-opus-5-5",
+        "claude-opus-5-5@20260921",
+    ] {
+        assert_eq!(prices.price_usage(id, usage), Some(30.0), "{id}");
+    }
+    assert_eq!(
+        prices.price_usage("claude-3-5-sonnet-20241022", usage),
+        Some(18.0)
+    );
+    assert_eq!(prices.price_usage("claude-opus-5-6", usage), None);
+}
+#[test]
+fn pricing_session_ignores_claude_synthetic_placeholder() {
+    let prices =
+        PriceTable::parse("[models.\"anthropic/claude-opus-5.5\"]\ninput=1.0\noutput=1.0\n")
+            .unwrap();
+    let mut session = Session::new(Host::Claude);
+    let usage = Usage {
+        input: 1_000_000,
+        ..Usage::default()
+    };
+    session.usage = usage;
+    session
+        .usage_by_model
+        .insert("claude-opus-5-5".into(), usage);
+    session
+        .usage_by_model
+        .insert("<synthetic>".into(), Usage::default());
+    assert_eq!(prices.price_session(&session, None), Some(1.0));
+}
+#[test]
 fn decision_costs_are_summed() {
     let ds: Vec<_> = [0.25, 0.75]
         .into_iter()

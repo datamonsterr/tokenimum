@@ -135,7 +135,7 @@ fn status_windows_exclude_unknown_old_and_future_times_and_limit_actions() {
     assert_eq!(repo["loop_guard"]["redirects_last_7_days"], 6);
     assert_eq!(repo["last_actions"].as_array().unwrap().len(), 5);
     assert_eq!(repo["last_actions"][0]["time"], "unknown time");
-    assert_eq!(repo["harnesses"][0]["last_event"], "2026-11-03 14:23");
+    assert_eq!(repo["harnesses"][0]["last_event"], "2026-11-03 14:23 UTC");
     assert!(
         !repo["harnesses"][0]["events_missing"]
             .as_array()

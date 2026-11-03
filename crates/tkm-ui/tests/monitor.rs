@@ -55,6 +55,8 @@ fn apply_updates_each_kind_and_bounds_history() {
         phase: "active".into(),
         turn_calls: 5,
         envelope: Some(9.0),
+        envelope_samples: None,
+        envelope_min_samples: None,
         loop_state: "watching".into(),
     }));
     state.apply(MonitorMessage::Spend(SpendUpdate {
@@ -126,6 +128,8 @@ fn populated_panes_match_whole_buffer_snapshots() {
         phase: "active".into(),
         turn_calls: 5,
         envelope: Some(9.0),
+        envelope_samples: None,
+        envelope_min_samples: None,
         loop_state: "watching".into(),
     }));
     state.apply(decision(0));
@@ -266,6 +270,8 @@ fn spec_113_gap_panes_show_turn_call_context_cost_share_and_sparkline() {
         phase: "active".into(),
         turn_calls: 4,
         envelope: Some(8.0),
+        envelope_samples: None,
+        envelope_min_samples: None,
         loop_state: "watching".into(),
     })
     .unwrap();
@@ -621,6 +627,8 @@ fn folded_session_refreshes_savings_with_fake_loader() {
         phase: "folded".into(),
         turn_calls: 0,
         envelope: None,
+        envelope_samples: None,
+        envelope_min_samples: None,
         loop_state: "off".into(),
     });
     state
@@ -640,4 +648,136 @@ fn folded_session_refreshes_savings_with_fake_loader() {
     assert_eq!(loads.get(), 1);
     assert_eq!(state.savings[0].cost, 3.0);
     assert_eq!(state.spend_days[0].1, 3.0);
+}
+
+fn rendered(state: &MonitorState, view: &ViewState) -> String {
+    let mut terminal = Terminal::new(TestBackend::new(120, 8)).unwrap();
+    terminal
+        .draw(|frame| tui::render(state, view, frame))
+        .unwrap();
+    terminal
+        .backend()
+        .buffer()
+        .content
+        .iter()
+        .fold(String::new(), |mut text, cell| {
+            text.push_str(cell.symbol());
+            text
+        })
+}
+
+fn session_with_samples(envelope: Option<f64>, samples: Option<u32>) -> MonitorMessage {
+    MonitorMessage::Session(SessionUpdate {
+        host: Host::Claude,
+        session_id: "s".into(),
+        turn_id: None,
+        repo: Some("repo".into()),
+        phase: "active".into(),
+        turn_calls: 2,
+        envelope,
+        envelope_samples: samples,
+        envelope_min_samples: Some(5),
+        loop_state: "watching".into(),
+    })
+}
+
+#[test]
+fn sessions_pane_shows_envelope_warm_up_samples() {
+    let mut state = MonitorState::default();
+    state.apply(session_with_samples(None, Some(3)));
+    let text = rendered(&state, &ViewState::default());
+    assert!(text.contains("calls 2 / 3/5 samples  watching"), "{text}");
+    state.apply(session_with_samples(Some(12.5), Some(6)));
+    let text = rendered(&state, &ViewState::default());
+    assert!(text.contains("calls 2 / 12.5  watching"), "{text}");
+}
+
+#[test]
+fn spend_pane_without_attempts_shows_zero_against_cap() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("monitor.db");
+    drop(tkm_store::Store::open(&path).unwrap());
+    let conn = tkm_store::open_read_only(&path).unwrap();
+    let config = tkm_ui::model::SnapshotConfig {
+        caps: Some((1.0, 0.1)),
+        now_ms: Some(1_793_715_780_000),
+        ..Default::default()
+    };
+    let state = tkm_ui::model::load_snapshot_with(&conn, &config).unwrap();
+    let view = ViewState {
+        pane: Pane::Spend,
+        ..ViewState::default()
+    };
+    let text = rendered(&state, &view);
+    assert!(text.contains("Today: $0.00"), "{text}");
+    assert!(text.contains("$1.00 daily cap"), "{text}");
+    assert!(!text.contains("unknown"), "{text}");
+}
+
+#[test]
+fn snapshot_sessions_carry_envelope_samples_and_loop_mode() {
+    use tkm_core::model::{RepoKey, Timestamp};
+    use tkm_store::{NewSession, Repo, SessionKey, Store};
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("monitor.db");
+    let store = Store::open(&path).unwrap();
+    let repo = RepoKey("example/repo".into());
+    store
+        .upsert_repo(&Repo {
+            repo_key: repo.clone(),
+            display_name: "repo".into(),
+            first_seen: Timestamp(1),
+            last_seen: Timestamp(2),
+            delegated_runs: 0,
+        })
+        .unwrap();
+    store
+        .upsert_session(&NewSession {
+            key: SessionKey {
+                host: Host::Claude,
+                agent_home: "home".into(),
+                session_id: "s".into(),
+            },
+            repo_key: repo.clone(),
+            cwd: dir.path().into(),
+            started: Timestamp(1),
+            ended: None,
+            fold_status: "open".into(),
+            shadow: false,
+            integration_level: "hooks".into(),
+        })
+        .unwrap();
+    for calls in [4, 6, 8] {
+        store
+            .push_envelope_sample(&repo, Host::Claude, calls)
+            .unwrap();
+    }
+    let conn = tkm_store::open_read_only(&path).unwrap();
+    let config = tkm_ui::model::SnapshotConfig {
+        loop_mode: Some("shadow".into()),
+        ..Default::default()
+    };
+    let state = tkm_ui::model::load_snapshot_with(&conn, &config).unwrap();
+    let session = &state.sessions[0];
+    assert_eq!(session.envelope, None);
+    assert_eq!(session.envelope_samples, Some(3));
+    assert_eq!(session.envelope_min_samples, Some(5));
+    assert_eq!(session.loop_state, "shadow");
+    for calls in [5, 7] {
+        store
+            .push_envelope_sample(&repo, Host::Claude, calls)
+            .unwrap();
+    }
+    let state = tkm_ui::model::load_snapshot_with(&conn, &config).unwrap();
+    assert!(state.sessions[0].envelope.is_some_and(|e| e > 0.0));
+}
+
+#[test]
+fn footer_labels_last_message_time_as_utc() {
+    let view = ViewState {
+        last_message: Some(1_793_715_780),
+        ..ViewState::default()
+    };
+    let text = rendered(&MonitorState::default(), &view);
+    assert!(text.contains("last: 14:23:00 UTC"), "{text}");
 }

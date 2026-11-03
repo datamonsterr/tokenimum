@@ -60,18 +60,7 @@ impl PriceTable {
     #[must_use]
     #[allow(clippy::cast_precision_loss)]
     pub fn price_usage(&self, model: &str, u: Usage) -> Option<f64> {
-        let p = self.models.get(model).or_else(|| {
-            let mut matches = self
-                .models
-                .iter()
-                .filter(|(id, _)| id.rsplit('/').next() == Some(model));
-            let (_, price) = matches.next()?;
-            if matches.next().is_some() {
-                None
-            } else {
-                Some(price)
-            }
-        })?;
+        let p = self.lookup(model)?;
         if !p.valid() {
             return None;
         }
@@ -93,6 +82,33 @@ impl PriceTable {
             / 1_000_000.0;
         valid_cost(cost).then_some(cost)
     }
+    /// Resolve a harness model ID to a price: the exact key, then a unique key with the same
+    /// final path segment, then a unique price among keys with the same canonical name (see
+    /// [`canonical_model`]). Variant keys such as `:batch` never match a harness ID.
+    fn lookup(&self, model: &str) -> Option<&Price> {
+        if let Some(price) = self.models.get(model) {
+            return Some(price);
+        }
+        let mut tails = self
+            .models
+            .iter()
+            .filter(|(id, _)| id.rsplit('/').next() == Some(model));
+        if let Some((_, price)) = tails.next() {
+            return tails.next().is_none().then_some(price);
+        }
+        let wanted = canonical_model(model)?;
+        let mut found: Option<&Price> = None;
+        for (id, price) in &self.models {
+            if id.contains(':') || canonical_model(id).as_deref() != Some(wanted.as_str()) {
+                continue;
+            }
+            match found {
+                Some(seen) if seen != price => return None,
+                _ => found = Some(price),
+            }
+        }
+        found
+    }
     /// Price a session. The caller supplies a session model when aggregate usage lacks
     /// per-model data; an unknown or absent model yields `None`.
     #[must_use]
@@ -111,12 +127,46 @@ impl PriceTable {
             session
                 .usage_by_model
                 .iter()
+                // Claude Code logs locally generated messages as `<synthetic>` with no usage.
+                .filter(|(id, usage)| {
+                    !(id.as_str() == "<synthetic>" && **usage == Usage::default())
+                })
                 .try_fold(0.0, |sum, (id, usage)| {
                     let total = sum + self.price_usage(id, *usage)?;
                     valid_cost(total).then_some(total)
                 })
         }
     }
+}
+
+/// Canonical model name shared by harness IDs and price-table keys: lowercase, without a
+/// provider prefix, a `[context]` or `@date` suffix, a trailing `-YYYYMMDD` date, with dashes
+/// between version digits read as dots. `claude-opus-5-5-20260921[1m]` and
+/// `anthropic/claude-opus-5.5` both become `claude-opus-5.5`.
+#[must_use]
+fn canonical_model(model: &str) -> Option<String> {
+    let id = model.trim().to_ascii_lowercase();
+    let mut tail = id.rsplit('/').next()?;
+    if let Some(cut) = tail.find(['[', '@']) {
+        tail = &tail[..cut];
+    }
+    if let Some((head, date)) = tail.rsplit_once('-')
+        && date.len() == 8
+        && date.bytes().all(|b| b.is_ascii_digit())
+    {
+        tail = head;
+    }
+    let bytes = tail.as_bytes();
+    let canonical: String = tail
+        .char_indices()
+        .map(|(i, c)| {
+            let between_digits = i > 0
+                && bytes[i - 1].is_ascii_digit()
+                && bytes.get(i + 1).is_some_and(u8::is_ascii_digit);
+            if c == '-' && between_digits { '.' } else { c }
+        })
+        .collect();
+    (!canonical.is_empty()).then_some(canonical)
 }
 
 // Ratios from TokenEconomizer's exact billed-model price snapshot.

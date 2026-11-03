@@ -187,7 +187,7 @@ fn rows(state: &MonitorState, pane: Pane) -> Vec<String> {
                     s.turn_id
                         .map_or_else(|| "-".into(), |turn| turn.to_string()),
                     s.turn_calls,
-                    s.envelope.map_or_else(|| "-".into(), |e| format!("{e:.1}")),
+                    envelope_cell(s),
                     s.loop_state
                 )
             })
@@ -241,13 +241,33 @@ fn rows(state: &MonitorState, pane: Pane) -> Vec<String> {
             .collect(),
     }
 }
+fn envelope_cell(session: &tkm_proto::monitor::SessionUpdate) -> String {
+    match (
+        session.envelope,
+        session.envelope_samples,
+        session.envelope_min_samples,
+    ) {
+        (Some(envelope), _, _) => format!("{envelope:.1}"),
+        (None, Some(samples), Some(min)) if samples < min => format!("{samples}/{min} samples"),
+        _ => "-".into(),
+    }
+}
+fn money(usd: f64) -> String {
+    if usd == 0.0 {
+        "$0.00".into()
+    } else {
+        format!("${usd:.6}")
+    }
+}
 fn spend_rows(state: &MonitorState) -> Vec<String> {
     let mut rows = vec![state.spend.as_ref().map_or_else(
-        || "Today: unknown (no timestamps)".into(),
+        || "Today: unknown (caps not loaded)".into(),
         |spend| {
             format!(
-                "Today: ${:.6} / ${:.2} daily cap; session cap ${:.2}",
-                spend.today_usd, spend.daily_cap_usd, spend.session_cap_usd
+                "Today: {} / ${:.2} daily cap; session cap ${:.2}",
+                money(spend.today_usd),
+                spend.daily_cap_usd,
+                spend.session_cap_usd
             )
         },
     )];
@@ -256,8 +276,6 @@ fn spend_rows(state: &MonitorState) -> Vec<String> {
             "Decision cost unknown: {} attempts",
             state.unknown_decision_costs
         ));
-    } else {
-        rows.push("Decision cost unknown: 0 attempts".into());
     }
     let mut models = std::collections::BTreeMap::<&str, f64>::new();
     for decision in &state.decisions {
@@ -346,8 +364,15 @@ pub fn render(state: &MonitorState, view: &ViewState, frame: &mut Frame<'_>) {
         Paragraph::new(format!(
             "{status}{} | last: {} | ? help",
             if view.resyncing { " | resyncing" } else { "" },
-            view.last_message
-                .map_or_else(|| "-".into(), |t| t.to_string())
+            view.last_message.map_or_else(
+                || "-".into(),
+                |t| format!(
+                    "{:02}:{:02}:{:02} UTC",
+                    t % 86_400 / 3_600,
+                    t % 3_600 / 60,
+                    t % 60
+                )
+            )
         )),
         areas[2],
     );
@@ -482,6 +507,51 @@ fn apply_queued<E>(
     state.apply_with_loader(message, load)?;
     Ok(true)
 }
+/// Global settings the snapshot needs; an unreadable configuration leaves them unknown.
+fn snapshot_config(paths: &Paths) -> model::SnapshotConfig {
+    use tkm_config::config::{Layer, LoadInputs, load};
+    let Ok(config) = load(&LoadInputs::from_env(
+        paths.global_config.clone(),
+        None,
+        Vec::new(),
+    )) else {
+        return model::SnapshotConfig::default();
+    };
+    let explicit = |key: &str| {
+        config
+            .source(key)
+            .is_some_and(|layer| layer != Layer::Default)
+    };
+    let mut loop_cfg =
+        tkm_core::loopguard::LoopConfig::preset(config.get_str("loop.level").unwrap_or("default"));
+    if explicit("loop.envelope_min_samples")
+        && let Some(n) = config
+            .get_int("loop.envelope_min_samples")
+            .and_then(|n| usize::try_from(n).ok())
+    {
+        loop_cfg.envelope_min_samples = n;
+    }
+    if explicit("loop.envelope_margin")
+        && let Some(margin) = config.get_float("loop.envelope_margin")
+    {
+        loop_cfg.envelope_margin = margin;
+    }
+    if explicit("loop.envelope_pct")
+        && let Some(pct) = config
+            .get_int("loop.envelope_pct")
+            .and_then(|n| u32::try_from(n).ok())
+    {
+        loop_cfg.envelope_pct = f64::from(pct);
+    }
+    model::SnapshotConfig {
+        caps: config
+            .get_float("decide.budget_daily_usd")
+            .zip(config.get_float("decide.budget_session_usd")),
+        loop_mode: config.get_str("loop.mode").map(str::to_owned),
+        loop_cfg,
+        now_ms: None,
+    }
+}
 /// Run the terminal monitor against one initial snapshot and the live stream.
 ///
 /// # Errors
@@ -490,11 +560,22 @@ fn apply_queued<E>(
 /// # Panics
 /// Panics if terminal initialization fails, as specified by `ratatui::init`.
 pub fn run(paths: &Paths) -> Result<(), Error> {
+    let config = snapshot_config(paths);
+    let snapshot = |conn: &Connection| {
+        let config = model::SnapshotConfig {
+            now_ms: SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .ok()
+                .and_then(|d| i64::try_from(d.as_millis()).ok()),
+            ..config.clone()
+        };
+        model::load_snapshot_with(conn, &config)
+    };
     let (feed, (conn, mut state)) = subscribe_then_snapshot(
         || feed::connect(paths),
         || {
             let conn = tkm_store::open_read_only(&paths.db)?;
-            let snapshot = model::load_snapshot(&conn)?;
+            let snapshot = snapshot(&conn)?;
             Ok::<_, Error>((conn, snapshot))
         },
     )?;
@@ -513,14 +594,14 @@ pub fn run(paths: &Paths) -> Result<(), Error> {
                 &mut watermark,
                 &mut deadline,
                 Instant::now,
-                || model::load_snapshot(&conn),
+                || snapshot(&conn),
             )?;
             view.resyncing = deadline.is_some();
             loop {
                 match feed.receiver.try_recv() {
                     Ok((seq, message)) => {
                         if apply_queued(&mut state, seq, watermark, message, || {
-                            let snapshot = model::load_snapshot(&conn)?;
+                            let snapshot = snapshot(&conn)?;
                             Ok::<_, Error>((snapshot.savings, snapshot.spend_days))
                         })? {
                             view.last_message = Some(
@@ -544,7 +625,7 @@ pub fn run(paths: &Paths) -> Result<(), Error> {
             {
                 match handle_key(&mut view, key, &state) {
                     Action::Quit => break,
-                    Action::Reload => state = model::load_snapshot(&conn)?,
+                    Action::Reload => state = snapshot(&conn)?,
                     Action::Explain => {
                         view.overlay = Some(DatabaseWhy(&conn).explain(
                             &state,
@@ -610,6 +691,8 @@ mod ordering_tests {
             phase: "active".into(),
             turn_calls: 1,
             envelope: None,
+            envelope_samples: None,
+            envelope_min_samples: None,
             loop_state: "off".into(),
         })
     }
@@ -737,6 +820,8 @@ mod ordering_tests {
                     phase: "active".into(),
                     turn_calls: 1,
                     envelope: None,
+                    envelope_samples: None,
+                    envelope_min_samples: None,
                     loop_state: "off".into(),
                 }),
             ))
@@ -760,6 +845,8 @@ mod ordering_tests {
                             phase: "active".into(),
                             turn_calls: 1,
                             envelope: None,
+                            envelope_samples: None,
+                            envelope_min_samples: None,
                             loop_state: "off".into(),
                         },
                     ),
@@ -791,6 +878,8 @@ mod ordering_tests {
                         phase: "active".into(),
                         turn_calls: 2,
                         envelope: None,
+                        envelope_samples: None,
+                        envelope_min_samples: None,
                         loop_state: "off".into(),
                     },
                 )]

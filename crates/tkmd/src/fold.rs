@@ -1103,6 +1103,8 @@ impl Daemon {
                             phase: "folded".into(),
                             turn_calls: 0,
                             envelope: None,
+                            envelope_samples: None,
+                            envelope_min_samples: None,
                             loop_state: report.status.to_owned(),
                         })
                     });

@@ -2,6 +2,7 @@
 use rusqlite::Connection;
 use serde::Serialize;
 use std::collections::VecDeque;
+use tkm_core::loopguard::{EnvelopeTracker, LoopConfig};
 use tkm_proto::monitor::{
     DecisionNotice, MonitorMessage, RedirectNotice, SessionUpdate, SpendUpdate,
 };
@@ -161,39 +162,35 @@ impl MonitorState {
         }
     }
 }
+/// Settings the database does not hold, used to complete a snapshot.
+#[derive(Debug, Clone, Default)]
+pub struct SnapshotConfig {
+    /// Daily and session decision caps in US dollars, when known.
+    pub caps: Option<(f64, f64)>,
+    /// Configured `loop.mode`, when known.
+    pub loop_mode: Option<String>,
+    /// Loop settings that turn envelope samples into an envelope.
+    pub loop_cfg: LoopConfig,
+    /// Current time in Unix milliseconds, used for today's spend.
+    pub now_ms: Option<i64>,
+}
 /// Read a snapshot from an existing connection, normally opened with `tkm_store::open_read_only`.
 ///
 /// # Errors
 /// Returns an error if SQLite or a stored JSON value cannot be read.
 pub fn load_snapshot(conn: &Connection) -> Result<MonitorState, crate::Error> {
+    load_snapshot_with(conn, &SnapshotConfig::default())
+}
+/// Read a snapshot and complete spend and loop state from the supplied settings.
+///
+/// # Errors
+/// Returns an error if SQLite or a stored JSON value cannot be read.
+pub fn load_snapshot_with(
+    conn: &Connection,
+    config: &SnapshotConfig,
+) -> Result<MonitorState, crate::Error> {
     let mut state = MonitorState::default();
-    let mut query = conn.prepare("SELECT s.host,s.session_id,s.repo_key,s.fold_status,COALESCE((SELECT calls FROM turns WHERE session_id=s.id ORDER BY turn_idx DESC LIMIT 1),0),(SELECT id FROM events WHERE session_id=s.id ORDER BY id DESC LIMIT 1),(SELECT turn_idx FROM turns WHERE session_id=s.id ORDER BY turn_idx DESC LIMIT 1) FROM sessions s WHERE s.ended_at IS NULL ORDER BY s.id")?;
-    for row in query.query_map([], |row| {
-        Ok((
-            row.get::<_, String>(0)?,
-            row.get::<_, String>(1)?,
-            row.get::<_, String>(2)?,
-            row.get::<_, String>(3)?,
-            row.get::<_, u32>(4)?,
-            row.get::<_, Option<i64>>(5)?,
-            row.get::<_, Option<i64>>(6)?,
-        ))
-    })? {
-        let (host, session_id, repo, phase, turn_calls, event_id, turn_id) = row?;
-        if let Ok(host) = host.parse() {
-            state.sessions.push(SessionUpdate {
-                host,
-                session_id,
-                turn_id: turn_id.and_then(|turn| u64::try_from(turn).ok()),
-                repo: Some(repo),
-                phase,
-                turn_calls,
-                envelope: None,
-                loop_state: "unknown".into(),
-            });
-            state.session_event_ids.push(event_id);
-        }
-    }
+    load_sessions(conn, config, &mut state)?;
     let version: i64 = conn.pragma_query_value(None, "user_version", |row| row.get(0))?;
     let decisions_sql = if version >= 4 {
         "SELECT purpose,model,latency_ms,cost_usd,shadow,answers,id FROM (SELECT * FROM decisions WHERE cost_usd IS NOT NULL ORDER BY id DESC LIMIT 1000) ORDER BY id"
@@ -263,7 +260,78 @@ pub fn load_snapshot(conn: &Connection) -> Result<MonitorState, crate::Error> {
         .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
         .collect::<rusqlite::Result<_>>()?;
     load_redirects(conn, &mut state)?;
+    if let (Some((daily_cap_usd, session_cap_usd)), Some(now_ms), true) =
+        (config.caps, config.now_ms, version >= 4)
+    {
+        state.spend = Some(SpendUpdate {
+            today_usd: spent_today(conn, now_ms)?,
+            daily_cap_usd,
+            session_cap_usd,
+        });
+    }
     Ok(state)
+}
+
+/// Decision spend since UTC midnight, counted as `tkm status` counts it.
+fn spent_today(conn: &Connection, now_ms: i64) -> Result<f64, crate::Error> {
+    let day_start = now_ms - now_ms.rem_euclid(86_400_000);
+    let spent = conn.query_row(
+        "SELECT COALESCE((SELECT sum(json_extract(record, '$.cost_usd')) FROM spend_attempts WHERE json_extract(record, '$.ts_ms') BETWEEN ?1 AND ?2 AND json_extract(record, '$.cost_usd') >= 0), 0) + COALESCE((SELECT sum(cost_usd) FROM decisions WHERE created_at BETWEEN ?1 AND ?2 AND cost_usd >= 0 AND (NOT EXISTS (SELECT 1 FROM spend_attempts) OR id <= (SELECT legacy_decision_max FROM spend_migration) OR purpose IN ('models_probe','doctor_probe'))), 0)",
+        [day_start, now_ms],
+        |row| row.get::<_, f64>(0),
+    )?;
+    Ok(if spent.is_finite() { spent } else { 0.0 })
+}
+
+fn load_sessions(
+    conn: &Connection,
+    config: &SnapshotConfig,
+    state: &mut MonitorState,
+) -> Result<(), crate::Error> {
+    // The daemon starts each session in the state its loop mode implies (SPEC 11.3).
+    let loop_state = match config.loop_mode.as_deref() {
+        Some("off") => "off",
+        Some("shadow") => "shadow",
+        Some(_) => "watching",
+        None => "unknown",
+    };
+    let min_samples = u32::try_from(config.loop_cfg.envelope_min_samples).unwrap_or(u32::MAX);
+    let mut query = conn.prepare("SELECT s.host,s.session_id,s.repo_key,s.fold_status,COALESCE((SELECT calls FROM turns WHERE session_id=s.id ORDER BY turn_idx DESC LIMIT 1),0),(SELECT id FROM events WHERE session_id=s.id ORDER BY id DESC LIMIT 1),(SELECT turn_idx FROM turns WHERE session_id=s.id ORDER BY turn_idx DESC LIMIT 1),(SELECT samples FROM envelopes WHERE repo_key=s.repo_key AND host=s.host) FROM sessions s WHERE s.ended_at IS NULL ORDER BY s.id")?;
+    for row in query.query_map([], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, String>(1)?,
+            row.get::<_, String>(2)?,
+            row.get::<_, String>(3)?,
+            row.get::<_, u32>(4)?,
+            row.get::<_, Option<i64>>(5)?,
+            row.get::<_, Option<i64>>(6)?,
+            row.get::<_, Option<String>>(7)?,
+        ))
+    })? {
+        let (host, session_id, repo, phase, turn_calls, event_id, turn_id, samples) = row?;
+        let samples: Vec<u32> = samples
+            .map(|json| serde_json::from_str(&json))
+            .transpose()?
+            .unwrap_or_default();
+        let envelope = EnvelopeTracker::from_lengths(&samples).value(&config.loop_cfg);
+        if let Ok(host) = host.parse() {
+            state.sessions.push(SessionUpdate {
+                host,
+                session_id,
+                turn_id: turn_id.and_then(|turn| u64::try_from(turn).ok()),
+                repo: Some(repo),
+                phase,
+                turn_calls,
+                envelope,
+                envelope_samples: Some(u32::try_from(samples.len()).unwrap_or(u32::MAX)),
+                envelope_min_samples: Some(min_samples),
+                loop_state: loop_state.into(),
+            });
+            state.session_event_ids.push(event_id);
+        }
+    }
+    Ok(())
 }
 
 fn load_redirects(conn: &Connection, state: &mut MonitorState) -> Result<(), crate::Error> {

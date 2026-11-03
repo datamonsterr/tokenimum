@@ -76,3 +76,33 @@ fn why_last_ignores_newer_observations() {
     let text = String::from_utf8(out.stdout).unwrap();
     assert!(text.contains("action detail") && text.contains("unknown time"));
 }
+
+#[test]
+fn why_last_without_actions_reports_none_and_exits_0() {
+    let f = Fixture::new();
+    for args in [
+        vec!["why", "last"],
+        vec!["why"],
+        vec!["why", "--session", "missing"],
+    ] {
+        let out = f.run(&args);
+        assert!(out.status.success(), "{args:?}: {out:?}");
+        let stdout = String::from_utf8(out.stdout).unwrap();
+        assert!(
+            stdout.contains("no actions recorded yet"),
+            "{args:?}: {stdout}"
+        );
+    }
+}
+#[test]
+fn why_unknown_non_numeric_id_exits_1() {
+    let f = Fixture::new();
+    seed(&f, "one", "first");
+    let out = f.run(&["why", "nope"]);
+    assert_eq!(out.status.code(), Some(1), "{out:?}");
+    assert!(
+        String::from_utf8(out.stderr)
+            .unwrap()
+            .contains("unknown action event")
+    );
+}
