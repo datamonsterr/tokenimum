@@ -11,10 +11,13 @@ use crate::{cli::DashboardArgs, ctx::Ctx, error::CliError};
 /// # Errors
 /// Returns an error if discovery, daemon startup, or output fails.
 pub fn run(ctx: &mut Ctx<'_>, args: &DashboardArgs) -> Result<ExitCode, CliError> {
+    // tkmd reads only the global layer for `ui.web.enabled`; match it.
+    let web_enabled = ctx.load_config_for_repo(None)?.get_bool("ui.web.enabled") == Some(true);
     let url = tkm_ui::cli::run_dashboard(
         &ctx.paths,
         &tkm_ui::cli::DashboardArgs {
             no_open: args.no_open,
+            web_enabled,
         },
     )
     .map_err(super::init::state::failure)?;

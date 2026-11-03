@@ -112,7 +112,7 @@ fn skills_text_prints_readable_evidence_table() {
 }
 
 #[test]
-fn skills_skips_missing_partial_and_oversize_logs_with_one_note() {
+fn skills_names_each_skipped_session_and_its_reason() {
     let f = Fixture::new();
     let missing = session(&f, "missing", None, &["missing-skill"]);
     fs::remove_file(missing).unwrap();
@@ -123,16 +123,74 @@ fn skills_skips_missing_partial_and_oversize_logs_with_one_note() {
         .write(true)
         .open(oversized)
         .unwrap()
-        .set_len(5 * 1024 * 1024)
+        .set_len(65 * 1024 * 1024)
         .unwrap();
+    // Real Claude Code logs commonly exceed 4 MiB; they must still be read.
+    let large = session(&f, "large", None, &["beta"]);
+    let mut text = fs::read_to_string(&large).unwrap();
+    let filler = serde_json::json!({"type":"system","content":"x".repeat(1024)}).to_string();
+    while text.len() < 5 * 1024 * 1024 {
+        text.push_str(&filler);
+        text.push('\n');
+    }
+    fs::write(&large, text).unwrap();
     session(&f, "good", None, &["alpha"]);
     let out = f.run(&["skills", "--json"]);
     assert!(out.status.success(), "{out:?}");
     let json: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
-    assert_eq!(json["skills"].as_array().unwrap().len(), 1);
+    let names: Vec<_> = json["skills"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|skill| skill["name"].as_str().unwrap())
+        .collect();
+    assert_eq!(names, ["alpha", "beta"]);
     let error = String::from_utf8(out.stderr).unwrap();
-    assert_eq!(error.lines().count(), 1, "{error}");
-    assert!(error.contains("skipped 3"), "{error}");
+    assert_eq!(error.lines().count(), 3, "{error}");
+    for (id, reason) in [
+        ("missing", "log missing"),
+        ("partial", "partial log"),
+        ("oversized", "log over 64 MiB"),
+    ] {
+        assert!(
+            error
+                .lines()
+                .any(|line| line.contains(&format!("session {id}:")) && line.contains(reason)),
+            "{error}"
+        );
+    }
+}
+
+#[test]
+fn skills_counts_listed_and_otherskill_skills_as_loaded() {
+    let f = Fixture::new();
+    let log = session(&f, "listed", None, &[]);
+    fs::copy(
+        concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../fixtures/claude/sessions/skills-otherskill.jsonl"
+        ),
+        log,
+    )
+    .unwrap();
+    let out = f.run(&["skills", "--json"]);
+    assert!(out.status.success(), "{out:?}");
+    assert!(out.stderr.is_empty(), "{out:?}");
+    let json: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    let skills = json["skills"].as_array().unwrap();
+    let get = |name: &str| {
+        skills
+            .iter()
+            .find(|skill| skill["name"] == name)
+            .unwrap_or_else(|| panic!("{name} missing: {json}"))
+    };
+    assert_eq!(get("tkm-harness-hooks")["loaded"], 1);
+    assert_eq!(get("tkm-harness-hooks")["used"], 1);
+    assert_eq!(get("verification-before-completion")["loaded"], 1);
+    assert_eq!(get("verification-before-completion")["used"], 1);
+    assert_eq!(get("receiving-code-review")["loaded"], 1);
+    assert_eq!(get("receiving-code-review")["used"], 0);
+    assert_eq!(get("caveman:caveman")["loaded"], 1);
 }
 
 #[test]

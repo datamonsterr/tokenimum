@@ -26,6 +26,7 @@
 pub mod backing;
 pub mod clock;
 pub mod daemon;
+pub mod dashboard;
 pub mod decider;
 pub mod fold;
 pub mod host_level;

@@ -13,23 +13,27 @@ use super::status::report;
 use crate::{cli::SkillsArgs, ctx::Ctx, error::CliError};
 
 const RECENT_SESSIONS: i64 = 30;
-const MAX_LOG_BYTES: u64 = 4 * 1024 * 1024;
+// Real Claude Code transcripts commonly run to several MiB; the reader also streams with its own
+// per-record and total bounds.
+const MAX_LOG_BYTES: u64 = 64 * 1024 * 1024;
 
 /// Print the otherskill ranking prior, or a readable evidence table.
 ///
 /// Evidence covers at most thirty recent sessions in the current repository.
-/// Only Claude logs have a derivable stored path today; other hosts, missing logs,
-/// partial sessions and logs over 4 MiB are skipped. Loaded counts require a host
-/// reader to expose skill catalog entries; invocations use core's `fold_skills`.
+/// Only Claude logs have a derivable stored path today; other hosts, open sessions, missing
+/// logs, partial sessions and logs over 64 MiB are skipped, each with one stderr line naming the
+/// session and the reason. Loaded counts come from the host reader's skill catalog entries;
+/// invocations use core's `fold_skills`.
 ///
 /// # Errors
 /// Returns an error if the database or command output cannot be read or written.
 pub fn run(ctx: &mut Ctx<'_>, args: &SkillsArgs) -> Result<ExitCode, CliError> {
     let (evidence, skipped) = evidence(ctx)?;
-    if skipped > 0 {
+    for (session, reason) in &skipped {
         writeln!(
             ctx.stderr,
-            "tkm skills: skipped {skipped} sessions (unsupported host, missing, partial, unsafe or oversized log)"
+            "tkm skills: skipped session {}: {reason}",
+            report::line(session)
         )?;
     }
     if args.json {
@@ -61,10 +65,12 @@ pub fn run(ctx: &mut Ctx<'_>, args: &SkillsArgs) -> Result<ExitCode, CliError> {
     Ok(ExitCode::SUCCESS)
 }
 
-fn evidence(ctx: &Ctx<'_>) -> Result<(Vec<SkillEvidence>, usize), CliError> {
+type Skipped = Vec<(String, String)>;
+
+fn evidence(ctx: &Ctx<'_>) -> Result<(Vec<SkillEvidence>, Skipped), CliError> {
     let store = match report::read_store(ctx) {
         Ok(store) => store,
-        Err(CliError::MissingDatabase(_)) => return Ok((Vec::new(), 0)),
+        Err(CliError::MissingDatabase(_)) => return Ok((Vec::new(), Vec::new())),
         Err(error) => return Err(error),
     };
     let sessions = store
@@ -74,7 +80,7 @@ fn evidence(ctx: &Ctx<'_>) -> Result<(Vec<SkillEvidence>, usize), CliError> {
     let mut skills = store
         .skill_evidence(&ctx.repo.key)
         .map_err(|error| report::store_error(ctx, error))?;
-    let mut skipped = 0;
+    let mut skipped = Vec::new();
     for record in sessions {
         if store
             .has_skill_evidence(record.id)
@@ -82,11 +88,21 @@ fn evidence(ctx: &Ctx<'_>) -> Result<(Vec<SkillEvidence>, usize), CliError> {
         {
             continue;
         }
-        let session = source(&record).and_then(|source| adapter.read_session(&source).ok());
-        if let Some(session) = session.filter(|session| !session.partial) {
-            fold_skills(&mut skills, &session);
-        } else {
-            skipped += 1;
+        let session = source(&record).and_then(|source| {
+            adapter
+                .read_session(&source)
+                .map_err(|error| format!("unreadable log: {error}"))
+        });
+        match session {
+            Ok(session) if session.partial => skipped.push((
+                record.key.session_id.clone(),
+                format!(
+                    "partial log: {} of {} records not recognized",
+                    session.skipped_records, session.total_records
+                ),
+            )),
+            Ok(session) => fold_skills(&mut skills, &session),
+            Err(reason) => skipped.push((record.key.session_id.clone(), reason)),
         }
     }
     let evidence = skills
@@ -101,14 +117,20 @@ fn evidence(ctx: &Ctx<'_>) -> Result<(Vec<SkillEvidence>, usize), CliError> {
     Ok((evidence, skipped))
 }
 
-fn source(record: &SessionRecord) -> Option<SessionSource> {
-    if record.key.host != tkm_proto::Host::Claude || record.ended.is_none() {
-        return None;
+fn source(record: &SessionRecord) -> Result<SessionSource, String> {
+    if record.key.host != tkm_proto::Host::Claude {
+        return Err(format!(
+            "no session log reader for host {}",
+            record.key.host.as_str()
+        ));
+    }
+    if record.ended.is_none() {
+        return Err("session has not ended".into());
     }
     // Session ids form one filename, never a relative path into another directory.
     let mut components = std::path::Path::new(&record.key.session_id).components();
     if !matches!(components.next(), Some(Component::Normal(_))) || components.next().is_some() {
-        return None;
+        return Err("unsafe session id".into());
     }
     let agent_home = PathBuf::from(&record.key.agent_home);
     let slug: String = record
@@ -121,17 +143,26 @@ fn source(record: &SessionRecord) -> Option<SessionSource> {
         .join("projects")
         .join(slug)
         .join(format!("{}.jsonl", record.key.session_id));
-    let metadata = std::fs::symlink_metadata(&path).ok()?;
-    if !metadata.is_file()
-        || metadata.len() > MAX_LOG_BYTES
-        || !path
-            .canonicalize()
-            .ok()?
-            .starts_with(agent_home.canonicalize().ok()?)
-    {
-        return None;
+    let metadata =
+        std::fs::symlink_metadata(&path).map_err(|_| format!("log missing: {}", path.display()))?;
+    if !metadata.is_file() {
+        return Err(format!("log is not a regular file: {}", path.display()));
     }
-    Some(SessionSource {
+    if metadata.len() > MAX_LOG_BYTES {
+        return Err(format!(
+            "log over 64 MiB ({} MiB)",
+            metadata.len() / (1024 * 1024)
+        ));
+    }
+    let inside = path
+        .canonicalize()
+        .ok()
+        .zip(agent_home.canonicalize().ok())
+        .is_some_and(|(path, home)| path.starts_with(home));
+    if !inside {
+        return Err("log outside the agent home".into());
+    }
+    Ok(SessionSource {
         agent_home,
         path,
         session_id: record.key.session_id.clone(),

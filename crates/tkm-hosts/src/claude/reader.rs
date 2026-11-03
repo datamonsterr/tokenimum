@@ -159,7 +159,15 @@ impl Reader {
             | "agent-name"
             | "agent-color"
             | "pr-link"
-            | "title" => true,
+            | "title"
+            | "ai-title"
+            | "bridge-session"
+            | "permission-mode"
+            | "frame-link"
+            | "artifact-autoreact-ledger"
+            | "artifact-comment-monitor"
+            | "dev-mods"
+            | "continued-in" => true,
             _ => false,
         };
         if valid
@@ -386,6 +394,27 @@ impl Reader {
         }
     }
 
+    fn add_skill(&mut self, name: &str) {
+        let name = name.trim();
+        if name.is_empty() {
+            return;
+        }
+        // A tool of the same name keeps its kind, so pruning evidence never changes.
+        if self
+            .session
+            .tool_catalog
+            .iter()
+            .any(|tool| tool.name == name)
+        {
+            return;
+        }
+        self.session.tool_catalog.push(ToolDef {
+            name: name.to_owned(),
+            kind: ToolKind::Skill,
+            server: None,
+        });
+    }
+
     fn add_tool(&mut self, name: &str) {
         if self
             .session
@@ -411,6 +440,36 @@ impl Reader {
     }
 
     fn catalog(&mut self, source: &Value) {
+        match source.get("type").and_then(Value::as_str) {
+            // Initial and delta skill catalogs both list names; union them.
+            Some("skill_listing") => {
+                for name in source
+                    .get("names")
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten()
+                    .filter_map(Value::as_str)
+                {
+                    self.add_skill(name);
+                }
+                return;
+            }
+            Some("hook_additional_context") => {
+                for text in source
+                    .get("content")
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten()
+                    .filter_map(Value::as_str)
+                {
+                    for name in otherskill_selection(text) {
+                        self.add_skill(name);
+                    }
+                }
+                return;
+            }
+            _ => {}
+        }
         if let Some(tools) = source.get("tools").and_then(Value::as_array) {
             for tool in tools {
                 if let Some(name) = tool
@@ -437,6 +496,17 @@ impl Reader {
             }
         }
     }
+}
+
+/// Skill names in an otherskill `UserPromptSubmit` selection: a header line, then one
+/// `- <name>: <description>` line per skill with indented detail lines.
+fn otherskill_selection(text: &str) -> impl Iterator<Item = &str> {
+    let selected = text.starts_with("OtherSkill selected skills");
+    text.lines()
+        .filter(move |_| selected)
+        .filter_map(|line| line.strip_prefix("- "))
+        .filter_map(|line| line.split_once(':').map(|(name, _)| name))
+        .filter(|name| !name.is_empty() && !name.contains(char::is_whitespace))
 }
 
 fn parse_usage(value: &Value) -> Usage {
