@@ -70,8 +70,6 @@ def verify(bin_dir, base):
         if result.returncode != expected:
             raise RuntimeError(f'tkm {" ".join(args)}: {result.returncode}\n'
                                f'{result.stdout}\n{result.stderr}')
-        if expected == 1 and 'unknown action event' not in result.stderr:
-            raise RuntimeError('missing expected no-action diagnostic')
         print(f'PASS tkm {" ".join(args)}')
         count += 1
         return result.stdout
@@ -85,7 +83,9 @@ def verify(bin_dir, base):
         run('status')
         run('init', '--yes', '--only', 'claude', '--preset', 'offline')
         run('facts', '--brief')
-        run('why', 'last', expected=1)  # No action exists in this fresh repository.
+        # No action exists in this fresh repository.
+        if 'no actions recorded yet' not in run('why', 'last'):
+            raise RuntimeError('missing expected no-action message')
         run('prune')
         run('config', 'show', '--effective')
         exported = run('export')

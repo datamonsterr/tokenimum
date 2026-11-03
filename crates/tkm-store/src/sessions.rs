@@ -416,6 +416,48 @@ impl Store {
         self.conn.execute("INSERT INTO ledger (session_id, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, priced_cost, overhead_tokens, overhead_cost, priced_cost_usd, overhead_cost_usd) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10) ON CONFLICT(session_id) DO UPDATE SET input_tokens=excluded.input_tokens, output_tokens=excluded.output_tokens, cache_read_tokens=excluded.cache_read_tokens, cache_write_tokens=excluded.cache_write_tokens, priced_cost=excluded.priced_cost, overhead_tokens=excluded.overhead_tokens, overhead_cost=excluded.overhead_cost, priced_cost_usd=excluded.priced_cost_usd, overhead_cost_usd=excluded.overhead_cost_usd", params![ledger.session_id, input, output, read, write, ledger.priced_cost.unwrap_or(0.0), overhead, ledger.overhead_cost.unwrap_or(0.0), ledger.priced_cost, ledger.overhead_cost])?;
         Ok(())
     }
+    /// Sessions whose ledger has tokens but no priced cost, oldest first.
+    ///
+    /// # Errors
+    /// Returns an error if querying or decoding fails.
+    pub fn list_unpriced_ledger_sessions(&self) -> Result<Vec<SessionRecord>, StoreError> {
+        if self.schema_version < 4 {
+            return Ok(Vec::new());
+        }
+        let columns = SESSION_COLUMNS
+            .split(", ")
+            .map(|column| format!("s.{column}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let mut stmt = self.conn.prepare(&format!("SELECT {columns} FROM sessions s JOIN ledger l ON l.session_id = s.id WHERE l.priced_cost_usd IS NULL AND l.input_tokens + l.output_tokens + l.cache_read_tokens + l.cache_write_tokens > 0 ORDER BY s.id"))?;
+        let rows = stmt.query_map([], read_session)?;
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+    }
+    /// Set the usage and price of a ledger row that is still unpriced. Returns whether a row
+    /// changed; a row priced meanwhile is left alone.
+    ///
+    /// # Errors
+    /// Returns an error if a token count exceeds SQLite's integer range or the write fails.
+    pub fn reprice_ledger(
+        &self,
+        session_id: i64,
+        usage: Usage,
+        cost: f64,
+    ) -> Result<bool, StoreError> {
+        let count = |n: u64| i64::try_from(n).map_err(|_| StoreError::TokenOverflow);
+        let changed = self.conn.execute(
+            "UPDATE ledger SET input_tokens=?2, output_tokens=?3, cache_read_tokens=?4, cache_write_tokens=?5, priced_cost=?6, priced_cost_usd=?6 WHERE session_id=?1 AND priced_cost_usd IS NULL",
+            params![
+                session_id,
+                count(usage.input)?,
+                count(usage.output)?,
+                count(usage.cache_read)?,
+                count(usage.cache_write)?,
+                cost
+            ],
+        )?;
+        Ok(changed > 0)
+    }
     /// Find a session ledger.
     ///
     /// # Errors
