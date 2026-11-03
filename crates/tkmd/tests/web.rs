@@ -69,7 +69,7 @@ fn enabled_daemon_publishes_dashboard_and_bind_failure_fails_open() {
             .env("XDG_RUNTIME_DIR", &runtime)
             .env("TKM_DECIDE_ENABLED", "false")
             .env("TKM_UI_WEB_ENABLED", "true")
-            .env("TKM_UI_WEB_BIND", bind)
+            .env("TKM_UI_WEB_BIND", &bind)
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .spawn()
@@ -79,12 +79,7 @@ fn enabled_daemon_publishes_dashboard_and_bind_failure_fails_open() {
         let errors = dir.path().join("data/tokenimum/errors.log");
         let deadline = Instant::now() + Duration::from_secs(10);
         while Instant::now() < deadline
-            && !(socket.exists()
-                && if occupied {
-                    errors.exists()
-                } else {
-                    file.exists()
-                })
+            && !(socket.exists() && file.exists() && (!occupied || errors.exists()))
         {
             assert!(child.try_wait().unwrap().is_none(), "daemon exited early");
             std::thread::sleep(Duration::from_millis(20));
@@ -97,7 +92,15 @@ fn enabled_daemon_publishes_dashboard_and_bind_failure_fails_open() {
                     .unwrap()
                     .contains("web startup:")
             );
-            assert!(!file.exists());
+            let marker: serde_json::Value =
+                serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
+            assert_eq!(marker["unavailable"], "bind");
+            assert_eq!(marker["bind"], bind);
+            assert!(
+                marker["error"]
+                    .as_str()
+                    .is_some_and(|e| !e.contains("os error"))
+            );
         } else {
             assert_eq!(
                 std::fs::metadata(&file).unwrap().permissions().mode() & 0o777,
