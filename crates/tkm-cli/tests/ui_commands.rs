@@ -63,6 +63,8 @@ fn dashboard_no_open_prints_discovery_url_without_browser_or_daemon_spawn() {
     let fixture = Fixture::new();
     fs::create_dir_all(fixture.paths.socket.parent().unwrap()).unwrap();
     let _socket = UnixListener::bind(&fixture.paths.socket).unwrap();
+    fs::create_dir_all(fixture.paths.global_config.parent().unwrap()).unwrap();
+    fs::write(&fixture.paths.global_config, "[ui.web]\nenabled = true\n").unwrap();
     fs::write(
         fixture.paths.socket.with_file_name("tkmd-web.json"),
         r#"{"url":"http://127.0.0.1:12345/","token":"fixture-token"}"#,

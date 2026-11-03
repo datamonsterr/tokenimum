@@ -220,6 +220,39 @@ fn partial_sessions_and_skill_report() {
 }
 
 #[test]
+fn reading_a_listed_skill_file_counts_as_one_invocation() {
+    use tkm_core::prune::skills::{SkillReport, fold_skills};
+    let mut s = session("plugin__unused", 10, false);
+    for name in ["verification-before-completion", "local-skill"] {
+        s.tool_catalog.push(ToolDef {
+            name: name.into(),
+            kind: ToolKind::Skill,
+            ..ToolDef::default()
+        });
+    }
+    for path in [
+        "~/.local/share/otherskill/bank/testing/verification-before-completion--a9793f6047322c46/SKILL.md",
+        "/repo/.claude/skills/local-skill/SKILL.md",
+        "/repo/skills/unlisted-skill/SKILL.md",
+        "/repo/local-skill/README.md",
+    ] {
+        s.turns[0].calls.push(Call {
+            tool: "Read".into(),
+            args_digest: serde_json::json!({ "file_path": path }).to_string(),
+            ..Call::default()
+        });
+    }
+    let mut report = SkillReport::default();
+    fold_skills(&mut report, &s);
+    assert_eq!(
+        report.skills["verification-before-completion"].invocations,
+        1
+    );
+    assert_eq!(report.skills["local-skill"].invocations, 1);
+    assert!(!report.skills.contains_key("unlisted-skill"));
+}
+
+#[test]
 fn evidence_isolated_by_repository_and_host() {
     use tkm_core::model::RepoKey;
     let mut state = PruneEvidence::default();

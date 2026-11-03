@@ -211,32 +211,36 @@ async fn main() -> ExitCode {
         }
         Err(error) => daemon.log_error(&format!("monitor socket: {error}")),
     }
+    let web_config = tkm_config::config::load(&tkm_config::config::LoadInputs {
+        global_path: paths.global_config.clone(),
+        repo_root: None,
+        env: config_env,
+        flags: Vec::new(),
+    })
+    .map_err(|error| daemon.log_error(&format!("web configuration: {error}")))
+    .ok()
+    .filter(|config| config.get_bool("ui.web.enabled") == Some(true));
     #[cfg(feature = "web")]
-    let web = {
-        let inputs = tkm_config::config::LoadInputs {
-            global_path: paths.global_config.clone(),
-            repo_root: None,
-            env: config_env,
-            flags: Vec::new(),
-        };
-        match tkm_config::config::load(&inputs) {
-            Ok(config) if config.get_bool("ui.web.enabled") == Some(true) => {
-                let bind = config.get_str("ui.web.bind").unwrap_or("127.0.0.1:7878");
-                match tkmd::web::WebServer::start(daemon.clone(), &paths, bind).await {
-                    Ok(web) => Some(web),
-                    Err(error) => {
-                        daemon.log_error(&format!("web startup: {error}"));
-                        None
-                    }
+    let web = match web_config {
+        Some(config) => {
+            let bind = config.get_str("ui.web.bind").unwrap_or("127.0.0.1:7878");
+            match tkmd::web::WebServer::start(daemon.clone(), &paths, bind).await {
+                Ok(web) => Some(web),
+                Err(error) => {
+                    daemon.log_error(&format!("web startup: {error}"));
+                    None
                 }
             }
-            Ok(_) => None,
-            Err(error) => {
-                daemon.log_error(&format!("web configuration: {error}"));
-                None
-            }
         }
+        None => None,
     };
+    #[cfg(not(feature = "web"))]
+    if web_config.is_some()
+        && let Err(error) =
+            tkmd::dashboard::write_unavailable(&paths, tkmd::dashboard::FEATURE_MISSING)
+    {
+        daemon.log_error(&format!("web marker: {error}"));
+    }
     if let Err(error) = server.run(shutdown_signal()).await {
         daemon.log_error(&format!("server: {error}"));
     }

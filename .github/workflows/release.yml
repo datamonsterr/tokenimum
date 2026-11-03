@@ -66,12 +66,12 @@ jobs:
           export RUSTFLAGS="--remap-path-prefix=$HOME/.cargo=/cargo --remap-path-prefix=$GITHUB_WORKSPACE=/workspace"
           for build in first second; do
             if [[ "$RUNNER_OS" == Linux ]]; then
-              CARGO_TARGET_DIR="$RUNNER_TEMP/$build" cargo zigbuild --release --locked --target "$TARGET" -p tkm-cli -p tkm-hook -p tkmd
+              CARGO_TARGET_DIR="$RUNNER_TEMP/$build" cargo zigbuild --release --locked --target "$TARGET" -p tkm-cli -p tkm-hook -p tkmd --features tkmd/web
             else
               # Mach-O output can include build paths. Use the same clean target path
               # for both builds and retain only the resulting executables.
               rm -rf "$RUNNER_TEMP/mac-target"
-              CARGO_TARGET_DIR="$RUNNER_TEMP/mac-target" cargo build --release --locked --target "$TARGET" -p tkm-cli -p tkm-hook -p tkmd
+              CARGO_TARGET_DIR="$RUNNER_TEMP/mac-target" cargo build --release --locked --target "$TARGET" -p tkm-cli -p tkm-hook -p tkmd --features tkmd/web
               mkdir -p "$RUNNER_TEMP/$build/$TARGET/release"
               cp "$RUNNER_TEMP/mac-target/$TARGET/release/"{tkm,tkm-hook,tkmd} "$RUNNER_TEMP/$build/$TARGET/release/"
             fi

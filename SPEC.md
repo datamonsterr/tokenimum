@@ -603,7 +603,10 @@ Port TE `toolprune` and `plugin/denylist.py`:
 delegated run in the last 30 days keeps pruning at `propose` at most.
 
 **Skill usage evidence** (report only): count skills loaded (injected or listed) vs invoked, per
-repository. Export as `tkm skills --json`; the otherskill adapter offers it as a ranking prior.
+repository. For Claude Code, "listed" is the transcript's `skill_listing` attachment names and
+"injected" includes otherskill's `UserPromptSubmit` selection recorded as a
+`hook_additional_context` attachment. "Invoked" is a `Skill` call, or a `Read` of a listed skill's
+`SKILL.md`. `tkm skills` prints one stderr line per skipped session with the reason. Export as `tkm skills --json`; the otherskill adapter offers it as a ranking prior.
 tokenimum never deletes or hides a skill.
 
 ### 7.4 Loop guard
@@ -963,7 +966,10 @@ read-only against the DB when the daemon is down (no live feed).
 
 ### 11.4 Optional web dashboard: `tkm dashboard`
 
-- Feature `web` in `tkm-ui` (axum); off by default (`ui.web.enabled = false`).
+- Feature `web` in `tkm-ui` (axum); release `tkmd` binaries build with it, and the runtime stays
+  off by default (`ui.web.enabled = false`). A `tkmd` built without the feature writes
+  `{"unavailable":"feature"}` to its discovery file when the flag is on, so `tkm dashboard` names
+  only what is missing: the flag, a daemon restart, or the build feature.
 - Binds `127.0.0.1` only; a random access token per daemon start, printed by `tkm dashboard`
   (opens the browser with the token in the URL fragment).
 - Same panes as `tkm top`, plus history charts and fact/prune evidence pages.

@@ -239,3 +239,59 @@ fn tool_use_result_without_text_falls_back_to_result_content() {
     assert_eq!(session.turns[0].calls[0].exit_code, Some(0));
     fs::remove_file(path).unwrap();
 }
+
+#[test]
+fn skill_listing_and_otherskill_context_load_skills_and_metadata_records_are_known() {
+    let src = source(
+        concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../fixtures/claude/sessions/skills-otherskill.jsonl"
+        )
+        .into(),
+    );
+    let session = ClaudeAdapter::new().read_session(&src).unwrap();
+    assert_eq!(session.skipped_records, 0, "every recorded type is known");
+    assert!(!session.partial);
+    let mut skills: Vec<_> = session
+        .tool_catalog
+        .iter()
+        .filter(|tool| tool.kind == ToolKind::Skill)
+        .map(|tool| tool.name.as_str())
+        .collect();
+    skills.sort_unstable();
+    assert_eq!(
+        skills,
+        [
+            "caveman:caveman",
+            "receiving-code-review",
+            "superorchestrator-cli",
+            "tkm-harness-hooks",
+            "use-otherskill",
+            "verification-before-completion",
+        ]
+    );
+    let tools: Vec<_> = session.turns[0]
+        .calls
+        .iter()
+        .map(|call| call.tool.as_str())
+        .collect();
+    assert_eq!(tools, ["Skill", "Read"]);
+}
+
+#[test]
+fn skill_listing_deltas_add_names_once() {
+    let log = temporary_log(concat!(
+        r#"{"type":"attachment","attachment":{"type":"skill_listing","isInitial":true,"names":["a","b"]}}"#,
+        "\n",
+        r#"{"type":"attachment","attachment":{"type":"skill_listing","isInitial":false,"names":["b","c"]}}"#,
+        "\n"
+    ));
+    let session = ClaudeAdapter::new().read_session(&source(log)).unwrap();
+    let names: Vec<_> = session
+        .tool_catalog
+        .iter()
+        .filter(|tool| tool.kind == ToolKind::Skill)
+        .map(|tool| tool.name.as_str())
+        .collect();
+    assert_eq!(names, ["a", "b", "c"]);
+}

@@ -290,8 +290,15 @@ For model-assisted decisions, run interactive setup and choose a key source, the
 Model actions require their configured evidence and calibration gates; adding a key does not
 immediately authorize every action. Neither `observe` nor `balanced` is an offline preset.
 
-The web dashboard requires a daemon built with the optional `web` feature. The preview
-archives use the default build, so use `tkm top` with those binaries.
+Release archives build `tkmd` with the `web` feature, but the dashboard stays off until you
+enable it, then restart the daemon so it reads the new value:
+
+```bash
+tkm config set ui.web.enabled true
+```
+
+`tkm dashboard` then prints the local URL. If it still fails, its message names the one thing
+that is missing: the configuration flag, a daemon restart, or a `tkmd` built without `web`.
 
 ### Configuration and local data
 

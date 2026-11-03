@@ -13,6 +13,8 @@ pub fn run_top(paths: &Paths) -> Result<(), crate::Error> {
 pub struct DashboardArgs {
     /// Print the URL without opening a browser.
     pub no_open: bool,
+    /// Whether the effective configuration sets `ui.web.enabled = true`.
+    pub web_enabled: bool,
 }
 
 trait DashboardProcess {
@@ -21,10 +23,16 @@ trait DashboardProcess {
     fn open_browser(&self, url: &str) -> std::io::Result<()>;
 }
 
+/// Contents of `tkmd-web.json`: a live dashboard, or why the daemon cannot serve one.
 #[derive(serde::Deserialize)]
-struct Discovery {
-    url: String,
-    token: String,
+#[serde(untagged)]
+enum Discovery {
+    Live { url: String, token: String },
+    Unavailable { unavailable: String },
+}
+
+fn unavailable(message: &str) -> crate::Error {
+    std::io::Error::new(std::io::ErrorKind::NotFound, message.to_owned()).into()
 }
 
 struct SystemProcess;
@@ -81,6 +89,11 @@ fn run_dashboard_with(
     process: &impl DashboardProcess,
     timeout: std::time::Duration,
 ) -> Result<String, crate::Error> {
+    if !args.web_enabled {
+        return Err(unavailable(
+            "Dashboard disabled: run `tkm config set ui.web.enabled true`",
+        ));
+    }
     let file = paths.socket.with_file_name("tkmd-web.json");
     if !process.socket_live(&paths.socket) {
         match std::fs::remove_file(&file) {
@@ -99,13 +112,27 @@ fn run_dashboard_with(
         }
         let remaining = timeout.saturating_sub(started.elapsed());
         if remaining.is_zero() {
-            return Err(std::io::Error::new(std::io::ErrorKind::NotFound,
-                "Dashboard unavailable: run `tkm config set ui.web.enabled true` and build tkmd with the `web` feature").into());
+            return Err(unavailable(
+                "Dashboard unavailable: tkmd has not started it; restart tkmd to apply `ui.web.enabled`, or check the daemon log",
+            ));
         }
         std::thread::sleep(remaining.min(std::time::Duration::from_millis(50)));
     };
-    let discovery: Discovery = serde_json::from_slice(&contents)?;
-    let url = format!("{}#token={}", discovery.url, discovery.token);
+    let url = match serde_json::from_slice(&contents)? {
+        Discovery::Live { url, token } => format!("{url}#token={token}"),
+        Discovery::Unavailable {
+            unavailable: reason,
+        } if reason == "feature" => {
+            return Err(unavailable(
+                "Dashboard unavailable: this tkmd was built without the `web` feature; install a release build or rebuild with `cargo build -p tkmd --features web`",
+            ));
+        }
+        Discovery::Unavailable {
+            unavailable: reason,
+        } => {
+            return Err(unavailable(&format!("Dashboard unavailable: {reason}")));
+        }
+    };
     if !args.no_open
         && let Err(error) = process.open_browser(&url)
     {
@@ -157,7 +184,10 @@ mod dashboard_tests {
         };
         let url = run_dashboard_with(
             &paths(dir.path()),
-            &DashboardArgs { no_open: false },
+            &DashboardArgs {
+                no_open: false,
+                web_enabled: true,
+            },
             &fake,
             Duration::ZERO,
         )?;
@@ -166,21 +196,62 @@ mod dashboard_tests {
         assert!(!fake.spawned.get());
         Ok(())
     }
-    #[test]
-    fn missing_discovery_file_has_enable_hint() -> Result<(), Box<dyn std::error::Error>> {
-        let dir = tempfile::tempdir()?;
-        let fake = Fake::default();
+    fn dashboard_error(
+        dir: &Path,
+        fake: &Fake,
+        web_enabled: bool,
+    ) -> Result<String, Box<dyn std::error::Error>> {
         let Err(error) = run_dashboard_with(
-            &paths(dir.path()),
-            &DashboardArgs { no_open: true },
-            &fake,
+            &paths(dir),
+            &DashboardArgs {
+                no_open: true,
+                web_enabled,
+            },
+            fake,
             Duration::ZERO,
         ) else {
-            panic!("missing dashboard should fail")
+            return Err("missing dashboard should fail".into());
         };
-        let error = error.to_string();
-        assert!(error.contains("tkm config set ui.web.enabled true"));
-        assert!(error.contains("web"));
+        Ok(error.to_string())
+    }
+    #[test]
+    fn disabled_config_names_only_the_flag() -> Result<(), Box<dyn std::error::Error>> {
+        let dir = tempfile::tempdir()?;
+        let fake = Fake::default();
+        let error = dashboard_error(dir.path(), &fake, false)?;
+        assert!(
+            error.contains("tkm config set ui.web.enabled true"),
+            "{error}"
+        );
+        assert!(!error.contains("feature"), "{error}");
+        assert!(!fake.spawned.get());
+        Ok(())
+    }
+    #[test]
+    fn build_without_web_feature_names_only_the_feature() -> Result<(), Box<dyn std::error::Error>>
+    {
+        let dir = tempfile::tempdir()?;
+        std::fs::write(
+            dir.path().join("tkmd-web.json"),
+            r#"{"unavailable":"feature"}"#,
+        )?;
+        let fake = Fake {
+            live: true,
+            ..Fake::default()
+        };
+        let error = dashboard_error(dir.path(), &fake, true)?;
+        assert!(error.contains("`web` feature"), "{error}");
+        assert!(!error.contains("tkm config set"), "{error}");
+        Ok(())
+    }
+    #[test]
+    fn enabled_without_discovery_asks_for_restart() -> Result<(), Box<dyn std::error::Error>> {
+        let dir = tempfile::tempdir()?;
+        let fake = Fake::default();
+        let error = dashboard_error(dir.path(), &fake, true)?;
+        assert!(error.contains("restart tkmd"), "{error}");
+        assert!(!error.contains("tkm config set"), "{error}");
+        assert!(!error.contains("feature"), "{error}");
         assert!(fake.spawned.get());
         Ok(())
     }
@@ -197,7 +268,10 @@ mod dashboard_tests {
         };
         run_dashboard_with(
             &paths(dir.path()),
-            &DashboardArgs { no_open: true },
+            &DashboardArgs {
+                no_open: true,
+                web_enabled: true,
+            },
             &fake,
             Duration::ZERO,
         )?;
