@@ -49,6 +49,20 @@ pub fn run(ctx: &mut Ctx<'_>, args: &DoctorArgs) -> Result<ExitCode, CliError> {
             failed = true;
         }
     }
+    if tkm_config::paths::ServiceMarker::read(&ctx.paths.data_dir).is_some()
+        && ctx.paths.daemon_running().unwrap_or(false)
+        && system::unit_active(ctx)? == Some(false)
+    {
+        line(
+            ctx,
+            "warn",
+            "service",
+            &format!(
+                "{} is not active but a tkmd is running (unmanaged); stop it with `pkill -x tkmd`, then start the unit",
+                system::unit_name()
+            ),
+        )?;
+    }
     line(
         ctx,
         if ctx.paths.socket.exists() {

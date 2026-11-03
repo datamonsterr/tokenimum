@@ -27,7 +27,9 @@ use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
-use tkm_config::paths::{DAEMON_LOCK_NAME, ERRORS_LOG_MAX_BYTES, ErrorLog, lock_held};
+use tkm_config::paths::{
+    DAEMON_LOCK_NAME, ERRORS_LOG_MAX_BYTES, ErrorLog, ServiceMarker, current_uid, lock_held,
+};
 use tkm_proto::{
     CONNECT_TIMEOUT, EventKind, Host, MAX_REPLY_FRAME, MAX_REQUEST_FRAME, PROTOCOL_VERSION, Reply,
     Request,
@@ -297,6 +299,44 @@ pub fn spawn_daemon_detached(socket_path: &Path) -> bool {
         .process_group(0)
         .spawn();
     result.is_ok()
+}
+
+/// Ask the service manager to start the unit without waiting for it.
+///
+/// Returns `true` when the request was issued or throttled by the 2 s spawn marker, and `false`
+/// when the manager cannot be run, so the caller may fall back to a detached daemon. Executables
+/// are found through `PATH`.
+#[must_use]
+fn start_service(socket_path: &Path, marker: &ServiceMarker) -> bool {
+    use std::process::{Command, Stdio};
+
+    let mut command = match marker.manager.as_str() {
+        "systemd" => {
+            let mut command = Command::new("systemctl");
+            command.args(["--user", "start", "--no-block", &marker.unit]);
+            command
+        }
+        "launchd" => {
+            let Some(uid) = current_uid() else {
+                return false;
+            };
+            let mut command = Command::new("launchctl");
+            command.args(["kickstart", &format!("gui/{uid}/{}", marker.unit)]);
+            command
+        }
+        _ => return false,
+    };
+    if spawn_recently(socket_path) {
+        return true;
+    }
+    touch_spawn_marker(socket_path);
+    // `--no-block` and `kickstart` return quickly; the hook never waits for them.
+    command
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .is_ok()
 }
 
 // ── Connect and exchange ──────────────────────────────────────────────────────
@@ -709,6 +749,27 @@ fn write_outcome(
                             socket_path.display()
                         ),
                     );
+                }
+            } else if let Some(marker) = log_path
+                .and_then(Path::parent)
+                .and_then(ServiceMarker::read)
+            {
+                // The installer registered a service manager: ask it to start the unit rather
+                // than racing it with an unmanaged daemon that would hold the lock.
+                if let Some(log) = log_path {
+                    append_error_log(
+                        log,
+                        &format!(
+                            "daemon not running; starting {} through {}",
+                            marker.unit, marker.manager
+                        ),
+                    );
+                }
+                if !start_service(socket_path, &marker) {
+                    if let Some(log) = log_path {
+                        append_error_log(log, "service manager unavailable; spawning");
+                    }
+                    let _ = spawn_daemon_detached(socket_path);
                 }
             } else {
                 if let Some(log) = log_path {

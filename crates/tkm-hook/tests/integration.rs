@@ -364,6 +364,60 @@ fn daemon_holding_the_data_dir_lock_is_never_respawned() {
     assert!(log.contains("not reachable"), "{log}");
 }
 
+#[test]
+fn registered_service_is_started_through_the_manager_not_spawned() {
+    let tmp = TempDir::new().unwrap();
+    let data = tmp.path().join("data").join("tokenimum");
+    std::fs::create_dir_all(&data).unwrap();
+    std::fs::write(
+        data.join("service.json"),
+        r#"{"manager":"systemd","unit":"tkmd.service"}"#,
+    )
+    .unwrap();
+    let bin = tmp.path().join("bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    let calls = tmp.path().join("systemctl.calls");
+    let started = tmp.path().join("daemon_started");
+    let fake = |name: &str, body: String| {
+        use std::os::unix::fs::PermissionsExt;
+        let path = bin.join(name);
+        std::fs::write(&path, body).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        path
+    };
+    fake(
+        "systemctl",
+        format!("#!/bin/sh\necho \"$@\" >> '{}'\n", calls.display()),
+    );
+    let tkmd = fake(
+        "tkmd",
+        format!("#!/bin/sh\n/usr/bin/touch '{}'\n", started.display()),
+    );
+
+    let mut cmd = hook_cmd(&tmp, "claude", "tool_done");
+    cmd.env("PATH", &bin).env("TKM_TKMD_BIN", &tkmd);
+    cmd.stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null());
+    let begin = Instant::now();
+    let output = cmd.output().unwrap();
+    assert!(begin.elapsed() < Duration::from_millis(500));
+    assert_eq!(output.status.code(), Some(0));
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "");
+    for _ in 0..20 {
+        if calls.exists() {
+            break;
+        }
+        thread::sleep(Duration::from_millis(50));
+    }
+    let recorded = std::fs::read_to_string(&calls).unwrap();
+    assert_eq!(recorded.trim(), "--user start --no-block tkmd.service");
+    thread::sleep(Duration::from_millis(200));
+    assert!(!started.exists(), "hook must not spawn a detached tkmd");
+    let log = std::fs::read_to_string(errors_log_path(&tmp)).unwrap();
+    assert!(log.contains("starting tkmd.service"), "{log}");
+}
+
 // ── Test: socket slow / read timeout ─────────────────────────────────────────
 
 #[test]

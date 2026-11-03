@@ -151,7 +151,7 @@ fn daemon_down_hooks_fail_open_after_init() {
             lines
                 .last()
                 .unwrap()
-                .contains("tkm-hook: daemon not running; spawning")
+                .contains("tkm-hook: daemon not running; starting tkmd.service through systemd")
         );
         assert!(!fixture.init.paths.socket.exists());
     }

@@ -228,6 +228,9 @@ async fn main() -> ExitCode {
                 Ok(web) => Some(web),
                 Err(error) => {
                     daemon.log_error(&format!("web startup: {error}"));
+                    if let Err(marker) = tkmd::dashboard::write_bind_failure(&paths, bind, &error) {
+                        daemon.log_error(&format!("web marker: {marker}"));
+                    }
                     None
                 }
             }

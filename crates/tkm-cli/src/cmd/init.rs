@@ -212,6 +212,16 @@ pub fn run(ctx: &mut Ctx<'_>, args: &InitArgs) -> Result<ExitCode, CliError> {
                 if let Err(error) = system::start(ctx, &mut service) {
                     writeln!(ctx.stderr, "warn service: {error}")?;
                 }
+                if service.manager_registered {
+                    // `tkm-hook` starts the unit through its manager instead of spawning tkmd.
+                    let marker = tkm_config::paths::ServiceMarker {
+                        manager: system::manager_name().into(),
+                        unit: system::unit_name().into(),
+                    };
+                    if let Err(error) = marker.write(&ctx.paths.data_dir) {
+                        writeln!(ctx.stderr, "warn service marker: {error}")?;
+                    }
+                }
                 for mut record in existing {
                     let mut metadata = state::metadata(&record)?;
                     metadata.service = Some(service.clone());

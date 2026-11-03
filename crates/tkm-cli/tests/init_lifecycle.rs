@@ -298,3 +298,27 @@ fn init_honors_host_switch_and_integration_level() {
     assert!(plan.contains("codex: fold-only"), "{plan}");
     assert!(plan.contains("pi: shim"), "{plan}");
 }
+
+#[test]
+fn init_records_the_service_manager_for_the_hook_and_uninstall_clears_it() {
+    let fixture = Fixture::new();
+    fixture.init();
+    let marker = fixture.paths.data_dir.join("service.json");
+    let value: serde_json::Value =
+        serde_json::from_slice(&fs::read(&marker).expect("service marker")).unwrap();
+    assert_eq!(value["unit"], "tkmd.service");
+    assert_eq!(value["manager"], "systemd");
+    let output = fixture.run(&["uninstall"]);
+    assert!(output.status.success(), "{output:?}");
+    assert!(!marker.exists());
+}
+
+#[test]
+fn init_without_a_service_manager_records_no_marker() {
+    let fixture = Fixture::new();
+    fs::remove_file(fixture.bin.join("systemctl")).unwrap();
+    fs::remove_file(fixture.bin.join("launchctl")).unwrap();
+    let output = fixture.run(&["init", "--yes", "--only", "claude"]);
+    assert!(output.status.success(), "{output:?}");
+    assert!(!fixture.paths.data_dir.join("service.json").exists());
+}

@@ -30,6 +30,51 @@ pub(crate) fn daemon_executable(ctx: &Ctx<'_>) -> Option<PathBuf> {
         })
 }
 
+/// Service manager name recorded in the marker `tkm-hook` reads.
+pub(crate) const fn manager_name() -> &'static str {
+    if cfg!(target_os = "macos") {
+        "launchd"
+    } else {
+        "systemd"
+    }
+}
+
+/// Unit name (systemd) or label (launchd) of the daemon service.
+pub(crate) const fn unit_name() -> &'static str {
+    if cfg!(target_os = "macos") {
+        "com.tokenimum.tkmd"
+    } else {
+        "tkmd.service"
+    }
+}
+
+/// Whether the manager reports the daemon unit active; `None` when the manager is not on PATH.
+pub(crate) fn unit_active(ctx: &Ctx<'_>) -> Result<Option<bool>, CliError> {
+    let manager = if cfg!(target_os = "macos") {
+        "launchctl"
+    } else {
+        "systemctl"
+    };
+    let Some(program) = state::executable(ctx, manager) else {
+        return Ok(None);
+    };
+    let active = if cfg!(target_os = "macos") {
+        bounded_status(ctx, &program, &["list".as_ref(), unit_name().as_ref()])?
+    } else {
+        bounded_status(
+            ctx,
+            &program,
+            &[
+                "--user".as_ref(),
+                "is-active".as_ref(),
+                "--quiet".as_ref(),
+                unit_name().as_ref(),
+            ],
+        )?
+    };
+    Ok(Some(active))
+}
+
 pub(crate) fn plan(ctx: &Ctx<'_>) -> Result<ServiceRecord, CliError> {
     let home = state::home(ctx)?;
     let root = if cfg!(target_os = "macos") {

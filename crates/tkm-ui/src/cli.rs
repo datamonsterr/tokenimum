@@ -27,8 +27,17 @@ trait DashboardProcess {
 #[derive(serde::Deserialize)]
 #[serde(untagged)]
 enum Discovery {
-    Live { url: String, token: String },
-    Unavailable { unavailable: String },
+    Live {
+        url: String,
+        token: String,
+    },
+    Unavailable {
+        unavailable: String,
+        #[serde(default)]
+        bind: Option<String>,
+        #[serde(default)]
+        error: Option<String>,
+    },
 }
 
 fn unavailable(message: &str) -> crate::Error {
@@ -122,6 +131,7 @@ fn run_dashboard_with(
         Discovery::Live { url, token } => format!("{url}#token={token}"),
         Discovery::Unavailable {
             unavailable: reason,
+            ..
         } if reason == "feature" => {
             return Err(unavailable(
                 "Dashboard unavailable: this tkmd was built without the `web` feature; install a release build or rebuild with `cargo build -p tkmd --features web`",
@@ -129,6 +139,18 @@ fn run_dashboard_with(
         }
         Discovery::Unavailable {
             unavailable: reason,
+            bind,
+            error,
+        } if reason == "bind" => {
+            let bind = bind.as_deref().unwrap_or("the configured address");
+            let error = error.as_deref().unwrap_or("bind failed");
+            return Err(unavailable(&format!(
+                "Dashboard unavailable: could not bind {bind} ({error}); run `tkm config set ui.web.bind 127.0.0.1:<port>` with a free port, then restart tkmd"
+            )));
+        }
+        Discovery::Unavailable {
+            unavailable: reason,
+            ..
         } => {
             return Err(unavailable(&format!("Dashboard unavailable: {reason}")));
         }
@@ -242,6 +264,27 @@ mod dashboard_tests {
         let error = dashboard_error(dir.path(), &fake, true)?;
         assert!(error.contains("`web` feature"), "{error}");
         assert!(!error.contains("tkm config set"), "{error}");
+        Ok(())
+    }
+    #[test]
+    fn bind_failure_names_the_address_and_the_fix() -> Result<(), Box<dyn std::error::Error>> {
+        let dir = tempfile::tempdir()?;
+        std::fs::write(
+            dir.path().join("tkmd-web.json"),
+            r#"{"unavailable":"bind","bind":"127.0.0.1:7878","error":"Address already in use"}"#,
+        )?;
+        let fake = Fake {
+            live: true,
+            ..Fake::default()
+        };
+        let error = dashboard_error(dir.path(), &fake, true)?;
+        assert!(error.contains("127.0.0.1:7878"), "{error}");
+        assert!(error.contains("Address already in use"), "{error}");
+        assert!(
+            error.contains("tkm config set ui.web.bind 127.0.0.1:<port>"),
+            "{error}"
+        );
+        assert!(error.contains("restart tkmd"), "{error}");
         Ok(())
     }
     #[test]
