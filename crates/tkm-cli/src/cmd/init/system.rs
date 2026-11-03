@@ -241,20 +241,13 @@ pub(crate) fn stop(ctx: &mut Ctx<'_>, service: &ServiceRecord) -> Result<(), Cli
 }
 
 fn daemon_lock_held(ctx: &Ctx<'_>) -> Result<bool, CliError> {
-    // tkmd holds this advisory lock for its entire hook-server lifetime (ADR 0015).
-    let file = match fs::OpenOptions::new()
-        .write(true)
-        .open(ctx.paths.socket.with_file_name("tkmd.lock"))
-    {
-        Ok(file) => file,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(false),
-        Err(error) => return Err(error.into()),
-    };
-    match file.try_lock() {
-        Ok(()) => Ok(false), // Dropping the file releases our temporary lock.
-        Err(fs::TryLockError::WouldBlock) => Ok(true),
-        Err(fs::TryLockError::Error(error)) => Err(error.into()),
-    }
+    // tkmd holds the data-directory lock for its entire lifetime; daemons built before that
+    // change held the same lock beside the socket.
+    let legacy = ctx
+        .paths
+        .socket
+        .with_file_name(tkm_config::paths::DAEMON_LOCK_NAME);
+    Ok(ctx.paths.daemon_running()? || tkm_config::paths::lock_held(&legacy)?)
 }
 
 #[cfg(unix)]

@@ -322,6 +322,48 @@ fn test_daemon_down_noop_and_spawn() {
     );
 }
 
+#[test]
+fn daemon_holding_the_data_dir_lock_is_never_respawned() {
+    let tmp = TempDir::new().unwrap();
+    // A daemon serving this data directory on another runtime directory's socket.
+    let paths = tkm_config::paths::Paths::from_dirs(
+        &tmp.path().join("home"),
+        Some(&tmp.path().join("data")),
+        None,
+        Some(&tmp.path().join("elsewhere")),
+    );
+    let _held = paths.lock_daemon().unwrap().expect("lock is free");
+    let marker = tmp.path().join("daemon_started");
+    let script_path = tmp.path().join("tkmd");
+    std::fs::write(
+        &script_path,
+        format!("#!/bin/sh\ntouch '{}'\n", marker.display()),
+    )
+    .unwrap();
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&script_path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+
+    let mut cmd = hook_cmd(&tmp, "claude", "tool_done");
+    cmd.env("TKM_TKMD_BIN", &script_path);
+    cmd.stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null());
+    let output = cmd.output().unwrap();
+
+    assert_eq!(output.status.code(), Some(0));
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "");
+    thread::sleep(Duration::from_millis(300));
+    assert!(
+        !marker.exists(),
+        "hook must not spawn while the lock is held"
+    );
+    let log = std::fs::read_to_string(errors_log_path(&tmp)).unwrap();
+    assert!(!log.contains("not running; spawning"), "{log}");
+    assert!(log.contains("not reachable"), "{log}");
+}
+
 // ── Test: socket slow / read timeout ─────────────────────────────────────────
 
 #[test]
@@ -573,12 +615,17 @@ fn test_bad_args_missing_all_args_logs_error_and_prints_empty() {
 
 #[test]
 fn test_no_home_paths_none_no_tmp_claude() {
+    let tmp = TempDir::new().unwrap();
     let mut cmd = Command::new(BIN);
     cmd.arg("--host")
         .arg("claude")
         .arg("--event")
         .arg("tool_done");
     cmd.env_clear();
+    // Without HOME the passwd entry still yields a home; keep the real install out of reach.
+    cmd.env("XDG_DATA_HOME", tmp.path().join("data"));
+    cmd.env("XDG_RUNTIME_DIR", tmp.path().join("run"));
+    cmd.env("TKM_TKMD_BIN", tmp.path().join("no-tkmd"));
     cmd.stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
@@ -590,12 +637,17 @@ fn test_no_home_paths_none_no_tmp_claude() {
 
 #[test]
 fn test_no_home_paths_none_no_tmp_cursor() {
+    let tmp = TempDir::new().unwrap();
     let mut cmd = Command::new(BIN);
     cmd.arg("--host")
         .arg("cursor")
         .arg("--event")
         .arg("tool_done");
     cmd.env_clear();
+    // Without HOME the passwd entry still yields a home; keep the real install out of reach.
+    cmd.env("XDG_DATA_HOME", tmp.path().join("data"));
+    cmd.env("XDG_RUNTIME_DIR", tmp.path().join("run"));
+    cmd.env("TKM_TKMD_BIN", tmp.path().join("no-tkmd"));
     cmd.stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());

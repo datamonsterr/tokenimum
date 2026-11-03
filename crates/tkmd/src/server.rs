@@ -49,19 +49,23 @@ pub enum Bind {
 impl Server {
     /// Binds the socket from [`tkm_config::paths::Paths`].
     ///
-    /// Takes an exclusive advisory lock next to the socket first, so two daemons cannot race to
-    /// replace each other's socket. A socket file is removed only after the lock is held and a
-    /// connect probe is refused: a live daemon's socket is never taken over.
+    /// Takes the exclusive daemon lock in the data directory first
+    /// ([`tkm_config::paths::Paths::lock_daemon`]), so two daemons cannot share one database even
+    /// when their environments resolve different runtime directories.
     pub async fn bind(daemon: Arc<Daemon>) -> io::Result<Bind> {
+        match daemon.paths().lock_daemon()? {
+            Some(lock) => Self::bind_locked(daemon, lock).await,
+            None => Ok(Bind::AlreadyRunning),
+        }
+    }
+
+    /// Binds the socket while `lock` holds the daemon lock for the process lifetime.
+    ///
+    /// A socket file is removed only after a connect probe is refused: a live daemon's socket is
+    /// never taken over.
+    pub async fn bind_locked(daemon: Arc<Daemon>, lock: File) -> io::Result<Bind> {
         let paths = daemon.paths();
         paths.ensure_runtime_dir()?;
-        let lock_path = paths.socket.with_file_name("tkmd.lock");
-        let lock = File::create(&lock_path)?;
-        match lock.try_lock() {
-            Ok(()) => {}
-            Err(std::fs::TryLockError::WouldBlock) => return Ok(Bind::AlreadyRunning),
-            Err(std::fs::TryLockError::Error(error)) => return Err(error),
-        }
         if paths.socket.exists() {
             let probe = tokio::time::timeout(PROBE_LIMIT, UnixStream::connect(&paths.socket)).await;
             if probe_is_refused(&probe) {
