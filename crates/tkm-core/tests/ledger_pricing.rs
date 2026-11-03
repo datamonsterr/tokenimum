@@ -263,3 +263,13 @@ cache_write = 2.5
     .unwrap();
     assert_eq!(ambiguous.price_usage("m-1", usage), None);
 }
+
+#[test]
+fn session_without_tokens_costs_nothing_without_a_model() {
+    let table = PriceTable::parse("[models.\"a/m\"]\ninput=1.0\noutput=1.0").unwrap();
+    let empty = Session::new(Host::Claude);
+    assert_eq!(table.price_session(&empty, None), Some(0.0));
+    let mut used = Session::new(Host::Claude);
+    used.usage.input = 5;
+    assert_eq!(table.price_session(&used, None), None);
+}

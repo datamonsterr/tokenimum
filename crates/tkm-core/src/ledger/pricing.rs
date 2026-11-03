@@ -120,6 +120,10 @@ impl PriceTable {
     #[must_use]
     pub fn price_session(&self, session: &Session, model: Option<&str>) -> Option<f64> {
         if session.usage_by_model.is_empty() {
+            if session.usage == Usage::default() {
+                // No tokens were billed, so no model is needed to know the cost.
+                return Some(0.0);
+            }
             self.price_usage(model?, session.usage)
         } else {
             let attributed = session
