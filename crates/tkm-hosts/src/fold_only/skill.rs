@@ -124,9 +124,41 @@ fn checked_path(
     Ok(target)
 }
 
+fn shared_home_skill_directory(path: &Path, agent_home: &Path) -> bool {
+    let Some(skill_directory) = path.parent() else {
+        return false;
+    };
+    let Some(skills_root) = skill_directory.parent() else {
+        return false;
+    };
+    path.starts_with(agent_home)
+        && !fs::symlink_metadata(path).is_ok_and(|meta| meta.file_type().is_symlink())
+        && !fs::symlink_metadata(skill_directory).is_ok_and(|meta| meta.file_type().is_symlink())
+        && fs::symlink_metadata(skills_root).is_ok_and(|meta| meta.file_type().is_symlink())
+        && fs::canonicalize(skill_directory).is_ok_and(|parent| {
+            fs::canonicalize(agent_home).is_ok_and(|home| !parent.starts_with(home))
+        })
+}
+
+fn shared_directory_report(path: &Path, agent_home: &Path, dry_run: bool) -> InstallReport {
+    InstallReport {
+        changed_files: Vec::new(),
+        instructions: vec![format!(
+            "skill directory {} is a symlink outside {}; skipped (shared skill directory is managed by its own home)",
+            path.parent()
+                .and_then(Path::parent)
+                .unwrap_or(path)
+                .display(),
+            agent_home.display()
+        )],
+        dry_run,
+    }
+}
+
 /// Installs the skill under `agent_home`, or under `repo_root` for project scope.
 ///
-/// Atomic, idempotent and honours `dry_run`. Refuses a symlinked `SKILL.md`, a
+/// Atomic, idempotent and honours `dry_run`. Skips a home-scope skill directory
+/// symlink that resolves outside `agent_home`. Refuses a symlinked `SKILL.md`, a
 /// symlink that leaves the scope root, an existing `SKILL.md` that tokenimum did
 /// not generate, and (project scope) a git-tracked file unless `allow_tracked`.
 /// Hosts without a documented directory return a report-only result.
@@ -142,12 +174,18 @@ pub fn install(
     let Some(path) = skill_path(host, agent_home, repo_root) else {
         return Ok(report_only(host, opts.dry_run));
     };
-    let target = checked_path(
+    let target = match checked_path(
         &path,
         repo_root.unwrap_or(agent_home),
         repo_root.is_some(),
         opts,
-    )?;
+    ) {
+        Ok(target) => target,
+        Err(_) if repo_root.is_none() && shared_home_skill_directory(&path, agent_home) => {
+            return Ok(shared_directory_report(&path, agent_home, opts.dry_run));
+        }
+        Err(error) => return Err(error),
+    };
     let content = render(host);
     retry_update(read_optional(&target)?, |snapshot| {
         let mut report = InstallReport {
@@ -176,7 +214,8 @@ pub fn install(
 
 /// Removes the skill file when it carries the tokenimum marker, plus its
 /// `tokenimum` directory when that becomes empty. A file without the marker is
-/// left alone; a symlinked or (project scope) tracked file is refused.
+/// left alone. Home-scope skill directories that symlink outside `agent_home`
+/// are skipped; a symlinked file or (project scope) tracked file is refused.
 ///
 /// # Errors
 /// [`AdapterError::UnsafeTarget`] for refusals, otherwise git or I/O failures.
@@ -193,12 +232,18 @@ pub fn uninstall(
     let Some(path) = skill_path(host, agent_home, repo_root) else {
         return Ok(report);
     };
-    let target = checked_path(
+    let target = match checked_path(
         &path,
         repo_root.unwrap_or(agent_home),
         repo_root.is_some(),
         opts,
-    )?;
+    ) {
+        Ok(target) => target,
+        Err(_) if repo_root.is_none() && shared_home_skill_directory(&path, agent_home) => {
+            return Ok(shared_directory_report(&path, agent_home, opts.dry_run));
+        }
+        Err(error) => return Err(error),
+    };
     retry_update(read_optional(&target)?, |snapshot| {
         if !snapshot.is_some_and(owned) {
             return Ok(Update::Done(()));

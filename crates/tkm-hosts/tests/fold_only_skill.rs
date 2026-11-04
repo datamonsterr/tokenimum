@@ -230,6 +230,37 @@ fn install_refuses_symlink_out_of_agent_home() {
     assert_eq!(fs::read_dir(&outside.0).unwrap().count(), 0);
 }
 
+#[cfg(unix)]
+#[test]
+fn shared_home_skills_directory_is_skipped_by_install_and_uninstall() {
+    let home_a = Scratch::new();
+    let home_b = Scratch::new();
+    let skills_a = home_a.0.join("skills");
+    fs::create_dir_all(&skills_a).unwrap();
+    std::os::unix::fs::symlink(&skills_a, home_b.0.join("skills")).unwrap();
+
+    let installed = install(Host::Codex, &home_a.0, None, SkillOptions::default()).unwrap();
+    assert_eq!(
+        installed.changed_files,
+        vec![skills_a.join("tokenimum/SKILL.md")]
+    );
+
+    let report = install(Host::Codex, &home_b.0, None, SkillOptions::default()).unwrap();
+    assert_eq!(report.changed_files, Vec::<PathBuf>::new());
+    assert_eq!(report.instructions.len(), 1);
+    assert!(report.instructions[0].contains("skill directory"));
+    assert!(report.instructions[0].contains("shared skill directory is managed by its own home"));
+    assert!(skills_a.join("tokenimum/SKILL.md").is_file());
+    assert_eq!(
+        fs::read_to_string(skills_a.join("tokenimum/SKILL.md")).unwrap(),
+        render(Host::Codex)
+    );
+
+    let removed = uninstall(Host::Codex, &home_b.0, None, SkillOptions::default()).unwrap();
+    assert_eq!(removed.changed_files, Vec::<PathBuf>::new());
+    assert!(skills_a.join("tokenimum/SKILL.md").is_file());
+}
+
 #[test]
 fn uninstall_removes_owned_file_and_empty_directory() {
     let scratch = Scratch::new();
