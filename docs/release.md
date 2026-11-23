@@ -4,7 +4,7 @@
 
 The release workflow builds `tkm`, `tkm-hook`, and `tkmd` as statically linked musl binaries for
 `x86_64-unknown-linux-musl` and `aarch64-unknown-linux-musl`. It uses pinned `cargo-zigbuild`
-and Zig versions so both architectures can be built on the `namespace-profile-linux-xl` runner.
+and Zig versions so both architectures can be built on GitHub-hosted Linux runners.
 macOS builds use native GitHub-hosted macOS runners for `aarch64-apple-darwin` and
 `x86_64-apple-darwin`. SPEC 13.2 requires static Linux musl releases.
 
@@ -17,11 +17,11 @@ archive and a JSON `cargo-geiger` report.
 
 Tag pushes matching `v*` build and publish when the repository variable
 `RELEASE_PUBLISH_ENABLED` is set to `true`. A manual `workflow_dispatch` defaults to dry-run and
-builds the same artifacts; publishing requires dispatching on a version tag, setting `dry_run` to
-false, and enabling the repository variable. Pull requests that change the workflow or Rust build
-inputs run the build and geiger jobs without publishing. Linux build and geiger work uses
-`namespace-profile-linux-xl`, macOS builds use GitHub-hosted runners; artifact download and release publication use
-`namespace-profile-datamonster01`.
+builds the full matrix on a version tag and Linux x86_64 on a branch. To publish manually, dispatch
+on a version tag, set `dry_run` to false, and enable the repository variable. Main pushes that
+change release inputs build the full matrix. Pull requests that change the workflow or `Cargo.lock`
+build Linux x86_64 only. Linux jobs use `ubuntu-latest` by default, with `CI_HEAVY_RUNNER` available
+for a standard GitHub-hosted runner override.
 
 ## Install from a GitHub Release
 
@@ -35,8 +35,7 @@ install in their default WSL2 distribution, with authentication configured withi
 
 The installer is fetched from the default branch, independently of the binary release tag.
 `--version TAG` selects an explicit release, including previews; `latest` selects the latest
-stable release only. The initial preview must use `--version v0.0.0`. The repository is private:
-anonymous curl URLs work only after it becomes public. For authenticated curl, the installer
+stable release only. The initial preview must use `--version v0.0.0`. Public release assets can be downloaded with curl. For authenticated curl, the installer
 resolves asset API URLs using `GH_TOKEN` (or `GITHUB_TOKEN`) and `jq`; GitHub CLI handles its own
 authentication. `--archive /path/to/tokenimum-TARGET.tar.gz` uses local files without network.
 
@@ -46,8 +45,8 @@ integrations, and check health. Moving an existing installation to another bin d
 not part of this procedure: recorded service and hook paths must continue to resolve.
 
 The CI `installer` job covers offline failure cases and real downloads of the initial preview
-using both authentication methods. These small shell/Python checks use the existing
-`namespace-profile-datamonster01` runner; Rust build and benchmark jobs retain their existing profiles.
+using both authentication methods. The installer platform matrix runs on Linux for PRs and
+includes macOS and Windows on main and version tags.
 
 ## Initial preview
 
@@ -58,8 +57,7 @@ The release notes record artifact provenance and the matching source tree. Publi
 reused the successful release-build artifacts; automatic publication remains controlled by
 `RELEASE_PUBLISH_ENABLED`.
 
-The repository is private. For authenticated downloads and tested installation commands,
-see the [README installation section](../README.md#installation).
+For installation commands, see the [README installation section](../README.md#installation).
 
 ## Benchmark workflow
 
@@ -70,7 +68,7 @@ Native hook round trips use a recorded tool event against a running daemon with 
 disabled, with 20 warmups and 500 measured runs. The gate requires p50 below 3 ms and p99
 below 10 ms. Empty-stdin hook startup is measured separately.
 
-Main pushes save immutable baseline caches. Pull requests read the latest available baseline
+Main pushes save immutable baseline caches. Pull requests labeled `bench` read the latest available baseline
 and fail above 120% of the corresponding result, in addition to absolute performance budgets.
 A missing or evicted baseline skips the relative comparison until main establishes another.
 

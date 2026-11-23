@@ -191,15 +191,17 @@ cp "$TEST_ASSETS/"* "$directory/"
 
     def test_update_replaces_a_running_executable(self):
         self.destination.mkdir()
-        shutil.copyfile('/bin/sleep', self.destination / 'tkm')
-        (self.destination / 'tkm').chmod(0o755)
-        process = subprocess.Popen([self.destination / 'tkm', '60'])
-        try:
-            self.assert_installed(self.run_installer('--method', 'curl'))
-            self.assertIsNone(process.poll())
-        finally:
-            process.terminate()
-            process.wait(timeout=5)
+        running = self.destination / 'tkm'
+        shutil.copyfile('/bin/bash', running)
+        running.chmod(0o755)
+        # Keep the copied binary running in a builtin with no child process.
+        with subprocess.Popen([running, '-c', 'read -r line'], stdin=subprocess.PIPE) as process:
+            try:
+                self.assert_installed(self.run_installer('--method', 'curl'))
+                self.assertIsNone(process.poll())
+            finally:
+                process.terminate()
+                process.wait(timeout=5)
 
     def test_local_release_archive_needs_no_download(self):
         archive = next(self.assets.glob('*.tar.gz'))

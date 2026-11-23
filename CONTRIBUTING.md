@@ -22,8 +22,9 @@ branches as described in the delivery rules.
 
 ## Workflows
 
-The daily audit also runs when `Cargo.lock` changes. Benchmarks run on main, pull requests, and
-manual dispatch; the 20% PR regression gate needs a successful main run to establish a cached
-baseline. The release build runs on version tags, manual dispatch, and PRs that change release build
-inputs. Automatic publication requires the `RELEASE_PUBLISH_ENABLED` repository variable.
+The daily audit also runs when `Cargo.lock` changes. Benchmarks run on main, on pull requests with
+the `bench` label, and on manual dispatch. The 20% PR regression gate needs a successful main run
+to establish a cached baseline. Release builds run on version tags, relevant main pushes, manual
+dispatch, and PRs that change `release.yml` or `Cargo.lock`. Automatic publication requires the
+`RELEASE_PUBLISH_ENABLED` repository variable.
 See [release workflow details](docs/release.md).

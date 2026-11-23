@@ -88,7 +88,7 @@ For each intact top-level session, oldest first:
 ## Where it runs
 
 The replay calls live models, so it never runs in PR CI. It is a `workflow_dispatch` job on
-`namespace-profile-linux-xl`, which takes:
+a GitHub-hosted Linux runner with a 45-minute time limit. The inputs are
 
 - the transcript bundle as an encrypted artifact or secret store,
 - the Claude credentials as a repository secret,
@@ -215,7 +215,6 @@ Python 3.12+, Git and GnuPG are needed.
    | `REPLAY_BUNDLE_KEY` | The GnuPG symmetric passphrase used above. |
    | `ANTHROPIC_API_KEY` **or** `CLAUDE_CODE_OAUTH_TOKEN` | Claude Code headless authentication; configure one, not both. The official CI documentation supports both names. |
    | `OPENROUTER_API_KEY` | tokenimum's decision-model credentials; decision usage and USD cost count against the treatment arm. |
-   | `REPLAY_REPO_TOKEN` | Read-only repository access token for the private `datamonsterr/taphoa-mini` clone. The token is not persisted into Git config. |
 
    Current official headless/CLI/authentication and Action references, with verification date,
    are recorded in [docs/verified/e10-replay-benchmark.md](../verified/e10-replay-benchmark.md).

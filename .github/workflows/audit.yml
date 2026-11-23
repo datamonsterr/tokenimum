@@ -14,7 +14,8 @@ permissions:
   issues: write
 jobs:
   audit:
-    runs-on: namespace-profile-datamonster01
+    runs-on: ${{ vars.CI_HEAVY_RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
       - uses: rustsec/audit-check@v2.0.0

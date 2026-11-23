@@ -4,7 +4,7 @@ Status: Accepted
 
 SPEC section 14 requires absolute budgets and a 20% regression gate for every
 path. The following inventory maps each budget to its absolute check and regression
-series. All jobs run on `namespace-profile-linux-xl`.
+series. Jobs now default to standard GitHub-hosted Linux runners.
 
 | Path | SPEC budget | Measurement and absolute check | CI job and relative comparison |
 |---|---|---|---|
