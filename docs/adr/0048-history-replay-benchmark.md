@@ -57,7 +57,7 @@ different question. Historical transcripts contain private material and live rep
   because the current ledger exposes only total decision overhead tokens. The ordinary `tkm
   export` gains repository-scoped activity counts: actual `loop.redirect` events and sessions
   with completed folds. All private measurements remain outside the checkout.
-- Run only through `workflow_dispatch` on `namespace-profile-linux-xl`, with the full-run guard
+- Run only through `workflow_dispatch` on a GitHub-hosted Linux runner, with the full-run guard
   in both workflow and CLI. Build the encrypted bundle only when the user invokes the builder.
   Download and decrypt into private runner storage. The sole artifact is aggregate Markdown:
   token classes, priced totals, model rows, size buckets, outcome counts and noise floor. Never

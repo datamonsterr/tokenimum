@@ -83,7 +83,7 @@ curl -fsSL https://raw.githubusercontent.com/datamonsterr/tokenimum/main/install
 irm https://raw.githubusercontent.com/datamonsterr/tokenimum/main/install.ps1 | iex
 ```
 
-The repository is currently private; use the authenticated commands below. The existing `v0.0.0`
+The existing `v0.0.0`
 preview contains Linux assets only. macOS assets require a new release.
 
 ### Platform support
@@ -96,7 +96,7 @@ preview contains Linux assets only. macOS assets require a new release.
 | Windows with WSL2, x86_64 or ARM64 | PowerShell installer | Install and run your coding agent inside the same WSL2 distribution |
 | Native Windows, 32-bit Linux, other architectures | No release archive | Use a supported Linux environment |
 
-### Quick install (current private repository)
+### Install with GitHub CLI
 
 Install the [GitHub CLI](https://cli.github.com/) and run `gh auth login` once with an account
 that has repository access. Then run in Bash:
@@ -135,7 +135,7 @@ Then [initialize tokenimum in your project](#use-it-in-a-project).
 
 ### Install with curl
 
-For a **public** repository, the equivalent command is:
+To install the preview with curl, run
 
 ```bash
 set -o pipefail
@@ -143,8 +143,7 @@ curl -fsSL https://raw.githubusercontent.com/datamonsterr/tokenimum/main/install
   bash -s -- --method curl --version v0.0.0
 ```
 
-Anonymous curl downloads return 404 while this repository is private. To use curl now, install
-`jq` and export `GH_TOKEN` with read access to this repository, then use the authenticated API:
+To use the authenticated API, install `jq` and export `GH_TOKEN` with read access to this repository.
 
 ```bash
 set -o pipefail
@@ -162,7 +161,7 @@ You can also download and inspect [install.sh](install.sh) before running `bash 
 ### Install from release assets (manual or offline)
 
 Download the matching archive **and** its adjacent `.sha256` file from
-[Releases](https://github.com/datamonsterr/tokenimum/releases) while signed in. You can copy
+[Releases](https://github.com/datamonsterr/tokenimum/releases) and copy
 these files to another machine with the same OS and architecture; the destination needs no network.
 
 | Platform | Archive |
@@ -336,7 +335,7 @@ See `tkm uninstall --help` to limit removal to one host.
 ## Benchmarks
 
 The [main-branch benchmark run from October 30, 2026](https://github.com/datamonsterr/tokenimum/actions/runs/41000421547)
-measured the following at commit `16ca349` on the `namespace-profile-linux-xl` CI runner:
+measured the following at commit `16ca349` on the former Namespace Linux XL runner:
 
 | Measurement | Result | Method |
 | --- | --- | --- |

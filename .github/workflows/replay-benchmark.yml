@@ -20,8 +20,8 @@ concurrency:
   cancel-in-progress: false
 jobs:
   replay:
-    runs-on: namespace-profile-linux-xl
-    timeout-minutes: 4320
+    runs-on: ${{ vars.CI_HEAVY_RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 45
     defaults:
       run:
         shell: bash
@@ -45,7 +45,6 @@ jobs:
           ref: main
           fetch-depth: 0
           path: taphoa-baseline
-          token: ${{ secrets.REPLAY_REPO_TOKEN }}
           persist-credentials: false
       - name: Build benchmark binary and tokenimum hooks (CI only)
         run: cargo build --release --locked -p tkm-cli -p tkm-hook -p tkmd

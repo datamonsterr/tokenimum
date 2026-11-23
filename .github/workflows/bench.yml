@@ -3,9 +3,13 @@ on:
   push:
     branches: [main]
   pull_request:
+    types: [opened, synchronize, reopened, labeled]
   workflow_dispatch:
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: >-
+    bench-${{ github.ref }}-${{
+      github.event.action == 'labeled' && github.event.label.name != 'bench' && github.run_id || 'active'
+    }}
   cancel-in-progress: true
 permissions:
   contents: read
@@ -13,7 +17,12 @@ env:
   CARGO_TERM_COLOR: always
 jobs:
   bench:
-    runs-on: namespace-profile-linux-xl
+    if: >-
+      github.event_name != 'pull_request' ||
+      (contains(github.event.pull_request.labels.*.name, 'bench') &&
+       (github.event.action != 'labeled' || github.event.label.name == 'bench'))
+    runs-on: ${{ vars.CI_HEAVY_RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v7
       - run: rustup show
@@ -211,7 +220,12 @@ jobs:
           path: benchmark-data
           key: benchmark-v1-${{ github.run_id }}-${{ github.run_attempt }}
   idle-memory:
-    runs-on: namespace-profile-linux-xl
+    if: >-
+      github.event_name != 'pull_request' ||
+      (contains(github.event.pull_request.labels.*.name, 'bench') &&
+       (github.event.action != 'labeled' || github.event.label.name == 'bench'))
+    runs-on: ${{ vars.CI_HEAVY_RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v7
       - run: rustup show
